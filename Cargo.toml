@@ -2,6 +2,6 @@
 members = [
     "apps/desktop/src-tauri",
     "apps/web/server",
-    "crates/*",
+    "crates/domain",
 ]
 resolver = "2"
