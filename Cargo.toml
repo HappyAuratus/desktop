@@ -21,6 +21,7 @@ edition = "2024"
 # Internal
 ora-application = { path = "crates/application" }
 ora-contracts = { path = "crates/contracts" }
+ora-db = { path = "crates/db" }
 ora-domain = { path = "crates/domain" }
 ora-logging = { path = "crates/logging" }
 

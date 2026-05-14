@@ -4,6 +4,7 @@ mod config;
 mod error;
 mod handlers;
 mod routes;
+mod service;
 
 use crate::bootstrap::build_app_state;
 use crate::config::RuntimeConfig;
@@ -17,7 +18,7 @@ use tokio::net::TcpListener;
 async fn main() -> Result<(), WebBootstrapError> {
     let runtime_config = RuntimeConfig::from_env()?;
     let _logging_guard = initialize_logging(runtime_config.logging())?;
-    let app_state = build_app_state();
+    let app_state = build_app_state(&runtime_config)?;
     let router = build_router(app_state.clone());
     let listener = bind_listener(&runtime_config).await?;
 

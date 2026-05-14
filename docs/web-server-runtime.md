@@ -6,7 +6,15 @@
 
 - It boots shared structured logging through `ora-logging`.
 - It exposes health endpoints for process liveness and runtime readiness.
-- It serves the first HTTP-backed `project` CRUD slice by delegating to `ora-application`.
+- It serves persisted HTTP CRUD routes for `project`, `task`, `worktree`, and `session` by delegating to `ora-application`.
+
+## Database Configuration
+
+The web server reads its SQLite database path from:
+
+- `ORA_DB_PATH`: file-backed SQLite database path. Default: `./ora.sqlite3`
+
+Startup bootstraps the database through `ora-db`, applies the active migration catalog, and constructs the shared repository pool before the runtime is marked ready.
 
 ## Bind Configuration
 
@@ -26,21 +34,37 @@ Invalid host or port values fail startup during bootstrap.
 
 `/health/ready` remains unavailable until the runtime finishes constructing its application state.
 
-## Project HTTP API
+## HTTP API
 
-The first server slice exposes project CRUD routes:
+The persisted runtime exposes CRUD routes for all core models:
 
 - `POST /api/projects`
 - `GET /api/projects`
 - `GET /api/projects/{project_id}`
 - `PUT /api/projects/{project_id}`
 - `DELETE /api/projects/{project_id}`
+- `POST /api/tasks`
+- `GET /api/tasks`
+- `GET /api/tasks/{task_id}`
+- `PUT /api/tasks/{task_id}`
+- `DELETE /api/tasks/{task_id}`
+- `POST /api/worktrees`
+- `GET /api/worktrees`
+- `GET /api/worktrees/{worktree_id}`
+- `PUT /api/worktrees/{worktree_id}`
+- `DELETE /api/worktrees/{worktree_id}`
+- `POST /api/sessions`
+- `GET /api/sessions`
+- `GET /api/sessions/{session_id}`
+- `PUT /api/sessions/{session_id}`
+- `DELETE /api/sessions/{session_id}`
 
 Request and response payloads use `ora-contracts` DTO shapes, so transport behavior stays aligned with the shared application contract.
 
-## Current Storage Behavior
+## Storage Behavior
 
-The current runtime uses an in-memory bootstrap repository.
+The current runtime uses a file-backed SQLite database bootstrapped through `ora-db`.
 
-- Data is not persisted across process restarts.
-- The module boundaries are intentionally shaped so a future database-backed composition root can replace the bootstrap store without changing the HTTP route surface.
+- Data persists across process restarts as long as the same `ORA_DB_PATH` is reused.
+- Readiness depends on successful database bootstrap and repository-pool construction.
+- Application-layer failures still map into the shared structured HTTP error envelope across all four route families.

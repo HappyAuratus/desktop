@@ -31,8 +31,12 @@ pub enum WebBootstrapError {
         #[source]
         source: std::num::ParseIntError,
     },
+    #[error("ORA_DB_PATH must not be empty")]
+    InvalidDatabasePathEmpty,
     #[error("ORA_LOG_MAX_DAYS must be greater than zero")]
     InvalidLogMaxDaysZero,
+    #[error("failed to bootstrap SQLite database")]
+    DatabaseBootstrap(#[source] ora_db::DatabaseError),
     #[error(transparent)]
     LoggingInit(#[from] ora_logging::LoggingInitError),
     #[error("failed to bind HTTP listener")]

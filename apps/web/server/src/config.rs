@@ -3,7 +3,9 @@ use ora_logging::{FileLoggingConfig, LogLevel, LogOutput, LoggingConfig, Rotatio
 use std::env;
 use std::net::{IpAddr, SocketAddr};
 use std::num::NonZeroUsize;
+use std::path::{Path, PathBuf};
 
+const DEFAULT_DATABASE_PATH: &str = "./ora.sqlite3";
 const DEFAULT_HOST: &str = "0.0.0.0";
 const DEFAULT_PORT: u16 = 32578;
 const DEFAULT_LOG_LEVEL: &str = "info";
@@ -13,6 +15,7 @@ const DEFAULT_LOG_MAX_DAYS: &str = "3";
 
 /// Groups the runtime configuration required to bootstrap the web server process.
 pub struct RuntimeConfig {
+    database: DatabaseConfig,
     server: ServerConfig,
     logging: LoggingConfig,
 }
@@ -21,6 +24,11 @@ impl RuntimeConfig {
     /// Loads the runtime configuration from the environment-backed server contract.
     pub fn from_env() -> Result<Self, WebBootstrapError> {
         Self::from_reader(|key| env::var(key).ok())
+    }
+
+    /// Returns the database configuration used by the runtime bootstrap.
+    pub fn database(&self) -> &DatabaseConfig {
+        &self.database
     }
 
     /// Returns the server bind configuration used by the runtime.
@@ -38,8 +46,37 @@ impl RuntimeConfig {
         mut read_variable: impl FnMut(&str) -> Option<String>,
     ) -> Result<Self, WebBootstrapError> {
         Ok(Self {
+            database: DatabaseConfig::from_reader(&mut read_variable)?,
             server: ServerConfig::from_reader(&mut read_variable)?,
             logging: read_logging_config(&mut read_variable)?,
+        })
+    }
+}
+
+/// Describes the file-backed SQLite database location used by the web runtime.
+pub struct DatabaseConfig {
+    path: PathBuf,
+}
+
+impl DatabaseConfig {
+    /// Returns the configured SQLite database path.
+    pub fn path(&self) -> &Path {
+        self.path.as_path()
+    }
+
+    /// Loads the database path from a caller-provided variable reader for testability.
+    fn from_reader(
+        mut read_variable: impl FnMut(&str) -> Option<String>,
+    ) -> Result<Self, WebBootstrapError> {
+        let raw_path =
+            read_variable("ORA_DB_PATH").unwrap_or_else(|| DEFAULT_DATABASE_PATH.to_string());
+
+        if raw_path.trim().is_empty() {
+            return Err(WebBootstrapError::InvalidDatabasePathEmpty);
+        }
+
+        Ok(Self {
+            path: PathBuf::from(raw_path),
         })
     }
 }
@@ -150,9 +187,39 @@ fn read_log_max_days(
 
 #[cfg(test)]
 mod tests {
-    use super::{DEFAULT_HOST, DEFAULT_PORT, RuntimeConfig, ServerConfig};
+    use super::{
+        DEFAULT_DATABASE_PATH, DEFAULT_HOST, DEFAULT_PORT, DatabaseConfig, RuntimeConfig,
+        ServerConfig,
+    };
     use crate::error::WebBootstrapError;
     use pretty_assertions::assert_eq;
+
+    /// Verifies the database configuration defaults to the documented SQLite path.
+    #[test]
+    fn loads_default_database_configuration() {
+        let config = DatabaseConfig::from_reader(|_| None).unwrap_or_else(|error| {
+            panic!("expected default database configuration to load: {error}");
+        });
+
+        assert_eq!(
+            config.path().to_string_lossy().to_string(),
+            DEFAULT_DATABASE_PATH.to_string()
+        );
+    }
+
+    /// Verifies empty database paths fail with a typed bootstrap error.
+    #[test]
+    fn rejects_empty_database_path_configuration() {
+        let error = match DatabaseConfig::from_reader(|key| match key {
+            "ORA_DB_PATH" => Some("   ".to_string()),
+            _ => None,
+        }) {
+            Ok(_) => panic!("expected empty database path configuration to fail"),
+            Err(error) => error,
+        };
+
+        assert!(matches!(error, WebBootstrapError::InvalidDatabasePathEmpty));
+    }
 
     /// Verifies the server configuration defaults to the documented host and port.
     #[test]
@@ -190,6 +257,10 @@ mod tests {
             panic!("expected runtime configuration to load: {error}");
         });
 
+        assert_eq!(
+            config.database().path().to_string_lossy().to_string(),
+            DEFAULT_DATABASE_PATH.to_string()
+        );
         assert_eq!(
             config.server().socket_address().to_string(),
             format!("{DEFAULT_HOST}:{DEFAULT_PORT}")
