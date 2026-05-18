@@ -7,7 +7,6 @@ export type CreateTaskRequest = {
   projectId: string;
   title: string;
   status: TaskStatus;
-  worktreeId: string | null;
 };
 
 /**

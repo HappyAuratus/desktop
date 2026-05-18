@@ -101,9 +101,12 @@ mod tests {
     async fn serves_unready_status_before_bootstrap_completion() {
         let temp_dir = TempDir::new().unwrap();
         let database_path = temp_dir.path().join("ready.sqlite3");
-        let app_state = build_app_state_for_database(&database_path).unwrap_or_else(|error| {
-            panic!("expected application state bootstrap to succeed: {error}");
-        });
+        let project_root = initialize_git_repository(temp_dir.path().join("repo"));
+        let work_dir = temp_dir.path().join("worktrees");
+        let app_state = build_app_state_for_database(&database_path, &project_root, &work_dir)
+            .unwrap_or_else(|error| {
+                panic!("expected application state bootstrap to succeed: {error}");
+            });
         let app = build_router(app_state);
         let response = match app
             .oneshot(
@@ -202,6 +205,7 @@ mod tests {
             Err(error) => panic!("request failed: {error}"),
         };
         let delete_response = match app
+            .clone()
             .oneshot(
                 Request::builder()
                     .method(Method::DELETE)
@@ -538,7 +542,6 @@ mod tests {
                             "projectId": "project-1",
                             "title": "Ship handlers",
                             "status": "todo",
-                            "worktreeId": null,
                         })
                         .to_string(),
                     ))
@@ -553,6 +556,10 @@ mod tests {
         let task_id = match created_task["id"].as_str() {
             Some(task_id) => task_id.to_string(),
             None => panic!("response did not include a task id"),
+        };
+        let worktree_id = match created_task["worktreeId"].as_str() {
+            Some(worktree_id) => worktree_id.to_string(),
+            None => panic!("response did not include a task worktree id"),
         };
         let list_response = match app
             .clone()
@@ -594,7 +601,7 @@ mod tests {
                             "projectId": "project-2",
                             "title": "Ship updated handlers",
                             "status": "doing",
-                            "worktreeId": "worktree-1",
+                            "worktreeId": worktree_id,
                         })
                         .to_string(),
                     ))
@@ -606,10 +613,24 @@ mod tests {
             Err(error) => panic!("request failed: {error}"),
         };
         let delete_response = match app
+            .clone()
             .oneshot(
                 Request::builder()
                     .method(Method::DELETE)
                     .uri(format!("/api/tasks/{task_id}"))
+                    .body(Body::empty())
+                    .unwrap_or_else(|error| panic!("failed to build request: {error}")),
+            )
+            .await
+        {
+            Ok(response) => response,
+            Err(error) => panic!("request failed: {error}"),
+        };
+        let deleted_worktree_response = match app
+            .oneshot(
+                Request::builder()
+                    .method(Method::GET)
+                    .uri(format!("/api/worktrees/{worktree_id}"))
                     .body(Body::empty())
                     .unwrap_or_else(|error| panic!("failed to build request: {error}")),
             )
@@ -626,7 +647,7 @@ mod tests {
                 "projectId": "project-1",
                 "title": "Ship handlers",
                 "status": "todo",
-                "worktreeId": null,
+                "worktreeId": worktree_id,
             })
         );
         assert_eq!(
@@ -638,7 +659,7 @@ mod tests {
                         "projectId": "project-1",
                         "title": "Ship handlers",
                         "status": "todo",
-                        "worktreeId": null,
+                        "worktreeId": worktree_id,
                     },
                 ],
             })
@@ -651,7 +672,7 @@ mod tests {
                     "projectId": "project-1",
                     "title": "Ship handlers",
                     "status": "todo",
-                    "worktreeId": null,
+                    "worktreeId": worktree_id,
                 },
             })
         );
@@ -663,7 +684,7 @@ mod tests {
                     "projectId": "project-2",
                     "title": "Ship updated handlers",
                     "status": "doing",
-                    "worktreeId": "worktree-1",
+                    "worktreeId": worktree_id,
                 },
             })
         );
@@ -673,6 +694,7 @@ mod tests {
                 "taskId": task_id,
             })
         );
+        assert_eq!(deleted_worktree_response.status(), StatusCode::NOT_FOUND);
     }
 
     /// Verifies the router supports worktree CRUD routes end to end.
@@ -979,9 +1001,12 @@ mod tests {
     fn test_router() -> (TempDir, std::path::PathBuf, axum::Router) {
         let temp_dir = TempDir::new().unwrap();
         let database_path = temp_dir.path().join("routes.sqlite3");
-        let app_state = build_app_state_for_database(&database_path).unwrap_or_else(|error| {
-            panic!("expected application state bootstrap to succeed: {error}");
-        });
+        let project_root = initialize_git_repository(temp_dir.path().join("repo"));
+        let work_dir = temp_dir.path().join("worktrees");
+        let app_state = build_app_state_for_database(&database_path, &project_root, &work_dir)
+            .unwrap_or_else(|error| {
+                panic!("expected application state bootstrap to succeed: {error}");
+            });
         app_state.mark_ready();
 
         (temp_dir, database_path, build_router(app_state))
@@ -1031,6 +1056,39 @@ mod tests {
             });
 
         SqliteProjectWorkContextRepository::new(pool)
+    }
+
+    /// Initializes one real Git repository with an initial commit so task worktree routes can exercise linked worktree creation.
+    fn initialize_git_repository(repository_root: std::path::PathBuf) -> std::path::PathBuf {
+        std::fs::create_dir_all(&repository_root)
+            .unwrap_or_else(|error| panic!("failed to create repository root: {error}"));
+        run_git(&repository_root, &["init", "--initial-branch=main"]);
+        run_git(&repository_root, &["config", "user.name", "Ora Tests"]);
+        run_git(
+            &repository_root,
+            &["config", "user.email", "ora-tests@example.com"],
+        );
+        std::fs::write(repository_root.join("README.md"), "ora test repo\n")
+            .unwrap_or_else(|error| panic!("failed to write repository file: {error}"));
+        run_git(&repository_root, &["add", "README.md"]);
+        run_git(&repository_root, &["commit", "-m", "initial"]);
+
+        repository_root
+    }
+
+    /// Runs one Git command for route-test repository setup and fails loudly when bootstrap assumptions are broken.
+    fn run_git(repository_root: &Path, args: &[&str]) {
+        let status = std::process::Command::new("git")
+            .current_dir(repository_root)
+            .args(args)
+            .status()
+            .unwrap_or_else(|error| panic!("failed to start git {:?}: {error}", args));
+
+        assert!(
+            status.success(),
+            "git {:?} failed with status {status}",
+            args
+        );
     }
 
     /// Decodes one JSON response body so route tests can compare the full payload.

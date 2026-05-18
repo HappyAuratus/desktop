@@ -23,7 +23,12 @@ pub fn build_app_state(runtime_config: &RuntimeConfig) -> Result<AppState, WebBo
     Ok(AppState::new(
         Arc::new(ProjectApi::new(pool.clone(), clock)),
         Arc::new(ProjectWorkContextApi::new(pool.clone(), clock)),
-        Arc::new(TaskApi::new(pool.clone(), clock)),
+        Arc::new(TaskApi::new(
+            pool.clone(),
+            runtime_config.project().path().to_path_buf(),
+            runtime_config.project().work_dir().to_path_buf(),
+            clock,
+        )),
         Arc::new(WorktreeApi::new(pool.clone(), clock)),
         Arc::new(SessionApi::new(pool, clock)),
     ))
@@ -33,6 +38,8 @@ pub fn build_app_state(runtime_config: &RuntimeConfig) -> Result<AppState, WebBo
 #[cfg(test)]
 pub(crate) fn build_app_state_for_database(
     database_path: &Path,
+    project_root: &Path,
+    work_dir: &Path,
 ) -> Result<AppState, WebBootstrapError> {
     let pool = build_repository_pool(database_path)?;
     let clock = SystemClock;
@@ -40,7 +47,12 @@ pub(crate) fn build_app_state_for_database(
     Ok(AppState::new(
         Arc::new(ProjectApi::new(pool.clone(), clock)),
         Arc::new(ProjectWorkContextApi::new(pool.clone(), clock)),
-        Arc::new(TaskApi::new(pool.clone(), clock)),
+        Arc::new(TaskApi::new(
+            pool.clone(),
+            project_root.to_path_buf(),
+            work_dir.to_path_buf(),
+            clock,
+        )),
         Arc::new(WorktreeApi::new(pool.clone(), clock)),
         Arc::new(SessionApi::new(pool, clock)),
     ))
@@ -172,7 +184,11 @@ mod tests {
     #[test]
     fn rejects_directory_database_paths() {
         let temp_dir = TempDir::new().unwrap();
-        let error = match build_app_state_for_database(temp_dir.path()) {
+        let error = match build_app_state_for_database(
+            temp_dir.path(),
+            temp_dir.path(),
+            &temp_dir.path().join("worktrees"),
+        ) {
             Ok(_) => panic!("expected directory database path to fail"),
             Err(error) => error,
         };
@@ -297,10 +313,16 @@ mod tests {
         project_name: &str,
         project_path: &str,
     ) -> RuntimeConfig {
+        let work_dir = database_path
+            .parent()
+            .unwrap_or_else(|| Path::new("."))
+            .join("worktrees");
+
         RuntimeConfig::from_reader(|key| match key {
             "ORA_DB_PATH" => Some(database_path.to_string_lossy().to_string()),
             "ORA_PROJECT_NAME" => Some(project_name.to_string()),
             "ORA_PROJECT_PATH" => Some(project_path.to_string()),
+            "ORA_WORK_DIR" => Some(work_dir.to_string_lossy().to_string()),
             _ => None,
         })
         .unwrap_or_else(|error| panic!("expected runtime configuration to load: {error}"))

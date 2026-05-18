@@ -1,5 +1,9 @@
 use crate::task::mapper::map_task;
-use crate::task::ports::{TaskIdGenerator, TaskRepository};
+use crate::task::ports::{
+    CreateTaskWorktreeRequest, DeleteTaskWorktreeRequest, TaskIdGenerator, TaskRepository,
+    TaskWorktreeDeletionMode, TaskWorktreeProvisioner,
+};
+use crate::worktree::{WorktreeIdGenerator, WorktreeRepository};
 use crate::{ApplicationError, Clock};
 use ora_contracts::{
     CreateTaskRequest, CreateTaskResponse, DeleteTaskRequest, DeleteTaskResponse, GetTaskRequest,
@@ -7,58 +11,213 @@ use ora_contracts::{
     UpdateTaskResponse,
 };
 use ora_domain::{
-    AuditFields, ProjectId, Task as DomainTask, TaskId, TaskStatus as DomainTaskStatus, WorktreeId,
+    AuditFields, ProjectId, Task as DomainTask, TaskId, TaskStatus as DomainTaskStatus,
+    Worktree as DomainWorktree, WorktreeActivity as DomainWorktreeActivity, WorktreeId,
 };
 use ora_logging::{ora_error, ora_info};
+use std::path::{Path, PathBuf};
 
 /// Handles task creation without depending on transport-specific concerns.
-pub struct CreateTaskHandler<Repository, IdGenerator, ClockSource> {
-    repository: Repository,
-    id_generator: IdGenerator,
+pub struct CreateTaskHandler<
+    TaskRepositoryPort,
+    WorktreeRepositoryPort,
+    TaskIdGeneratorPort,
+    WorktreeIdGeneratorPort,
+    WorktreeProvisioner,
+    ClockSource,
+> {
+    task_repository: TaskRepositoryPort,
+    worktree_repository: WorktreeRepositoryPort,
+    task_id_generator: TaskIdGeneratorPort,
+    worktree_id_generator: WorktreeIdGeneratorPort,
+    worktree_provisioner: WorktreeProvisioner,
+    work_dir: PathBuf,
     clock: ClockSource,
 }
 
-impl<Repository, IdGenerator, ClockSource> CreateTaskHandler<Repository, IdGenerator, ClockSource> {
-    pub fn new(repository: Repository, id_generator: IdGenerator, clock: ClockSource) -> Self {
+impl<
+    TaskRepositoryPort,
+    WorktreeRepositoryPort,
+    TaskIdGeneratorPort,
+    WorktreeIdGeneratorPort,
+    WorktreeProvisioner,
+    ClockSource,
+>
+    CreateTaskHandler<
+        TaskRepositoryPort,
+        WorktreeRepositoryPort,
+        TaskIdGeneratorPort,
+        WorktreeIdGeneratorPort,
+        WorktreeProvisioner,
+        ClockSource,
+    >
+{
+    pub fn new(
+        task_repository: TaskRepositoryPort,
+        worktree_repository: WorktreeRepositoryPort,
+        task_id_generator: TaskIdGeneratorPort,
+        worktree_id_generator: WorktreeIdGeneratorPort,
+        worktree_provisioner: WorktreeProvisioner,
+        work_dir: PathBuf,
+        clock: ClockSource,
+    ) -> Self {
         Self {
-            repository,
-            id_generator,
+            task_repository,
+            worktree_repository,
+            task_id_generator,
+            worktree_id_generator,
+            worktree_provisioner,
+            work_dir,
             clock,
         }
     }
 }
 
-impl<Repository, IdGenerator, ClockSource> CreateTaskHandler<Repository, IdGenerator, ClockSource>
+impl<
+    TaskRepositoryPort,
+    WorktreeRepositoryPort,
+    TaskIdGeneratorPort,
+    WorktreeIdGeneratorPort,
+    WorktreeProvisioner,
+    ClockSource,
+>
+    CreateTaskHandler<
+        TaskRepositoryPort,
+        WorktreeRepositoryPort,
+        TaskIdGeneratorPort,
+        WorktreeIdGeneratorPort,
+        WorktreeProvisioner,
+        ClockSource,
+    >
 where
-    Repository: TaskRepository,
-    IdGenerator: TaskIdGenerator,
+    TaskRepositoryPort: TaskRepository,
+    WorktreeRepositoryPort: WorktreeRepository,
+    TaskIdGeneratorPort: TaskIdGenerator,
+    WorktreeIdGeneratorPort: WorktreeIdGenerator,
+    WorktreeProvisioner: TaskWorktreeProvisioner,
     ClockSource: Clock,
 {
-    /// Creates a new task snapshot and returns the public response payload.
+    /// Creates a task together with its owned linked worktree and returns the public response payload.
     pub fn handle(
         &self,
         request: CreateTaskRequest,
     ) -> Result<CreateTaskResponse, ApplicationError> {
+        let task_id = self.task_id_generator.generate_task_id();
+        let branch_name = branch_name_for_task(&task_id);
+        let worktree_path = worktree_path_for_task(&self.work_dir, &task_id);
+        self.worktree_provisioner
+            .create_task_worktree(CreateTaskWorktreeRequest {
+                branch_name: branch_name.clone(),
+                worktree_path: worktree_path.clone(),
+            })
+            .map_err(|error| {
+                let error = ApplicationError::from_task_worktree_provisioner_error(error);
+                log_task_failure("create_task", Some(&task_id), &error);
+                error
+            })?;
+
         let now = self.clock.now_timestamp_millis();
+        let worktree_id = self.worktree_id_generator.generate_worktree_id();
+        let worktree = DomainWorktree::new(
+            worktree_id,
+            task_id.clone(),
+            Some(branch_name),
+            DomainWorktreeActivity::Active,
+            AuditFields::new(now, now, false),
+        );
+        let worktree = match self.worktree_repository.create_worktree(worktree) {
+            Ok(worktree) => worktree,
+            Err(error) => {
+                return Err(self.handle_create_failure_after_provisioning(
+                    "create_task",
+                    &task_id,
+                    &worktree_path,
+                    ApplicationError::from_worktree_repository_error(error),
+                ));
+            }
+        };
         let task = DomainTask::new(
-            self.id_generator.generate_task_id(),
+            task_id.clone(),
             ProjectId::new(request.project_id),
             request.title,
             map_contract_task_status(request.status),
-            request.worktree_id.map(WorktreeId::new),
+            Some(worktree.id.clone()),
             AuditFields::new(now, now, false),
         );
-        let task = self.repository.create_task(task).map_err(|error| {
-            let error = ApplicationError::from_task_repository_error(error);
-            log_task_failure("create_task", None, &error);
-            error
-        })?;
+        let task = match self.task_repository.create_task(task) {
+            Ok(task) => task,
+            Err(error) => {
+                return Err(self.handle_task_persistence_failure_after_worktree_create(
+                    &task_id,
+                    &worktree.id,
+                    &worktree_path,
+                    ApplicationError::from_task_repository_error(error),
+                ));
+            }
+        };
 
         log_task_success("create_task", Some(&task.id));
 
         Ok(CreateTaskResponse {
             task: map_task(task),
         })
+    }
+
+    /// Attempts compensating worktree cleanup after persistence fails and returns the stable application error.
+    fn handle_create_failure_after_provisioning(
+        &self,
+        operation: &'static str,
+        task_id: &TaskId,
+        worktree_path: &Path,
+        original_error: ApplicationError,
+    ) -> ApplicationError {
+        let cleanup_result =
+            self.worktree_provisioner
+                .delete_task_worktree(DeleteTaskWorktreeRequest {
+                    worktree_path: worktree_path.to_path_buf(),
+                    mode: TaskWorktreeDeletionMode::Force,
+                });
+
+        match cleanup_result {
+            Ok(()) => {
+                log_task_failure(operation, Some(task_id), &original_error);
+                original_error
+            }
+            Err(cleanup_error) => {
+                let cleanup_error =
+                    ApplicationError::from_task_worktree_provisioner_error(cleanup_error);
+                log_task_failure(operation, Some(task_id), &cleanup_error);
+                cleanup_error
+            }
+        }
+    }
+
+    /// Soft-deletes the persisted worktree row, then removes the created checkout, before returning a stable failure.
+    fn handle_task_persistence_failure_after_worktree_create(
+        &self,
+        task_id: &TaskId,
+        worktree_id: &WorktreeId,
+        worktree_path: &Path,
+        original_error: ApplicationError,
+    ) -> ApplicationError {
+        let worktree_cleanup = self
+            .worktree_repository
+            .soft_delete_worktree(worktree_id, self.clock.now_timestamp_millis())
+            .map_err(ApplicationError::from_worktree_repository_error);
+        let filesystem_cleanup = self.handle_create_failure_after_provisioning(
+            "create_task",
+            task_id,
+            worktree_path,
+            original_error,
+        );
+
+        match worktree_cleanup {
+            Ok(_) => filesystem_cleanup,
+            Err(error) => {
+                log_task_failure("create_task", Some(task_id), &error);
+                error
+            }
+        }
     }
 }
 
@@ -209,31 +368,110 @@ where
     }
 }
 
-/// Handles task deletion without exposing storage-specific soft-delete semantics.
-pub struct DeleteTaskHandler<Repository, ClockSource> {
-    repository: Repository,
+/// Handles task deletion without exposing transport-specific cleanup details.
+pub struct DeleteTaskHandler<
+    TaskRepositoryPort,
+    WorktreeRepositoryPort,
+    WorktreeProvisioner,
+    ClockSource,
+> {
+    task_repository: TaskRepositoryPort,
+    worktree_repository: WorktreeRepositoryPort,
+    worktree_provisioner: WorktreeProvisioner,
+    work_dir: PathBuf,
     clock: ClockSource,
 }
 
-impl<Repository, ClockSource> DeleteTaskHandler<Repository, ClockSource> {
-    pub fn new(repository: Repository, clock: ClockSource) -> Self {
-        Self { repository, clock }
+impl<TaskRepositoryPort, WorktreeRepositoryPort, WorktreeProvisioner, ClockSource>
+    DeleteTaskHandler<TaskRepositoryPort, WorktreeRepositoryPort, WorktreeProvisioner, ClockSource>
+{
+    pub fn new(
+        task_repository: TaskRepositoryPort,
+        worktree_repository: WorktreeRepositoryPort,
+        worktree_provisioner: WorktreeProvisioner,
+        work_dir: PathBuf,
+        clock: ClockSource,
+    ) -> Self {
+        Self {
+            task_repository,
+            worktree_repository,
+            worktree_provisioner,
+            work_dir,
+            clock,
+        }
     }
 }
 
-impl<Repository, ClockSource> DeleteTaskHandler<Repository, ClockSource>
+impl<TaskRepositoryPort, WorktreeRepositoryPort, WorktreeProvisioner, ClockSource>
+    DeleteTaskHandler<TaskRepositoryPort, WorktreeRepositoryPort, WorktreeProvisioner, ClockSource>
 where
-    Repository: TaskRepository,
+    TaskRepositoryPort: TaskRepository,
+    WorktreeRepositoryPort: WorktreeRepository,
+    WorktreeProvisioner: TaskWorktreeProvisioner,
     ClockSource: Clock,
 {
-    /// Deletes one task through a CRUD-shaped contract while letting storage soft-delete it.
+    /// Deletes one task and removes its owned linked worktree before returning the CRUD-shaped response.
     pub fn handle(
         &self,
         request: DeleteTaskRequest,
     ) -> Result<DeleteTaskResponse, ApplicationError> {
         let task_id = TaskId::new(request.task_id);
+        let existing_task = self.task_repository.find_task(&task_id).map_err(|error| {
+            let error = ApplicationError::from_task_repository_error(error);
+            log_task_failure("delete_task", Some(&task_id), &error);
+            error
+        })?;
+        let existing_task = match existing_task {
+            Some(task) => task,
+            None => {
+                let error = ApplicationError::TaskNotFound {
+                    task_id: task_id.to_string(),
+                };
+                log_task_failure("delete_task", Some(&task_id), &error);
+                return Err(error);
+            }
+        };
+        if let Some(worktree_id) = existing_task.worktree_id {
+            let existing_worktree = self
+                .worktree_repository
+                .find_worktree(&worktree_id)
+                .map_err(|error| {
+                    let error = ApplicationError::from_worktree_repository_error(error);
+                    log_task_failure("delete_task", Some(&task_id), &error);
+                    error
+                })?;
+            let existing_worktree = match existing_worktree {
+                Some(worktree) => worktree,
+                None => {
+                    let error = ApplicationError::WorktreeNotFound {
+                        worktree_id: worktree_id.to_string(),
+                    };
+                    log_task_failure("delete_task", Some(&task_id), &error);
+                    return Err(error);
+                }
+            };
+            let worktree_path = worktree_path_for_task(&self.work_dir, &task_id);
+            self.worktree_provisioner
+                .delete_task_worktree(DeleteTaskWorktreeRequest {
+                    worktree_path,
+                    mode: TaskWorktreeDeletionMode::Force,
+                })
+                .map_err(|error| {
+                    let error = ApplicationError::from_task_worktree_provisioner_error(error);
+                    log_task_failure("delete_task", Some(&task_id), &error);
+                    error
+                })?;
+            self.worktree_repository
+                .soft_delete_worktree(&existing_worktree.id, self.clock.now_timestamp_millis())
+                .map_err(|error| {
+                    let error = ApplicationError::from_worktree_repository_error(error);
+                    log_task_failure("delete_task", Some(&task_id), &error);
+                    error
+                })?;
+        }
+
         let deleted = self
-            .repository
+            .task_repository
             .soft_delete_task(&task_id, self.clock.now_timestamp_millis())
             .map_err(|error| {
                 let error = ApplicationError::from_task_repository_error(error);
@@ -294,6 +532,33 @@ fn log_task_failure(operation: &'static str, task_id: Option<&TaskId>, error: &A
                 error.message = error.to_string()
             );
         }
+        (Some(task_id), ApplicationError::TaskWorktree { .. }) => {
+            ora_error!(
+                message = "task operation failed",
+                operation,
+                task_id = task_id.to_string(),
+                error.kind = "task_worktree",
+                error.message = error.to_string()
+            );
+        }
+        (Some(task_id), ApplicationError::WorktreeNotFound { .. }) => {
+            ora_error!(
+                message = "task operation failed",
+                operation,
+                task_id = task_id.to_string(),
+                error.kind = "worktree_not_found",
+                error.message = error.to_string()
+            );
+        }
+        (Some(task_id), ApplicationError::WorktreeRepository { .. }) => {
+            ora_error!(
+                message = "task operation failed",
+                operation,
+                task_id = task_id.to_string(),
+                error.kind = "worktree_repository",
+                error.message = error.to_string()
+            );
+        }
         (None, ApplicationError::TaskRepository { .. }) => {
             ora_error!(
                 message = "task operation failed",
@@ -310,6 +575,14 @@ fn log_task_failure(operation: &'static str, task_id: Option<&TaskId>, error: &A
                 error.message = error.to_string()
             );
         }
+        (None, ApplicationError::TaskWorktree { .. }) => {
+            ora_error!(
+                message = "task operation failed",
+                operation,
+                error.kind = "task_worktree",
+                error.message = error.to_string()
+            );
+        }
         _ => {}
     }
 }
@@ -321,4 +594,17 @@ fn map_contract_task_status(status: TaskStatus) -> DomainTaskStatus {
         TaskStatus::Doing => DomainTaskStatus::Doing,
         TaskStatus::Done => DomainTaskStatus::Done,
     }
+}
+
+/// Derives the stable task branch name from the first eight characters of the generated task id.
+fn branch_name_for_task(task_id: &TaskId) -> String {
+    format!(
+        "ora/{}",
+        task_id.to_string().chars().take(8).collect::<String>()
+    )
+}
+
+/// Derives the owned linked-worktree path from the configured worktree root and full task id.
+fn worktree_path_for_task(work_dir: &Path, task_id: &TaskId) -> PathBuf {
+    work_dir.join(task_id.to_string())
 }

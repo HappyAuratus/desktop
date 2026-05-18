@@ -22,8 +22,10 @@ pub use session::{
     UuidSessionIdGenerator,
 };
 pub use task::{
-    CreateTaskHandler, DeleteTaskHandler, GetTaskHandler, ListTasksHandler, TaskIdGenerator,
-    TaskRepository, TaskRepositoryError, UpdateTaskHandler, UuidTaskIdGenerator,
+    CreateTaskHandler, CreateTaskWorktreeRequest, DeleteTaskHandler, DeleteTaskWorktreeRequest,
+    GetTaskHandler, ListTasksHandler, TaskIdGenerator, TaskRepository, TaskRepositoryError,
+    TaskWorktreeDeletionMode, TaskWorktreeProvisioner, TaskWorktreeProvisionerError,
+    UpdateTaskHandler, UuidTaskIdGenerator,
 };
 pub use worktree::{
     CreateWorktreeHandler, DeleteWorktreeHandler, GetWorktreeHandler, ListWorktreesHandler,

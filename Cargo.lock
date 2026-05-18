@@ -480,6 +480,7 @@ dependencies = [
 name = "gitlancer"
 version = "0.1.0"
 dependencies = [
+ "pretty_assertions",
  "thiserror",
 ]
 
@@ -988,6 +989,7 @@ name = "ora-web-server"
 version = "0.0.0"
 dependencies = [
  "axum",
+ "gitlancer",
  "ora-application",
  "ora-contracts",
  "ora-db",

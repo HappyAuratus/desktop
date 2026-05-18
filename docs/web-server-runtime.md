@@ -22,12 +22,15 @@ The web server also requires a bootstrap project identity:
 
 - `ORA_PROJECT_NAME`: persisted workspace project name. Required.
 - `ORA_PROJECT_PATH`: persisted workspace root path. Required.
+- `ORA_WORK_DIR`: linked-worktree root for backend-managed task workspaces. Default: `<directory of ORA_DB_PATH>/worktrees`
 
 Startup reconciles this configured project into the `projects` table before the runtime is marked ready.
 
 - If no visible project exists with the configured name, startup creates one row.
 - If a visible project exists with the configured name but a different stored path, startup updates that row in place.
 - If both the configured name and path already match, startup leaves the row unchanged.
+- If `ORA_WORK_DIR` is unset, startup uses a `worktrees/` directory next to the configured SQLite database file.
+- Task creation provisions linked worktrees under `ORA_WORK_DIR/<full-task-id>`.
 - After project reconciliation, startup also opens the synthetic web work context `surface = web`, `window_id = main` for that project and refreshes its lease immediately.
 
 ## Bind Configuration

@@ -8,6 +8,7 @@ use std::path::{Path, PathBuf};
 const DATABASE_PATH_ENV_VAR: &str = "ORA_DB_PATH";
 const PROJECT_NAME_ENV_VAR: &str = "ORA_PROJECT_NAME";
 const PROJECT_PATH_ENV_VAR: &str = "ORA_PROJECT_PATH";
+const WORK_DIR_ENV_VAR: &str = "ORA_WORK_DIR";
 const HOST_ENV_VAR: &str = "ORA_HOST";
 const PORT_ENV_VAR: &str = "ORA_PORT";
 const LOG_LEVEL_ENV_VAR: &str = "ORA_LOG_LEVEL";
@@ -61,9 +62,11 @@ impl RuntimeConfig {
     pub(crate) fn from_reader(
         mut read_variable: impl FnMut(&str) -> Option<String>,
     ) -> Result<Self, WebBootstrapError> {
+        let database = DatabaseConfig::from_reader(&mut read_variable)?;
+
         Ok(Self {
-            database: DatabaseConfig::from_reader(&mut read_variable)?,
-            project: ProjectConfig::from_reader(&mut read_variable)?,
+            project: ProjectConfig::from_reader(&mut read_variable, &database)?,
+            database,
             server: ServerConfig::from_reader(&mut read_variable)?,
             logging: read_logging_config(&mut read_variable)?,
         })
@@ -102,6 +105,7 @@ impl DatabaseConfig {
 pub struct ProjectConfig {
     name: String,
     path: PathBuf,
+    work_dir: PathBuf,
 }
 
 impl ProjectConfig {
@@ -115,10 +119,27 @@ impl ProjectConfig {
         self.path.as_path()
     }
 
+    /// Returns the configured linked-worktree root used for task-owned worktree provisioning.
+    pub fn work_dir(&self) -> &Path {
+        self.work_dir.as_path()
+    }
+
     /// Loads the bootstrap project identity from a caller-provided variable reader for testability.
     fn from_reader(
         mut read_variable: impl FnMut(&str) -> Option<String>,
+        database_config: &DatabaseConfig,
     ) -> Result<Self, WebBootstrapError> {
+        let work_dir = match read_variable(WORK_DIR_ENV_VAR) {
+            Some(work_dir) => {
+                if work_dir.trim().is_empty() {
+                    return Err(WebBootstrapError::InvalidWorkDirEmpty);
+                }
+
+                PathBuf::from(work_dir)
+            }
+            None => default_work_dir(database_config.path()),
+        };
+
         Ok(Self {
             name: read_required_non_empty_variable(
                 &mut read_variable,
@@ -130,8 +151,17 @@ impl ProjectConfig {
                 PROJECT_PATH_ENV_VAR,
                 WebBootstrapError::InvalidProjectPathEmpty,
             )?),
+            work_dir,
         })
     }
+}
+
+/// Derives the default linked-worktree root from the configured SQLite database location.
+fn default_work_dir(database_path: &Path) -> PathBuf {
+    database_path
+        .parent()
+        .unwrap_or_else(|| Path::new("."))
+        .join("worktrees")
 }
 
 /// Describes the host and port that the HTTP server binds to.
@@ -258,7 +288,7 @@ mod tests {
     use super::{
         DATABASE_PATH_ENV_VAR, DEFAULT_DATABASE_PATH, DEFAULT_HOST, DEFAULT_PORT, DatabaseConfig,
         HOST_ENV_VAR, PORT_ENV_VAR, PROJECT_NAME_ENV_VAR, PROJECT_PATH_ENV_VAR, ProjectConfig,
-        RuntimeConfig, ServerConfig,
+        RuntimeConfig, ServerConfig, WORK_DIR_ENV_VAR,
     };
     use crate::error::WebBootstrapError;
     use pretty_assertions::assert_eq;
@@ -293,7 +323,8 @@ mod tests {
     /// Verifies bootstrap project configuration requires both a non-empty name and path.
     #[test]
     fn rejects_missing_project_configuration() {
-        let error = match ProjectConfig::from_reader(|_| None) {
+        let database_config = DatabaseConfig::from_reader(|_| None).unwrap();
+        let error = match ProjectConfig::from_reader(|_| None, &database_config) {
             Ok(_) => panic!("expected missing project configuration to fail"),
             Err(error) => error,
         };
@@ -304,11 +335,15 @@ mod tests {
     /// Verifies blank bootstrap project paths fail with a typed bootstrap error.
     #[test]
     fn rejects_empty_project_path_configuration() {
-        let error = match ProjectConfig::from_reader(|key| match key {
-            PROJECT_NAME_ENV_VAR => Some("Ora".to_string()),
-            PROJECT_PATH_ENV_VAR => Some("   ".to_string()),
-            _ => None,
-        }) {
+        let error = match ProjectConfig::from_reader(
+            |key| match key {
+                PROJECT_NAME_ENV_VAR => Some("Ora".to_string()),
+                PROJECT_PATH_ENV_VAR => Some("   ".to_string()),
+                WORK_DIR_ENV_VAR => Some("/tmp/ora-worktrees".to_string()),
+                _ => None,
+            },
+            &DatabaseConfig::from_reader(|_| None).unwrap(),
+        ) {
             Ok(_) => panic!("expected empty project path configuration to fail"),
             Err(error) => error,
         };
@@ -319,17 +354,68 @@ mod tests {
     /// Verifies bootstrap project configuration exposes the configured identity unchanged.
     #[test]
     fn loads_project_configuration() {
-        let config = ProjectConfig::from_reader(|key| match key {
-            PROJECT_NAME_ENV_VAR => Some("Ora".to_string()),
-            PROJECT_PATH_ENV_VAR => Some("/tmp/ora".to_string()),
-            _ => None,
-        })
+        let config = ProjectConfig::from_reader(
+            |key| match key {
+                PROJECT_NAME_ENV_VAR => Some("Ora".to_string()),
+                PROJECT_PATH_ENV_VAR => Some("/tmp/ora".to_string()),
+                WORK_DIR_ENV_VAR => Some("/tmp/ora-worktrees".to_string()),
+                _ => None,
+            },
+            &DatabaseConfig::from_reader(|_| None).unwrap(),
+        )
         .unwrap_or_else(|error| panic!("expected project configuration to load: {error}"));
 
         assert_eq!(config.name(), "Ora");
         assert_eq!(
             config.path().to_string_lossy().to_string(),
             "/tmp/ora".to_string()
+        );
+        assert_eq!(
+            config.work_dir().to_string_lossy().to_string(),
+            "/tmp/ora-worktrees".to_string()
+        );
+    }
+
+    /// Verifies blank linked-worktree roots fail with a typed bootstrap error.
+    #[test]
+    fn rejects_empty_work_dir_configuration() {
+        let error = match ProjectConfig::from_reader(
+            |key| match key {
+                PROJECT_NAME_ENV_VAR => Some("Ora".to_string()),
+                PROJECT_PATH_ENV_VAR => Some("/tmp/ora".to_string()),
+                WORK_DIR_ENV_VAR => Some("   ".to_string()),
+                _ => None,
+            },
+            &DatabaseConfig::from_reader(|_| None).unwrap(),
+        ) {
+            Ok(_) => panic!("expected empty worktree root configuration to fail"),
+            Err(error) => error,
+        };
+
+        assert!(matches!(error, WebBootstrapError::InvalidWorkDirEmpty));
+    }
+
+    /// Verifies the linked-worktree root defaults to a `worktrees` sibling of the SQLite database path.
+    #[test]
+    fn defaults_work_dir_next_to_database_path() {
+        let database_config = DatabaseConfig::from_reader(|key| match key {
+            DATABASE_PATH_ENV_VAR => Some("/tmp/state/ora.sqlite3".to_string()),
+            _ => None,
+        })
+        .unwrap_or_else(|error| panic!("expected database configuration to load: {error}"));
+        let config = ProjectConfig::from_reader(
+            |key| match key {
+                PROJECT_NAME_ENV_VAR => Some("Ora".to_string()),
+                PROJECT_PATH_ENV_VAR => Some("/tmp/ora".to_string()),
+                _ => None,
+            },
+            &database_config,
+        )
+        .unwrap_or_else(|error| panic!("expected project configuration to load: {error}"));
+
+        assert_eq!(
+            config.work_dir().to_string_lossy().to_string(),
+            "/tmp/state/worktrees".to_string()
         );
     }
 
@@ -368,6 +454,7 @@ mod tests {
         let config = RuntimeConfig::from_reader(|key| match key {
             PROJECT_NAME_ENV_VAR => Some("Ora".to_string()),
             PROJECT_PATH_ENV_VAR => Some("/tmp/ora".to_string()),
+            WORK_DIR_ENV_VAR => Some("/tmp/ora-worktrees".to_string()),
             _ => None,
         })
         .unwrap_or_else(|error| panic!("expected runtime configuration to load: {error}"));
@@ -380,6 +467,10 @@ mod tests {
         assert_eq!(
             config.project().path().to_string_lossy().to_string(),
             "/tmp/ora".to_string()
+        );
+        assert_eq!(
+            config.project().work_dir().to_string_lossy().to_string(),
+            "/tmp/ora-worktrees".to_string()
         );
         assert_eq!(
             config.server().socket_address().to_string(),

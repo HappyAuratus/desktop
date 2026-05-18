@@ -1,38 +1,69 @@
 use crate::bootstrap::SystemClock;
+use crate::service::task_worktree::GitTaskWorktreeProvisioner;
 use ora_application::{
     ApplicationError, CreateTaskHandler, DeleteTaskHandler, GetTaskHandler, ListTasksHandler,
-    UpdateTaskHandler, UuidTaskIdGenerator,
+    UpdateTaskHandler, UuidTaskIdGenerator, UuidWorktreeIdGenerator,
 };
 use ora_contracts::{
     CreateTaskRequest, CreateTaskResponse, DeleteTaskRequest, DeleteTaskResponse, GetTaskRequest,
     GetTaskResponse, ListTasksRequest, ListTasksResponse, UpdateTaskRequest, UpdateTaskResponse,
 };
-use ora_db::{RepositoryPool, SqliteTaskRepository};
+use ora_db::{RepositoryPool, SqliteTaskRepository, SqliteWorktreeRepository};
+use std::path::PathBuf;
 
 /// Groups the transport-facing task entry points for the web adapter.
 pub struct TaskApi {
-    create_task: CreateTaskHandler<SqliteTaskRepository, UuidTaskIdGenerator, SystemClock>,
+    create_task: CreateTaskHandler<
+        SqliteTaskRepository,
+        SqliteWorktreeRepository,
+        UuidTaskIdGenerator,
+        UuidWorktreeIdGenerator,
+        GitTaskWorktreeProvisioner,
+        SystemClock,
+    >,
     get_task: GetTaskHandler<SqliteTaskRepository>,
     list_tasks: ListTasksHandler<SqliteTaskRepository>,
     update_task: UpdateTaskHandler<SqliteTaskRepository, SystemClock>,
-    delete_task: DeleteTaskHandler<SqliteTaskRepository, SystemClock>,
+    delete_task: DeleteTaskHandler<
+        SqliteTaskRepository,
+        SqliteWorktreeRepository,
+        GitTaskWorktreeProvisioner,
+        SystemClock,
+    >,
 }
 
 impl TaskApi {
     /// Builds the task transport API from the shared repository pool and clock source.
-    pub fn new(pool: RepositoryPool, clock: SystemClock) -> Self {
-        let repository = SqliteTaskRepository::new(pool);
+    pub fn new(
+        pool: RepositoryPool,
+        project_root: PathBuf,
+        work_dir: PathBuf,
+        clock: SystemClock,
+    ) -> Self {
+        let task_repository = SqliteTaskRepository::new(pool.clone());
+        let worktree_repository = SqliteWorktreeRepository::new(pool);
+        let worktree_provisioner = GitTaskWorktreeProvisioner::new(project_root);
 
         Self {
             create_task: CreateTaskHandler::new(
-                repository.clone(),
+                task_repository.clone(),
+                worktree_repository.clone(),
                 UuidTaskIdGenerator::new(),
+                UuidWorktreeIdGenerator::new(),
+                worktree_provisioner.clone(),
+                work_dir.clone(),
                 clock,
             ),
-            get_task: GetTaskHandler::new(repository.clone()),
-            list_tasks: ListTasksHandler::new(repository.clone()),
-            update_task: UpdateTaskHandler::new(repository.clone(), clock),
-            delete_task: DeleteTaskHandler::new(repository, clock),
+            get_task: GetTaskHandler::new(task_repository.clone()),
+            list_tasks: ListTasksHandler::new(task_repository.clone()),
+            update_task: UpdateTaskHandler::new(task_repository.clone(), clock),
+            delete_task: DeleteTaskHandler::new(
+                task_repository,
+                worktree_repository,
+                worktree_provisioner,
+                work_dir,
+                clock,
+            ),
         }
     }
 

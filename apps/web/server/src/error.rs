@@ -37,6 +37,8 @@ pub enum WebBootstrapError {
     InvalidProjectNameEmpty,
     #[error("ORA_PROJECT_PATH must not be empty")]
     InvalidProjectPathEmpty,
+    #[error("ORA_WORK_DIR must not be empty")]
+    InvalidWorkDirEmpty,
     #[error("ORA_LOG_MAX_DAYS must be greater than zero")]
     InvalidLogMaxDaysZero,
     #[error("failed to bootstrap SQLite database")]
@@ -121,6 +123,11 @@ impl From<ApplicationError> for WebApiError {
             ApplicationError::TaskRepository { message } => Self {
                 status: StatusCode::INTERNAL_SERVER_ERROR,
                 code: "task_repository_error",
+                message,
+            },
+            ApplicationError::TaskWorktree { message } => Self {
+                status: StatusCode::INTERNAL_SERVER_ERROR,
+                code: "task_worktree_error",
                 message,
             },
             ApplicationError::WorktreeNotFound { worktree_id } => Self {

@@ -25,6 +25,7 @@ ora-application = { path = "crates/application" }
 ora-contracts = { path = "crates/contracts" }
 ora-db = { path = "crates/db" }
 ora-domain = { path = "crates/domain" }
+gitlancer = { path = "crates/gitlancer" }
 ora-logging = { path = "crates/logging" }
 
 # External

@@ -1,6 +1,9 @@
 use crate::{
-    ApplicationError, Clock, CreateTaskHandler, DeleteTaskHandler, GetTaskHandler,
-    ListTasksHandler, TaskIdGenerator, TaskRepository, TaskRepositoryError, UpdateTaskHandler,
+    ApplicationError, Clock, CreateTaskHandler, CreateTaskWorktreeRequest, DeleteTaskHandler,
+    DeleteTaskWorktreeRequest, GetTaskHandler, ListTasksHandler, TaskIdGenerator, TaskRepository,
+    TaskRepositoryError, TaskWorktreeDeletionMode, TaskWorktreeProvisioner,
+    TaskWorktreeProvisionerError, UpdateTaskHandler, WorktreeIdGenerator, WorktreeRepository,
+    WorktreeRepositoryError,
 };
 use ora_contracts::{
     CreateTaskRequest, CreateTaskResponse, DeleteTaskRequest, DeleteTaskResponse, GetTaskRequest,
@@ -8,43 +11,52 @@ use ora_contracts::{
     TaskStatus as ContractTaskStatus, UpdateTaskRequest, UpdateTaskResponse,
 };
 use ora_domain::{
-    AuditFields, ProjectId, Task, TaskId, TaskStatus as DomainTaskStatus, WorktreeId,
+    AuditFields, ProjectId, Task, TaskId, TaskStatus as DomainTaskStatus, Worktree,
+    WorktreeActivity as DomainWorktreeActivity, WorktreeId,
 };
 use ora_logging::{with_recorded_trace_logging, with_trace_logging};
 use pretty_assertions::assert_eq;
 use std::cell::RefCell;
 use std::collections::BTreeMap;
+use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 use tracing_subscriber::layer::{Context, Layer};
 use tracing_subscriber::registry::LookupSpan;
 
-/// Verifies create handlers build domain tasks and return the shared contract response.
+const TASK_ID: &str = "12345678-1234-5678-90ab-1234567890ab";
+const WORK_DIR: &str = "/tmp/ora-worktrees";
+
+/// Verifies create handlers provision and persist task-owned worktrees before returning the shared response.
 #[test]
-fn creates_tasks_with_generated_identity_and_clock_values() {
+fn creates_tasks_with_owned_worktrees_and_clock_values() {
     with_trace_logging(|| {
-        let repository = Rc::new(FakeTaskRepository::default());
+        let task_repository = Rc::new(FakeTaskRepository::default());
+        let worktree_repository = Rc::new(FakeWorktreeRepository::default());
+        let provisioner = Rc::new(FakeTaskWorktreeProvisioner::default());
         let handler = CreateTaskHandler::new(
-            repository.clone(),
-            FixedTaskIdGenerator::new("task-1"),
+            task_repository.clone(),
+            worktree_repository.clone(),
+            FixedTaskIdGenerator::new(TASK_ID),
+            FixedWorktreeIdGenerator::new("worktree-1"),
+            provisioner.clone(),
+            PathBuf::from(WORK_DIR),
             FixedClock::new(1_700_000_000_000),
         );
 
-        let response = match handler.handle(CreateTaskRequest {
-            project_id: "project-1".to_string(),
-            title: "Ship handlers".to_string(),
-            status: ContractTaskStatus::Doing,
-            worktree_id: Some("worktree-1".to_string()),
-        }) {
-            Ok(response) => response,
-            Err(error) => panic!("create handler failed: {error}"),
-        };
+        let response = handler
+            .handle(CreateTaskRequest {
+                project_id: "project-1".to_string(),
+                title: "Ship handlers".to_string(),
+                status: ContractTaskStatus::Doing,
+            })
+            .unwrap_or_else(|error| panic!("create handler failed: {error}"));
 
         assert_eq!(
             response,
             CreateTaskResponse {
                 task: ContractTask {
-                    id: "task-1".to_string(),
+                    id: TASK_ID.to_string(),
                     project_id: "project-1".to_string(),
                     title: "Ship handlers".to_string(),
                     status: ContractTaskStatus::Doing,
@@ -53,9 +65,26 @@ fn creates_tasks_with_generated_identity_and_clock_values() {
             }
         );
         assert_eq!(
-            repository.visible_tasks(),
+            provisioner.created_requests(),
+            vec![CreateTaskWorktreeRequest {
+                branch_name: "ora/12345678".to_string(),
+                worktree_path: Path::new(WORK_DIR).join(TASK_ID),
+            }]
+        );
+        assert_eq!(
+            worktree_repository.visible_worktrees(),
+            vec![Worktree::new(
+                WorktreeId::new("worktree-1"),
+                TaskId::new(TASK_ID),
+                Some("ora/12345678".to_string()),
+                DomainWorktreeActivity::Active,
+                AuditFields::new(1_700_000_000_000, 1_700_000_000_000, false),
+            )]
+        );
+        assert_eq!(
+            task_repository.visible_tasks(),
             vec![Task::new(
-                TaskId::new("task-1"),
+                TaskId::new(TASK_ID),
                 ProjectId::new("project-1"),
                 "Ship handlers",
                 DomainTaskStatus::Doing,
@@ -80,12 +109,11 @@ fn gets_tasks_by_identifier() {
         )]));
         let handler = GetTaskHandler::new(repository);
 
-        let response = match handler.handle(GetTaskRequest {
-            task_id: "task-1".to_string(),
-        }) {
-            Ok(response) => response,
-            Err(error) => panic!("get handler failed: {error}"),
-        };
+        let response = handler
+            .handle(GetTaskRequest {
+                task_id: "task-1".to_string(),
+            })
+            .unwrap_or_else(|error| panic!("get handler failed: {error}"));
 
         assert_eq!(
             response,
@@ -126,10 +154,9 @@ fn lists_visible_tasks() {
         ]));
         let handler = ListTasksHandler::new(repository);
 
-        let response = match handler.handle(ListTasksRequest {}) {
-            Ok(response) => response,
-            Err(error) => panic!("list handler failed: {error}"),
-        };
+        let response = handler
+            .handle(ListTasksRequest {})
+            .unwrap_or_else(|error| panic!("list handler failed: {error}"));
 
         assert_eq!(
             response,
@@ -169,16 +196,15 @@ fn updates_tasks_with_refreshed_timestamps() {
         )]));
         let handler = UpdateTaskHandler::new(repository.clone(), FixedClock::new(30));
 
-        let response = match handler.handle(UpdateTaskRequest {
-            task_id: "task-1".to_string(),
-            project_id: "project-2".to_string(),
-            title: "Ship updated handlers".to_string(),
-            status: ContractTaskStatus::Done,
-            worktree_id: Some("worktree-2".to_string()),
-        }) {
-            Ok(response) => response,
-            Err(error) => panic!("update handler failed: {error}"),
-        };
+        let response = handler
+            .handle(UpdateTaskRequest {
+                task_id: "task-1".to_string(),
+                project_id: "project-2".to_string(),
+                title: "Ship updated handlers".to_string(),
+                status: ContractTaskStatus::Done,
+                worktree_id: Some("worktree-2".to_string()),
+            })
+            .unwrap_or_else(|error| panic!("update handler failed: {error}"));
 
         assert_eq!(
             response,
@@ -206,70 +232,140 @@ fn updates_tasks_with_refreshed_timestamps() {
     });
 }
 
-/// Verifies delete handlers keep the external CRUD contract while soft-deleting storage state.
+/// Verifies delete handlers remove linked worktrees with force mode before soft-deleting storage state.
 #[test]
-fn deletes_tasks_through_soft_delete_repository_calls() {
+fn deletes_tasks_and_owned_worktrees() {
     with_trace_logging(|| {
-        let repository = Rc::new(FakeTaskRepository::with_tasks(vec![Task::new(
-            TaskId::new("task-1"),
+        let task_repository = Rc::new(FakeTaskRepository::with_tasks(vec![Task::new(
+            TaskId::new(TASK_ID),
             ProjectId::new("project-1"),
             "Ship handlers",
             DomainTaskStatus::Todo,
-            None,
+            Some(WorktreeId::new("worktree-1")),
             AuditFields::new(10, 20, false),
         )]));
-        let handler = DeleteTaskHandler::new(repository.clone(), FixedClock::new(40));
+        let worktree_repository =
+            Rc::new(FakeWorktreeRepository::with_worktrees(vec![Worktree::new(
+                WorktreeId::new("worktree-1"),
+                TaskId::new(TASK_ID),
+                Some("ora/12345678".to_string()),
+                DomainWorktreeActivity::Active,
+                AuditFields::new(10, 20, false),
+            )]));
+        let provisioner = Rc::new(FakeTaskWorktreeProvisioner::default());
+        let handler = DeleteTaskHandler::new(
+            task_repository.clone(),
+            worktree_repository.clone(),
+            provisioner.clone(),
+            PathBuf::from(WORK_DIR),
+            FixedClock::new(40),
+        );
 
-        let response = match handler.handle(DeleteTaskRequest {
-            task_id: "task-1".to_string(),
-        }) {
-            Ok(response) => response,
-            Err(error) => panic!("delete handler failed: {error}"),
-        };
+        let response = handler
+            .handle(DeleteTaskRequest {
+                task_id: TASK_ID.to_string(),
+            })
+            .unwrap_or_else(|error| panic!("delete handler failed: {error}"));
 
         assert_eq!(
             response,
             DeleteTaskResponse {
-                task_id: "task-1".to_string(),
+                task_id: TASK_ID.to_string(),
             }
         );
-        assert_eq!(repository.visible_tasks(), Vec::<Task>::new());
         assert_eq!(
-            repository.all_tasks(),
-            vec![Task::new(
-                TaskId::new("task-1"),
-                ProjectId::new("project-1"),
-                "Ship handlers",
-                DomainTaskStatus::Todo,
-                None,
-                AuditFields::new(10, 40, true),
-            )]
+            provisioner.deleted_requests(),
+            vec![DeleteTaskWorktreeRequest {
+                worktree_path: Path::new(WORK_DIR).join(TASK_ID),
+                mode: TaskWorktreeDeletionMode::Force,
+            }]
+        );
+        assert_eq!(task_repository.visible_tasks(), Vec::<Task>::new());
+        assert_eq!(
+            worktree_repository.visible_worktrees(),
+            Vec::<Worktree>::new()
         );
     });
 }
 
-/// Verifies handlers expose stable application errors for missing tasks and repository failures.
+/// Verifies create handlers compensate by deleting the created worktree when task persistence fails.
+#[test]
+fn cleans_up_created_worktree_when_task_persistence_fails() {
+    with_trace_logging(|| {
+        let task_repository = Rc::new(FakeTaskRepository::default());
+        let worktree_repository = Rc::new(FakeWorktreeRepository::default());
+        let provisioner = Rc::new(FakeTaskWorktreeProvisioner::default());
+        task_repository.fail_next(TaskRepositoryError::OperationFailed(
+            "task write failed".to_string(),
+        ));
+        let handler = CreateTaskHandler::new(
+            task_repository.clone(),
+            worktree_repository,
+            FixedTaskIdGenerator::new(TASK_ID),
+            FixedWorktreeIdGenerator::new("worktree-1"),
+            provisioner.clone(),
+            PathBuf::from(WORK_DIR),
+            FixedClock::new(50),
+        );
+
+        let error = handler
+            .handle(CreateTaskRequest {
+                project_id: "project-1".to_string(),
+                title: "Ship handlers".to_string(),
+                status: ContractTaskStatus::Todo,
+            })
+            .unwrap_err();
+
+        assert_eq!(
+            error,
+            ApplicationError::TaskRepository {
+                message: "task write failed".to_string(),
+            }
+        );
+        assert_eq!(
+            provisioner.deleted_requests(),
+            vec![DeleteTaskWorktreeRequest {
+                worktree_path: Path::new(WORK_DIR).join(TASK_ID),
+                mode: TaskWorktreeDeletionMode::Force,
+            }]
+        );
+    });
+}
+
+/// Verifies provisioning failures become stable application errors before any persistence occurs.
 #[test]
 fn reports_application_errors() {
     with_trace_logging(|| {
         let missing_repository = Rc::new(FakeTaskRepository::default());
         let get_handler = GetTaskHandler::new(missing_repository);
-        let failing_repository = Rc::new(FakeTaskRepository::default());
-        failing_repository.fail_next(TaskRepositoryError::OperationFailed(
-            "storage unavailable".to_string(),
+        let task_repository = Rc::new(FakeTaskRepository::default());
+        let worktree_repository = Rc::new(FakeWorktreeRepository::default());
+        let provisioner = Rc::new(FakeTaskWorktreeProvisioner::default());
+        provisioner.fail_next_create(TaskWorktreeProvisionerError::OperationFailed(
+            "failed to create linked worktree".to_string(),
         ));
-        let list_handler = ListTasksHandler::new(failing_repository);
+        let create_handler = CreateTaskHandler::new(
+            task_repository,
+            worktree_repository,
+            FixedTaskIdGenerator::new(TASK_ID),
+            FixedWorktreeIdGenerator::new("worktree-1"),
+            provisioner,
+            PathBuf::from(WORK_DIR),
+            FixedClock::new(60),
+        );
 
-        let missing_error = match get_handler.handle(GetTaskRequest {
-            task_id: "missing".to_string(),
-        }) {
-            Ok(response) => panic!("expected missing error, got response: {response:?}"),
-            Err(error) => error,
-        };
-        let repository_error = match list_handler.handle(ListTasksRequest {}) {
-            Ok(response) => panic!("expected repository error, got response: {response:?}"),
-            Err(error) => error,
-        };
+        let missing_error = get_handler
+            .handle(GetTaskRequest {
+                task_id: "missing".to_string(),
+            })
+            .unwrap_err();
+        let provisioning_error = create_handler
+            .handle(CreateTaskRequest {
+                project_id: "project-1".to_string(),
+                title: "Ship handlers".to_string(),
+                status: ContractTaskStatus::Todo,
+            })
+            .unwrap_err();
 
         assert_eq!(
             missing_error,
@@ -278,43 +374,64 @@ fn reports_application_errors() {
             }
         );
         assert_eq!(
-            repository_error,
-            ApplicationError::TaskRepository {
-                message: "storage unavailable".to_string(),
+            provisioning_error,
+            ApplicationError::TaskWorktree {
+                message: "failed to create linked worktree".to_string(),
             }
         );
     });
 }
 
-/// Verifies task handlers emit structured success and failure events under a scoped subscriber.
+/// Verifies task handlers emit structured success and provisioning-failure events under a scoped subscriber.
 #[test]
 fn emits_structured_operational_events() {
     let recorder = EventRecorder::default();
     with_recorded_trace_logging(recorder.layer(), || {
-        let create_repository = Rc::new(FakeTaskRepository::default());
+        let create_task_repository = Rc::new(FakeTaskRepository::default());
+        let create_worktree_repository = Rc::new(FakeWorktreeRepository::default());
+        let create_provisioner = Rc::new(FakeTaskWorktreeProvisioner::default());
         let create_handler = CreateTaskHandler::new(
-            create_repository,
-            FixedTaskIdGenerator::new("task-42"),
+            create_task_repository,
+            create_worktree_repository,
+            FixedTaskIdGenerator::new(TASK_ID),
+            FixedWorktreeIdGenerator::new("worktree-1"),
+            create_provisioner,
+            PathBuf::from(WORK_DIR),
             FixedClock::new(5),
         );
-        let get_handler = GetTaskHandler::new(Rc::new(FakeTaskRepository::default()));
+        let failing_task_repository = Rc::new(FakeTaskRepository::default());
+        let failing_worktree_repository = Rc::new(FakeWorktreeRepository::default());
+        let failing_provisioner = Rc::new(FakeTaskWorktreeProvisioner::default());
+        failing_provisioner.fail_next_create(TaskWorktreeProvisionerError::OperationFailed(
+            "failed to create linked worktree".to_string(),
+        ));
+        let failing_handler = CreateTaskHandler::new(
+            failing_task_repository,
+            failing_worktree_repository,
+            FixedTaskIdGenerator::new("87654321-1234-5678-90ab-1234567890ab"),
+            FixedWorktreeIdGenerator::new("worktree-2"),
+            failing_provisioner,
+            PathBuf::from(WORK_DIR),
+            FixedClock::new(6),
+        );
 
         create_handler
             .handle(CreateTaskRequest {
                 project_id: "project-1".to_string(),
                 title: "Ship handlers".to_string(),
                 status: ContractTaskStatus::Todo,
-                worktree_id: None,
             })
             .unwrap();
         assert_eq!(
-            get_handler
-                .handle(GetTaskRequest {
-                    task_id: "missing".to_string(),
+            failing_handler
+                .handle(CreateTaskRequest {
+                    project_id: "project-1".to_string(),
+                    title: "Ship handlers".to_string(),
+                    status: ContractTaskStatus::Todo,
                 })
                 .unwrap_err(),
-            ApplicationError::TaskNotFound {
-                task_id: "missing".to_string(),
+            ApplicationError::TaskWorktree {
+                message: "failed to create linked worktree".to_string(),
             }
         );
     });
@@ -332,22 +449,26 @@ fn emits_structured_operational_events() {
                     ),
                     ("method".to_string(), "log_task_success".to_string()),
                     ("operation".to_string(), "create_task".to_string()),
-                    ("task_id".to_string(), "task-42".to_string()),
+                    ("task_id".to_string(), TASK_ID.to_string()),
                 ]),
             },
             LoggedEvent {
                 level: "ERROR".to_string(),
                 target: "ora_application::task::handlers".to_string(),
                 fields: BTreeMap::from([
-                    ("error.kind".to_string(), "task_not_found".to_string()),
+                    ("error.kind".to_string(), "task_worktree".to_string()),
                     (
                         "error.message".to_string(),
-                        "task not found: missing".to_string(),
+                        "task worktree operation failed: failed to create linked worktree"
+                            .to_string(),
                     ),
                     ("message".to_string(), "task operation failed".to_string()),
                     ("method".to_string(), "log_task_failure".to_string()),
-                    ("operation".to_string(), "get_task".to_string()),
-                    ("task_id".to_string(), "missing".to_string()),
+                    ("operation".to_string(), "create_task".to_string()),
+                    (
+                        "task_id".to_string(),
+                        "87654321-1234-5678-90ab-1234567890ab".to_string(),
+                    ),
                 ]),
             },
         ]
@@ -384,11 +505,6 @@ impl FakeTaskRepository {
             .collect()
     }
 
-    /// Returns all stored tasks, including soft-deleted rows, for state assertions.
-    fn all_tasks(&self) -> Vec<Task> {
-        self.tasks.borrow().clone()
-    }
-
     /// Returns a queued error when a test wants to simulate repository failure.
     fn take_error(&self) -> Result<(), TaskRepositoryError> {
         match self.next_error.borrow_mut().take() {
@@ -401,7 +517,6 @@ impl FakeTaskRepository {
 impl TaskRepository for Rc<FakeTaskRepository> {
     fn create_task(&self, task: Task) -> Result<Task, TaskRepositoryError> {
         self.take_error()?;
-
         self.tasks.borrow_mut().push(task.clone());
         Ok(task)
     }
@@ -419,7 +534,6 @@ impl TaskRepository for Rc<FakeTaskRepository> {
 
     fn list_tasks(&self) -> Result<Vec<Task>, TaskRepositoryError> {
         self.take_error()?;
-
         Ok(self.visible_tasks())
     }
 
@@ -461,6 +575,165 @@ impl TaskRepository for Rc<FakeTaskRepository> {
     }
 }
 
+#[derive(Debug, Default)]
+struct FakeWorktreeRepository {
+    worktrees: RefCell<Vec<Worktree>>,
+    next_error: RefCell<Option<WorktreeRepositoryError>>,
+}
+
+impl FakeWorktreeRepository {
+    /// Builds a fake repository seeded with the provided worktree rows.
+    fn with_worktrees(worktrees: Vec<Worktree>) -> Self {
+        Self {
+            worktrees: RefCell::new(worktrees),
+            next_error: RefCell::new(None),
+        }
+    }
+
+    /// Returns every non-deleted worktree so tests can assert visible repository state.
+    fn visible_worktrees(&self) -> Vec<Worktree> {
+        self.worktrees
+            .borrow()
+            .iter()
+            .filter(|worktree| !worktree.audit_fields.is_deleted)
+            .cloned()
+            .collect()
+    }
+
+    /// Returns a queued error when a test wants to simulate repository failure.
+    fn take_error(&self) -> Result<(), WorktreeRepositoryError> {
+        match self.next_error.borrow_mut().take() {
+            Some(error) => Err(error),
+            None => Ok(()),
+        }
+    }
+}
+
+impl WorktreeRepository for Rc<FakeWorktreeRepository> {
+    fn create_worktree(&self, worktree: Worktree) -> Result<Worktree, WorktreeRepositoryError> {
+        self.take_error()?;
+        self.worktrees.borrow_mut().push(worktree.clone());
+        Ok(worktree)
+    }
+
+    fn find_worktree(
+        &self,
+        worktree_id: &WorktreeId,
+    ) -> Result<Option<Worktree>, WorktreeRepositoryError> {
+        self.take_error()?;
+
+        Ok(self
+            .worktrees
+            .borrow()
+            .iter()
+            .find(|worktree| worktree.id == *worktree_id && !worktree.audit_fields.is_deleted)
+            .cloned())
+    }
+
+    fn list_worktrees(&self) -> Result<Vec<Worktree>, WorktreeRepositoryError> {
+        self.take_error()?;
+        Ok(self.visible_worktrees())
+    }
+
+    fn update_worktree(&self, worktree: Worktree) -> Result<Worktree, WorktreeRepositoryError> {
+        self.take_error()?;
+
+        let mut worktrees = self.worktrees.borrow_mut();
+        if let Some(existing_worktree) = worktrees.iter_mut().find(|existing_worktree| {
+            existing_worktree.id == worktree.id && !existing_worktree.audit_fields.is_deleted
+        }) {
+            *existing_worktree = worktree.clone();
+            Ok(worktree)
+        } else {
+            Err(WorktreeRepositoryError::OperationFailed(format!(
+                "missing worktree during update: {}",
+                worktree.id
+            )))
+        }
+    }
+
+    fn soft_delete_worktree(
+        &self,
+        worktree_id: &WorktreeId,
+        deleted_at: i64,
+    ) -> Result<bool, WorktreeRepositoryError> {
+        self.take_error()?;
+
+        let mut worktrees = self.worktrees.borrow_mut();
+        if let Some(worktree) = worktrees
+            .iter_mut()
+            .find(|worktree| worktree.id == *worktree_id && !worktree.audit_fields.is_deleted)
+        {
+            worktree.audit_fields.updated_at = deleted_at;
+            worktree.audit_fields.is_deleted = true;
+            Ok(true)
+        } else {
+            Ok(false)
+        }
+    }
+}
+
+#[derive(Debug, Default)]
+struct FakeTaskWorktreeProvisioner {
+    created_requests: RefCell<Vec<CreateTaskWorktreeRequest>>,
+    deleted_requests: RefCell<Vec<DeleteTaskWorktreeRequest>>,
+    next_create_error: RefCell<Option<TaskWorktreeProvisionerError>>,
+    next_delete_error: RefCell<Option<TaskWorktreeProvisionerError>>,
+}
+
+impl FakeTaskWorktreeProvisioner {
+    /// Configures the next create request to fail with a deterministic error.
+    fn fail_next_create(&self, error: TaskWorktreeProvisionerError) {
+        self.next_create_error.replace(Some(error));
+    }
+
+    /// Returns the create requests recorded by this fake provisioner.
+    fn created_requests(&self) -> Vec<CreateTaskWorktreeRequest> {
+        self.created_requests.borrow().clone()
+    }
+
+    /// Returns the delete requests recorded by this fake provisioner.
+    fn deleted_requests(&self) -> Vec<DeleteTaskWorktreeRequest> {
+        self.deleted_requests.borrow().clone()
+    }
+
+    /// Returns the next queued create failure, if any.
+    fn take_create_error(&self) -> Result<(), TaskWorktreeProvisionerError> {
+        match self.next_create_error.borrow_mut().take() {
+            Some(error) => Err(error),
+            None => Ok(()),
+        }
+    }
+
+    /// Returns the next queued delete failure, if any.
+    fn take_delete_error(&self) -> Result<(), TaskWorktreeProvisionerError> {
+        match self.next_delete_error.borrow_mut().take() {
+            Some(error) => Err(error),
+            None => Ok(()),
+        }
+    }
+}
+
+impl TaskWorktreeProvisioner for Rc<FakeTaskWorktreeProvisioner> {
+    fn create_task_worktree(
+        &self,
+        request: CreateTaskWorktreeRequest,
+    ) -> Result<(), TaskWorktreeProvisionerError> {
+        self.take_create_error()?;
+        self.created_requests.borrow_mut().push(request);
+        Ok(())
+    }
+
+    fn delete_task_worktree(
+        &self,
+        request: DeleteTaskWorktreeRequest,
+    ) -> Result<(), TaskWorktreeProvisionerError> {
+        self.take_delete_error()?;
+        self.deleted_requests.borrow_mut().push(request);
+        Ok(())
+    }
+}
+
 struct FixedTaskIdGenerator {
     task_id: TaskId,
 }
@@ -477,6 +750,25 @@ impl FixedTaskIdGenerator {
 impl TaskIdGenerator for FixedTaskIdGenerator {
     fn generate_task_id(&self) -> TaskId {
         self.task_id.clone()
+    }
+}
+
+struct FixedWorktreeIdGenerator {
+    worktree_id: WorktreeId,
+}
+
+impl FixedWorktreeIdGenerator {
+    /// Builds an identifier generator that always returns the provided worktree id.
+    fn new(worktree_id: impl Into<String>) -> Self {
+        Self {
+            worktree_id: WorktreeId::new(worktree_id),
+        }
+    }
+}
+
+impl WorktreeIdGenerator for FixedWorktreeIdGenerator {
+    fn generate_worktree_id(&self) -> WorktreeId {
+        self.worktree_id.clone()
     }
 }
 

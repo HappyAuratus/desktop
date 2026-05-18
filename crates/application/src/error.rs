@@ -1,11 +1,11 @@
 use crate::{
     ProjectRepositoryError, ProjectWorkContextRepositoryError, SessionRepositoryError,
-    TaskRepositoryError, WorktreeRepositoryError,
+    TaskRepositoryError, TaskWorktreeProvisionerError, WorktreeRepositoryError,
 };
 use thiserror::Error;
 
 /// Enumerates application-visible failures that adapters must translate for callers.
-#[derive(Debug, Error, PartialEq, Eq)]
+#[derive(Debug, Clone, Error, PartialEq, Eq)]
 pub enum ApplicationError {
     #[error("project not found: {project_id}")]
     ProjectNotFound { project_id: String },
@@ -21,6 +21,8 @@ pub enum ApplicationError {
     TaskNotFound { task_id: String },
     #[error("task repository operation failed: {message}")]
     TaskRepository { message: String },
+    #[error("task worktree operation failed: {message}")]
+    TaskWorktree { message: String },
     #[error("worktree not found: {worktree_id}")]
     WorktreeNotFound { worktree_id: String },
     #[error("worktree repository operation failed: {message}")]
@@ -54,6 +56,17 @@ impl ApplicationError {
     pub(crate) fn from_task_repository_error(error: TaskRepositoryError) -> Self {
         match error {
             TaskRepositoryError::OperationFailed(message) => Self::TaskRepository { message },
+        }
+    }
+
+    /// Maps task worktree lifecycle failures into stable application errors.
+    pub(crate) fn from_task_worktree_provisioner_error(
+        error: TaskWorktreeProvisionerError,
+    ) -> Self {
+        match error {
+            TaskWorktreeProvisionerError::OperationFailed(message) => {
+                Self::TaskWorktree { message }
+            }
         }
     }
 

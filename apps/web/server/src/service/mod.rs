@@ -2,6 +2,7 @@ mod project;
 mod project_work_context;
 mod session;
 mod task;
+mod task_worktree;
 mod worktree;
 
 pub use project::ProjectApi;

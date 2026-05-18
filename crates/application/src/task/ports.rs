@@ -1,4 +1,5 @@
 use ora_domain::{Task, TaskId};
+use std::path::PathBuf;
 
 /// Supplies application-owned persistence operations for task CRUD use cases.
 ///
@@ -31,8 +32,52 @@ pub trait TaskIdGenerator {
     fn generate_task_id(&self) -> TaskId;
 }
 
+/// Supplies linked-worktree lifecycle operations owned by task handlers.
+///
+/// Implementations are expected to provision and remove backend-managed task worktrees
+/// while hiding Git and filesystem details from the application layer.
+pub trait TaskWorktreeProvisioner {
+    /// Creates the linked worktree requested by the task-create flow.
+    fn create_task_worktree(
+        &self,
+        request: CreateTaskWorktreeRequest,
+    ) -> Result<(), TaskWorktreeProvisionerError>;
+
+    /// Removes the linked worktree requested by task cleanup flows.
+    fn delete_task_worktree(
+        &self,
+        request: DeleteTaskWorktreeRequest,
+    ) -> Result<(), TaskWorktreeProvisionerError>;
+}
+
+/// Carries the derived Git branch and filesystem path for one new task worktree.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CreateTaskWorktreeRequest {
+    pub branch_name: String,
+    pub worktree_path: PathBuf,
+}
+
+/// Describes how task-owned worktree deletion should behave.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TaskWorktreeDeletionMode {
+    Force,
+}
+
+/// Carries the derived filesystem path for one task worktree cleanup action.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DeleteTaskWorktreeRequest {
+    pub worktree_path: PathBuf,
+    pub mode: TaskWorktreeDeletionMode,
+}
+
 /// Captures repository failures that handlers convert into stable application errors.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TaskRepositoryError {
+    OperationFailed(String),
+}
+
+/// Captures linked-worktree lifecycle failures that handlers convert into stable application errors.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum TaskWorktreeProvisionerError {
     OperationFailed(String),
 }

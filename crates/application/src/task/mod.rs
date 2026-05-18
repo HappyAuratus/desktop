@@ -10,4 +10,8 @@ pub use handlers::{
     CreateTaskHandler, DeleteTaskHandler, GetTaskHandler, ListTasksHandler, UpdateTaskHandler,
 };
 pub use id_generator::UuidTaskIdGenerator;
-pub use ports::{TaskIdGenerator, TaskRepository, TaskRepositoryError};
+pub use ports::{
+    CreateTaskWorktreeRequest, DeleteTaskWorktreeRequest, TaskIdGenerator, TaskRepository,
+    TaskRepositoryError, TaskWorktreeDeletionMode, TaskWorktreeProvisioner,
+    TaskWorktreeProvisionerError,
+};

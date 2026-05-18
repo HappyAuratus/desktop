@@ -31,7 +31,6 @@ pub struct CreateTaskRequest {
     pub project_id: String,
     pub title: String,
     pub status: TaskStatus,
-    pub worktree_id: Option<String>,
 }
 
 /// Returns the created task after a successful create request.
@@ -133,7 +132,6 @@ mod tests {
             project_id: "project-1".to_string(),
             title: "Ship handlers".to_string(),
             status: TaskStatus::Todo,
-            worktree_id: None,
         };
         let get_request = GetTaskRequest {
             task_id: "task-1".to_string(),
@@ -166,7 +164,6 @@ mod tests {
                 "projectId": "project-1",
                 "title": "Ship handlers",
                 "status": "todo",
-                "worktreeId": null,
             }),
         );
         assert_serialized_json(
