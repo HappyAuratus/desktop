@@ -24,7 +24,7 @@ async function* events<Event>(items: Event[]): AsyncIterable<Event> {
   for (const item of items) yield item;
 }
 
-test("loads provider history and respects ACP message boundaries", async () => {
+test("loads provider history and reconstructs turns from message boundaries", async () => {
   const client: ChatSessionClient = {
     load: () => events([
       textEvent("user_message_chunk", "hel", "user-1"),
@@ -45,10 +45,27 @@ test("loads provider history and respects ACP message boundaries", async () => {
   await store.getState().loadSession("ora-1");
 
   assert.deepEqual(store.getState().conversations["ora-1"], {
-    messages: [
-      { id: "user-1", role: "user", content: "hello", createdAt: 42 },
-      { id: "user-2", role: "user", content: "again", createdAt: 42 },
-      { id: "agent-1", role: "assistant", content: "hi", createdAt: 42 },
+    turns: [
+      {
+        id: "local-1",
+        userMessage: { kind: "message", id: "local-2", role: "user", content: "hello", createdAt: 42, protocolMessageId: "user-1" },
+        items: [],
+        status: "completed",
+        stopReason: null,
+        error: null,
+        createdAt: 42,
+      },
+      {
+        id: "local-3",
+        userMessage: { kind: "message", id: "local-4", role: "user", content: "again", createdAt: 42, protocolMessageId: "user-2" },
+        items: [
+          { kind: "message", id: "message-agent-1", role: "assistant", content: "hi", createdAt: 42, protocolMessageId: "agent-1" },
+        ],
+        status: "completed",
+        stopReason: null,
+        error: null,
+        createdAt: 42,
+      },
     ],
     isLoaded: true,
     isLoading: false,
@@ -58,7 +75,7 @@ test("loads provider history and respects ACP message boundaries", async () => {
   });
 });
 
-test("aborting a prompt retains and marks the partial assistant response", async () => {
+test("aborting a prompt retains the partial response and marks the turn cancelled", async () => {
   const client: ChatSessionClient = {
     load: () => events<LoadSessionEvent>([]),
     prompt: (_request, options) => ({
@@ -81,19 +98,29 @@ test("aborting a prompt retains and marks the partial assistant response", async
     }),
     respondToPermission: async () => ({}),
   };
-  const store = createChatStore(client, { createId: () => "user-1", now: () => 42 });
+  const store = createChatStore(client, { createId: () => "id-1", now: () => 42 });
   const sending = store.getState().sendMessage({ oraSessionId: "ora-1", text: " hello " });
   await new Promise<void>((resolve) => setTimeout(resolve, 0));
 
   store.getState().stopGeneration("ora-1");
   await sending;
 
-  assert.deepEqual(store.getState().conversations["ora-1"]?.messages, [
-    { id: "user-1", role: "user", content: "hello", createdAt: 42 },
-    { id: "agent-1", role: "assistant", content: "partial", createdAt: 42, stopped: true },
+  const conversation = store.getState().conversations["ora-1"];
+  assert.deepEqual(conversation?.turns, [
+    {
+      id: "id-1",
+      userMessage: { kind: "message", id: "id-1", role: "user", content: "hello", createdAt: 42 },
+      items: [
+        { kind: "message", id: "message-agent-1", role: "assistant", content: "partial", createdAt: 42, protocolMessageId: "agent-1" },
+      ],
+      status: "cancelled",
+      stopReason: null,
+      error: null,
+      createdAt: 42,
+    },
   ]);
-  assert.equal(store.getState().conversations["ora-1"]?.isResponding, false);
-  assert.deepEqual(store.getState().conversations["ora-1"]?.pendingPermissions, []);
+  assert.equal(conversation?.isResponding, false);
+  assert.deepEqual(conversation?.pendingPermissions, []);
 });
 
 test("rolls back staged load updates when replay fails before completion", async () => {
@@ -108,10 +135,21 @@ test("rolls back staged load updates when replay fails before completion", async
     respondToPermission: async () => ({}),
   };
   const store = createChatStore(client, { createId: () => "local", now: () => 42 });
+  const previousTurn = {
+    id: "old-turn",
+    userMessage: { kind: "message" as const, id: "old-user", role: "user" as const, content: "prompt", createdAt: 1 },
+    items: [
+      { kind: "message" as const, id: "old", role: "assistant" as const, content: "history", createdAt: 1 },
+    ],
+    status: "completed" as const,
+    stopReason: null,
+    error: null,
+    createdAt: 1,
+  };
   store.setState({
     conversations: {
       "ora-1": {
-        messages: [{ id: "old", role: "assistant", content: "history", createdAt: 1 }],
+        turns: [previousTurn],
         isLoaded: true,
         isLoading: false,
         isResponding: false,
@@ -124,7 +162,7 @@ test("rolls back staged load updates when replay fails before completion", async
   await assert.rejects(store.getState().loadSession("ora-1"), /load failed/);
 
   assert.deepEqual(store.getState().conversations["ora-1"], {
-    messages: [{ id: "old", role: "assistant", content: "history", createdAt: 1 }],
+    turns: [previousTurn],
     isLoaded: true,
     isLoading: false,
     isResponding: false,

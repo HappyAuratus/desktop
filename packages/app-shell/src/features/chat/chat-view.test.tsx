@@ -1,7 +1,7 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
-import type { ChatMessage } from "@ora/chat";
+import type { ChatMessage, ChatTurn, ChatTurnItem } from "@ora/chat";
 import { AppI18nProvider } from "../../i18n/i18n";
 import { ChatView } from "./chat-view";
 import { Composer } from "./composer";
@@ -10,6 +10,30 @@ import { MessageList } from "./message-list";
 /** Renders chat components with the same isolated i18n provider as AppShell. */
 function renderWithI18n(element: React.ReactNode) {
   return render(<AppI18nProvider>{element}</AppI18nProvider>);
+}
+
+/** Builds one response turn so tests can describe threads without protocol plumbing. */
+function turn(
+  id: string,
+  content: string,
+  createdAt: number,
+  items: ChatTurnItem[] = [],
+  status: ChatTurn["status"] = "completed",
+): ChatTurn {
+  return {
+    id,
+    userMessage: { kind: "message", id: `${id}-user`, role: "user", content, createdAt },
+    items,
+    status,
+    stopReason: null,
+    error: null,
+    createdAt,
+  };
+}
+
+/** Builds one assistant text item that lives inside a response turn. */
+function assistantItem(id: string, content: string, createdAt: number): ChatMessage {
+  return { kind: "message", id, role: "assistant", content, createdAt };
 }
 
 describe("Composer", () => {
@@ -42,7 +66,7 @@ describe("ChatView", () => {
   it("disables composition and shows the unavailable Agent session error", () => {
     renderWithI18n(
       <ChatView
-        messages={[]}
+        turns={[]}
         userName="Eric"
         isResponding={false}
         error="Agent session unavailable"
@@ -61,7 +85,7 @@ describe("ChatView", () => {
   it("keeps the disabled hint shut when the pointer never left the enabled composer", async () => {
     const user = userEvent.setup();
     const view = renderWithI18n(
-      <ChatView messages={[]} userName="Eric" isResponding={false} error={null} onSend={() => {}} />,
+      <ChatView turns={[]} userName="Eric" isResponding={false} error={null} onSend={() => {}} />,
     );
 
     // Hover the composer while it has no hint. The real app then slides the
@@ -71,7 +95,7 @@ describe("ChatView", () => {
     view.rerender(
       <AppI18nProvider>
         <ChatView
-          messages={[]}
+          turns={[]}
           userName="Eric"
           isResponding={false}
           error={null}
@@ -88,7 +112,7 @@ describe("ChatView", () => {
   it("renders execution context immediately above the composer surface", () => {
     renderWithI18n(
       <ChatView
-        messages={[]}
+        turns={[]}
         userName="Eric"
         isResponding={false}
         error={null}
@@ -120,7 +144,7 @@ describe("ChatView", () => {
     });
 
     const view = renderWithI18n(
-      <ChatView messages={[]} userName="Eric" isResponding={false} error={null} onSend={() => {}} />,
+      <ChatView turns={[]} userName="Eric" isResponding={false} error={null} onSend={() => {}} />,
     );
     const landingComposer = screen.getByRole("textbox");
 
@@ -128,7 +152,7 @@ describe("ChatView", () => {
     view.rerender(
       <AppI18nProvider>
         <ChatView
-          messages={[{ id: "user-1", role: "user", content: "hello", createdAt: 100 }]}
+          turns={[turn("turn-1", "hello", 100)]}
           userName="Eric"
           isResponding={false}
           error={null}
@@ -151,31 +175,16 @@ describe("ChatView", () => {
 });
 
 describe("MessageList", () => {
-  const userMessage: ChatMessage = {
-    id: "user-1",
-    role: "user",
-    content: "hello",
-    createdAt: 100,
-  };
-
   it("replaces the typing indicator once the first assistant chunk arrives", () => {
     const view = renderWithI18n(
-      <MessageList messages={[userMessage]} userName="Eric" isResponding />,
+      <MessageList turns={[turn("turn-1", "hello", 100, [], "streaming")]} userName="Eric" isResponding />,
     );
     expect(screen.getByLabelText(/正在输入|is typing/)).toBeInTheDocument();
 
     view.rerender(
       <AppI18nProvider>
         <MessageList
-          messages={[
-            userMessage,
-            {
-              id: "assistant-1",
-              role: "assistant",
-              content: "Mock",
-              createdAt: 200,
-            },
-          ]}
+          turns={[turn("turn-1", "hello", 100, [assistantItem("assistant-1", "Mock", 200)], "streaming")]}
           userName="Eric"
           isResponding
         />
@@ -186,15 +195,9 @@ describe("MessageList", () => {
   });
 
   it("keeps scrolling as streamed content grows within the same message", () => {
-    const assistantMessage: ChatMessage = {
-      id: "assistant-1",
-      role: "assistant",
-      content: "Mock",
-      createdAt: 200,
-    };
     const view = renderWithI18n(
       <MessageList
-        messages={[userMessage, assistantMessage]}
+        turns={[turn("turn-1", "hello", 100, [assistantItem("assistant-1", "Mock", 200)], "streaming")]}
         userName="Eric"
         isResponding
       />,
@@ -206,10 +209,7 @@ describe("MessageList", () => {
     view.rerender(
       <AppI18nProvider>
         <MessageList
-          messages={[
-            userMessage,
-            { ...assistantMessage, content: "Mock response" },
-          ]}
+          turns={[turn("turn-1", "hello", 100, [assistantItem("assistant-1", "Mock response", 200)], "streaming")]}
           userName="Eric"
           isResponding
         />
@@ -220,15 +220,9 @@ describe("MessageList", () => {
   });
 
   it("stops chasing the tail once the reader scrolls up mid-stream", () => {
-    const assistantMessage: ChatMessage = {
-      id: "assistant-1",
-      role: "assistant",
-      content: "Mock",
-      createdAt: 200,
-    };
     const view = renderWithI18n(
       <MessageList
-        messages={[userMessage, assistantMessage]}
+        turns={[turn("turn-1", "hello", 100, [assistantItem("assistant-1", "Mock", 200)], "streaming")]}
         userName="Eric"
         isResponding
       />,
@@ -245,10 +239,7 @@ describe("MessageList", () => {
     view.rerender(
       <AppI18nProvider>
         <MessageList
-          messages={[
-            userMessage,
-            { ...assistantMessage, content: "Mock response" },
-          ]}
+          turns={[turn("turn-1", "hello", 100, [assistantItem("assistant-1", "Mock response", 200)], "streaming")]}
           userName="Eric"
           isResponding
         />
@@ -259,18 +250,9 @@ describe("MessageList", () => {
   });
 
   it("re-pins to the newest message when the user sends while scrolled up", () => {
-    const assistantMessage: ChatMessage = {
-      id: "assistant-1",
-      role: "assistant",
-      content: "Mock response",
-      createdAt: 200,
-    };
+    const first = turn("turn-1", "hello", 100, [assistantItem("assistant-1", "Mock response", 200)]);
     const view = renderWithI18n(
-      <MessageList
-        messages={[userMessage, assistantMessage]}
-        userName="Eric"
-        isResponding={false}
-      />,
+      <MessageList turns={[first]} userName="Eric" isResponding={false} />,
     );
     const list = screen.getByTestId("message-list");
     Object.defineProperty(list, "scrollHeight", { configurable: true, value: 240 });
@@ -281,11 +263,7 @@ describe("MessageList", () => {
     view.rerender(
       <AppI18nProvider>
         <MessageList
-          messages={[
-            userMessage,
-            assistantMessage,
-            { id: "user-2", role: "user", content: "Follow-up", createdAt: 300 },
-          ]}
+          turns={[first, turn("turn-2", "Follow-up", 300, [], "streaming")]}
           userName="Eric"
           isResponding={false}
         />

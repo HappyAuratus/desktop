@@ -3,12 +3,12 @@ import { Composer } from "./composer";
 import { LandingHeading, LandingSuggestions } from "./empty-state";
 import { MessageList } from "./message-list";
 import { Button, Tooltip, TooltipContent, TooltipTrigger } from "@ora/ui";
-import type { ChatMessage } from "@ora/chat";
+import type { ChatTurn } from "@ora/chat";
 import type { SessionPermissionRequest } from "@ora/contracts";
 import { useTranslation } from "react-i18next";
 
 interface ChatViewProps {
-  messages: ChatMessage[];
+  turns: ChatTurn[];
   userName: string;
   isResponding: boolean;
   error: string | null;
@@ -39,9 +39,9 @@ const SLIDE_EASING = "cubic-bezier(0.32, 0.72, 0, 1)";
  * thread layouts so sending the first message slides it down to the bottom
  * instead of tearing it down and rebuilding it in the new position.
  */
-export function ChatView({ messages, userName, isResponding, error, pendingPermissions = [], disabled = false, onSend, onStop, onRespondToPermission, contextBar, disabledHint }: ChatViewProps) {
+export function ChatView({ turns, userName, isResponding, error, pendingPermissions = [], disabled = false, onSend, onStop, onRespondToPermission, contextBar, disabledHint }: ChatViewProps) {
   const { t } = useTranslation();
-  const isEmpty = messages.length === 0;
+  const isEmpty = turns.length === 0;
   const composerSlotRef = useRef<HTMLDivElement>(null);
   // Where the composer sat at the last commit, used as the FLIP origin. Only the
   // landing layout records it, because that is the only position it moves from.
@@ -91,7 +91,7 @@ export function ChatView({ messages, userName, isResponding, error, pendingPermi
           </div>
         </div>
       ) : (
-        <MessageList messages={messages} userName={userName} isResponding={isResponding} />
+        <MessageList turns={turns} userName={userName} isResponding={isResponding} />
       )}
 
       <div

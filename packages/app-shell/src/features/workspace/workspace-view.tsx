@@ -120,7 +120,7 @@ export function WorkspaceView({ userName }: WorkspaceViewProps) {
         </div>
         <div className="flex min-h-0 flex-1 flex-col">
           <ChatView
-            messages={conversation?.messages ?? []}
+            turns={conversation?.turns ?? []}
             userName={userName}
             isResponding={conversation?.isResponding ?? false}
             error={chatError}
