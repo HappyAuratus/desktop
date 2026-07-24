@@ -460,6 +460,7 @@ mod tests {
                 project_id: project.id,
                 title: "Move configuration".to_string(),
                 status: TaskStatus::Todo,
+                workspace_mode: None,
             })
             .expect("create task")
             .task;
