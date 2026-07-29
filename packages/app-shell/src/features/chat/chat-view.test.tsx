@@ -472,6 +472,21 @@ describe("MessageList", () => {
     expect(screen.queryByLabelText(/正在运行|is working/)).not.toBeInTheDocument();
   });
 
+  it("renders streamed assistant text as markdown while keeping the thread responsive", () => {
+    renderWithI18n(
+      <MessageList
+        turns={[
+          turn("turn-1", "hello", 100, [assistantItem("assistant-1", "# Live heading\n\nStill streaming.", 200)], "streaming"),
+        ]}
+        userName="Eric"
+        isResponding
+      />,
+    );
+
+      expect(screen.getByRole("heading", { level: 1, name: "Live heading" })).toBeInTheDocument();
+      expect(screen.getByText("Still streaming.")).toBeInTheDocument();
+  });
+
   it("keeps scrolling as streamed content grows within the same message", () => {
     const view = renderWithI18n(
       <MessageList

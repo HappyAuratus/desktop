@@ -35,6 +35,13 @@ describe("MarkdownMessage", () => {
     expect(screen.queryByText(/# Wrapped result/)).toBeNull();
   });
 
+  it("keeps streamed markdown visible while deferring expensive parsing", () => {
+    render(<MarkdownMessage content={"# Live heading\n\nStill streaming."} streaming />);
+
+    expect(screen.getByRole("heading", { level: 1, name: "Live heading" })).toBeInTheDocument();
+    expect(screen.getByText("Still streaming.")).toBeInTheDocument();
+  });
+
   it("preserves ordinary fenced code blocks", () => {
     render(<MarkdownMessage content={"Example:\n\n```markdown\n# Literal Markdown\n```"} />);
 

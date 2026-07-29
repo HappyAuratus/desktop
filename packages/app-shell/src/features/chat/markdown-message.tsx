@@ -1,4 +1,4 @@
-import { isValidElement, useEffect, useState, type CSSProperties, type ReactNode } from "react";
+import { isValidElement, useDeferredValue, useEffect, useState, type CSSProperties, type ReactNode } from "react";
 import { IconCheck, IconChevronsDown, IconChevronsUp, IconCopy } from "@tabler/icons-react";
 import { Button } from "@ora/ui";
 import type { Components } from "react-markdown";
@@ -10,6 +10,7 @@ import { unwrapMarkdownDocument } from "./markdown-document";
 
 interface MarkdownMessageProps {
   content: string;
+  streaming?: boolean;
 }
 
 const LANGUAGE_CLASS_PATTERN = /(?:^|\s)language-([^\s]+)/;
@@ -66,11 +67,13 @@ const markdownComponents: Components = {
 };
 
 /** Renders untrusted assistant Markdown without enabling raw HTML execution. */
-export function MarkdownMessage({ content }: MarkdownMessageProps) {
+export function MarkdownMessage({ content, streaming = false }: MarkdownMessageProps) {
   const markdown = unwrapMarkdownDocument(content);
+  const deferredMarkdown = useDeferredValue(markdown);
+  const renderedMarkdown = streaming ? deferredMarkdown : markdown;
   return (
     <div data-selectable className="min-w-0 break-words text-[15px] leading-[26px] text-foreground">
-      <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>{markdown}</ReactMarkdown>
+      <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>{renderedMarkdown}</ReactMarkdown>
     </div>
   );
 }
