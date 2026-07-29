@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { AgentActivityDots } from "../../components/agent-activity-dots";
 import { useTranslation } from "react-i18next";
 import { AnchorHighlight } from "./anchor-highlight";
@@ -24,6 +24,7 @@ interface PendingNavigation {
 /** The scrollable turn thread, kept pinned to live ACP activity unless the reader scrolls away. */
 export function MessageList({ turns, userName, isResponding }: MessageListProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
+  const contentRef = useRef<HTMLDivElement>(null);
   const followTailRef = useRef(true);
   const pendingNavigationRef = useRef<PendingNavigation | null>(null);
   const lastTurn = turns.at(-1);
@@ -37,7 +38,6 @@ export function MessageList({ turns, userName, isResponding }: MessageListProps)
   const activeAnchorId = navigation.lastAnchorId === lastAnchorId ? navigation.activeAnchorId : lastAnchorId;
   const lastItem = lastTurn?.items.at(-1);
   const lastUserMessageId = lastTurn?.userMessage.id;
-  const tailVersion = itemVersion(lastItem);
   // Hide the running indicator while the answer itself is streaming: the growing
   // text already shows the agent is live, so a second "working" line under it
   // just reads as noise. It returns for thoughts, tool calls, and the waits between.
@@ -70,17 +70,32 @@ export function MessageList({ turns, userName, isResponding }: MessageListProps)
     pendingNavigationRef.current = null;
   };
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (lastUserMessageId === undefined) return;
     followTailRef.current = true;
+    const element = scrollRef.current;
+    if (!element) return;
+    // Tail following must settle in one step. Smooth scrolling emits
+    // intermediate positions that look like a reader moving away, especially
+    // when final Markdown or a large highlighted code block grows at the same time.
+    element.style.scrollBehavior = "auto";
+    element.scrollTop = element.scrollHeight;
   }, [turns.length, lastUserMessageId]);
 
-  useEffect(() => {
-    const element = scrollRef.current;
-    if (!element || !followTailRef.current) return;
-    element.style.scrollBehavior = isResponding ? "auto" : "smooth";
-    element.scrollTop = element.scrollHeight;
-  }, [turns.length, lastTurn?.items.length, tailVersion, isResponding]);
+  useLayoutEffect(() => {
+    const content = contentRef.current;
+    if (!content || typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(() => {
+      const element = scrollRef.current;
+      if (!element || !followTailRef.current) return;
+      // Deferred Markdown and async code highlighting can finish after the
+      // message update effect. Following measured height keeps the live tail
+      // stable without treating those later layout passes as user intent.
+      element.scrollTop = element.scrollHeight;
+    });
+    observer.observe(content);
+    return () => observer.disconnect();
+  }, []);
 
   /** Moves the thread to a selected prompt or response without resuming live tail-following. */
   const navigateToAnchor = (anchorId: string) => {
@@ -114,7 +129,7 @@ export function MessageList({ turns, userName, isResponding }: MessageListProps)
         aria-live="polite"
         className="scrollbar-hide h-full min-h-0 animate-in overflow-y-auto fade-in duration-500"
       >
-        <div className="mx-auto w-full max-w-[760px] px-3 pb-4 pt-5 sm:px-5 sm:pt-8">
+        <div ref={contentRef} className="mx-auto w-full max-w-[760px] px-3 pb-4 pt-5 sm:px-5 sm:pt-8">
           {turns.map((turn) => (
             <div key={turn.id} data-turn-anchor={turn.id}>
               <div data-turn-user data-conversation-anchor={`${turn.id}:user`}>
@@ -178,21 +193,6 @@ function findActiveAnchorId(element: HTMLDivElement): string | null {
   return activeAnchorId;
 }
 
-/** Returns a primitive version marker for streaming content and lifecycle updates. */
-function itemVersion(item: ChatTurn["items"][number] | undefined): string | number | undefined {
-  if (item === undefined) return undefined;
-  switch (item.kind) {
-    case "message":
-    case "thought":
-      return item.content;
-    case "plan":
-    case "toolCall":
-      return item.updatedAt;
-    case "unsupportedContent":
-      return item.id;
-  }
-}
-
 /** Word rotation cadence — slow enough to read each phrase, quick enough to feel alive. */
 const RUNNING_WORD_INTERVAL_MS = 2600;
 
@@ -213,7 +213,6 @@ function RunningIndicator() {
   const [index, setIndex] = useState(0);
 
   useEffect(() => {
-    setIndex(0);
     if (words.length <= 1 || window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
     const timer = setInterval(() => setIndex((current) => (current + 1) % words.length), RUNNING_WORD_INTERVAL_MS);
     return () => clearInterval(timer);

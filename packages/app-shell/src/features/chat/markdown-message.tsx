@@ -1,4 +1,16 @@
-import { isValidElement, useDeferredValue, useEffect, useState, type CSSProperties, type ReactNode } from "react";
+import {
+  isValidElement,
+  useDeferredValue,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type CSSProperties,
+  type ComponentPropsWithoutRef,
+  type ReactNode,
+  type RefObject,
+} from "react";
 import { IconCheck, IconChevronsDown, IconChevronsUp, IconCopy } from "@tabler/icons-react";
 import { Button } from "@ora/ui";
 import type { Components } from "react-markdown";
@@ -18,6 +30,32 @@ const highlightedCodeCache = new Map<string, Promise<ThemedTokenWithVariants[][]
 
 interface ShikiTokenStyle extends CSSProperties {
   "--shiki-dark"?: string;
+}
+
+interface MarkdownAstPosition {
+  start: { offset?: number };
+  end: { offset?: number };
+}
+
+interface MarkdownAstNode {
+  type: string;
+  value?: string;
+  tagName?: string;
+  properties?: Record<string, unknown>;
+  children?: MarkdownAstNode[];
+  position?: MarkdownAstPosition;
+}
+
+interface StreamingRevealState {
+  renderedLength: number;
+  revealStart: number;
+  streaming: boolean;
+}
+
+interface StreamingRevealSpanProps extends ComponentPropsWithoutRef<"span"> {
+  node?: MarkdownAstNode;
+  registryRef: RefObject<Set<HTMLElement>>;
+  "data-stream-text-reveal"?: boolean;
 }
 
 const markdownComponents: Components = {
@@ -71,11 +109,133 @@ export function MarkdownMessage({ content, streaming = false }: MarkdownMessageP
   const markdown = unwrapMarkdownDocument(content);
   const deferredMarkdown = useDeferredValue(markdown);
   const renderedMarkdown = streaming ? deferredMarkdown : markdown;
+  const [storedRevealState, setStoredRevealState] = useState<StreamingRevealState>(() => ({
+    renderedLength: renderedMarkdown.length,
+    revealStart: streaming ? 0 : renderedMarkdown.length,
+    streaming,
+  }));
+  let revealState = storedRevealState;
+  if (storedRevealState.renderedLength !== renderedMarkdown.length || storedRevealState.streaming !== streaming) {
+    // Chat content is append-only while streaming. Length is therefore enough
+    // to retain the prior boundary without rescanning an ever-growing string.
+    revealState = {
+      renderedLength: renderedMarkdown.length,
+      revealStart: streaming && renderedMarkdown.length >= storedRevealState.renderedLength
+        ? storedRevealState.renderedLength
+        : renderedMarkdown.length,
+      streaming,
+    };
+    setStoredRevealState(revealState);
+  }
+  const revealPlugin = useMemo(
+    () => createStreamingRevealPlugin(revealState.revealStart),
+    [revealState.revealStart],
+  );
+  const revealNodesRef = useRef(new Set<HTMLElement>());
+  const streamingMarkdownComponents = useMemo<Components>(() => ({
+    ...markdownComponents,
+    span: (props) => <StreamingRevealSpan {...props} registryRef={revealNodesRef} />,
+  }), []);
+
+  useLayoutEffect(() => {
+    if (streaming) animateStreamingReveal(revealNodesRef.current);
+  }, [renderedMarkdown, streaming]);
+
   return (
     <div data-selectable className="min-w-0 break-words text-[15px] leading-[26px] text-foreground">
-      <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>{renderedMarkdown}</ReactMarkdown>
+      <ReactMarkdown
+        remarkPlugins={[remarkGfm]}
+        rehypePlugins={streaming ? [revealPlugin] : []}
+        components={streaming ? streamingMarkdownComponents : markdownComponents}
+      >
+        {renderedMarkdown}
+      </ReactMarkdown>
     </div>
   );
+}
+
+/** Creates one Markdown transform that marks only newly streamed prose for reveal animation. */
+function createStreamingRevealPlugin(revealStart: number) {
+  return () => (tree: MarkdownAstNode) => {
+    wrapStreamingText(tree, revealStart);
+  };
+}
+
+/** Wraps text after the previous stream boundary while leaving code structures untouched. */
+function wrapStreamingText(node: MarkdownAstNode, revealStart: number) {
+  if (node.tagName === "code" || node.tagName === "pre" || node.children === undefined) return;
+  for (let index = node.children.length - 1; index >= 0; index -= 1) {
+    const child = node.children[index]!;
+    const childEndOffset = child.position?.end.offset;
+    // Source-ordered HAST lets us stop as soon as we reach stable content,
+    // keeping reveal work proportional to the newest streamed suffix.
+    if (childEndOffset !== undefined && childEndOffset <= revealStart) break;
+    if (child.type !== "text" || child.value === undefined) {
+      wrapStreamingText(child, revealStart);
+      continue;
+    }
+
+    const startOffset = child.position?.start.offset;
+    if (startOffset === undefined || childEndOffset === undefined) continue;
+
+    const splitIndex = revealStart <= startOffset
+      ? 0
+      : Math.round(((revealStart - startOffset) / Math.max(1, childEndOffset - startOffset)) * child.value.length);
+    const stableText = child.value.slice(0, splitIndex);
+    const revealedText = child.value.slice(splitIndex);
+    if (revealedText === "") continue;
+    const revealNode: MarkdownAstNode = {
+      type: "element",
+      tagName: "span",
+      properties: { dataStreamTextReveal: true },
+      children: [{ ...child, value: revealedText }],
+    };
+    node.children.splice(
+      index,
+      1,
+      ...(stableText === "" ? [revealNode] : [{ ...child, value: stableText }, revealNode]),
+    );
+  }
+}
+
+/** Animates the latest prose batch and releases compositor resources when it settles. */
+function animateStreamingReveal(nodes: ReadonlySet<HTMLElement>) {
+  if (typeof HTMLElement.prototype.animate !== "function") return;
+  if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+  nodes.forEach((node) => {
+    node.getAnimations().forEach((animation) => animation.cancel());
+    const animation = node.animate(
+      [
+        { opacity: 0.2 },
+        { opacity: 1 },
+      ],
+      { duration: 180, easing: "cubic-bezier(0.2, 0, 0, 1)" },
+    );
+    animation.addEventListener("finish", () => animation.cancel(), { once: true });
+  });
+}
+
+/** Registers one animated Markdown span without rescanning the complete message DOM. */
+function StreamingRevealSpan({
+  node,
+  registryRef,
+  "data-stream-text-reveal": reveal,
+  ...props
+}: StreamingRevealSpanProps) {
+  const spanRef = useRef<HTMLSpanElement>(null);
+  const shouldReveal = reveal === true || node?.properties?.dataStreamTextReveal === true;
+
+  useLayoutEffect(() => {
+    const span = spanRef.current;
+    if (!shouldReveal || span === null) return;
+    const registry = registryRef.current;
+    registry.add(span);
+    return () => {
+      registry.delete(span);
+    };
+  }, [registryRef, shouldReveal]);
+
+  return <span ref={spanRef} data-stream-text-reveal={shouldReveal || undefined} {...props} />;
 }
 
 /** Wraps fenced code with persistent copy and disclosure controls. */

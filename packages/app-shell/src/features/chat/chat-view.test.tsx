@@ -1,8 +1,8 @@
 import { createElement, type ReactNode } from "react";
-import { fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { useState } from "react";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ChatMessage, ChatThought, ChatToolCall, ChatTurn, ChatTurnItem } from "@ora/chat";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { TooltipProvider } from "@ora/ui";
@@ -13,6 +13,10 @@ import { ChatView } from "./chat-view";
 import { Composer } from "./composer";
 import { ConversationNavigator } from "./conversation-navigator";
 import { MessageList } from "./message-list";
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
 
 /** Stale-time-zero QueryClient so tests don't need to wait for refetch intervals. */
 function createTestQueryClient() {
@@ -487,7 +491,29 @@ describe("MessageList", () => {
       expect(screen.getByText("Still streaming.")).toBeInTheDocument();
   });
 
-  it("keeps scrolling as streamed content grows within the same message", () => {
+  it("keeps following when deferred content changes the rendered height", () => {
+    let resizeCallback: ResizeObserverCallback | undefined;
+    class TestResizeObserver implements ResizeObserver {
+      constructor(callback: ResizeObserverCallback) {
+        resizeCallback = callback;
+      }
+
+      /** The observed target is irrelevant to this layout-focused regression test. */
+      observe() {}
+
+      /** The component only observes one content root for its full lifetime. */
+      unobserve() {}
+
+      /** Testing Library owns unmount cleanup after the assertion. */
+      disconnect() {}
+
+      /** This test drives the callback directly, so no queued records exist. */
+      takeRecords() {
+        return [];
+      }
+    }
+    vi.stubGlobal("ResizeObserver", TestResizeObserver);
+
     const view = renderWithI18n(
       <MessageList
         turns={[turn("turn-1", "hello", 100, [assistantItem("assistant-1", "Mock", 200)], "streaming")]}
@@ -496,18 +522,33 @@ describe("MessageList", () => {
       />,
     );
     const list = screen.getByTestId("message-list");
-    Object.defineProperty(list, "scrollHeight", { configurable: true, value: 240 });
+    Object.defineProperty(list, "scrollHeight", { configurable: true, value: 480 });
     list.scrollTop = 0;
 
-    view.rerender(
-        <MessageList
-          turns={[turn("turn-1", "hello", 100, [assistantItem("assistant-1", "Mock response", 200)], "streaming")]}
-          userName="Eric"
-          isResponding
-        />
-    );
+    act(() => resizeCallback?.([], {} as ResizeObserver));
 
-    expect(list.scrollTop).toBe(240);
+    expect(list.scrollTop).toBe(480);
+
+    Object.defineProperty(list, "scrollHeight", { configurable: true, value: 560 });
+    view.rerender(
+      <MessageList
+        turns={[turn("turn-1", "hello", 100, [assistantItem("assistant-1", "Mock final code", 200)], "completed")]}
+        userName="Eric"
+        isResponding={false}
+      />,
+    );
+    act(() => resizeCallback?.([], {} as ResizeObserver));
+
+    expect(list.style.scrollBehavior).toBe("auto");
+    expect(list.scrollTop).toBe(560);
+
+    Object.defineProperty(list, "clientHeight", { configurable: true, value: 100 });
+    Object.defineProperty(list, "scrollHeight", { configurable: true, value: 600 });
+    list.scrollTop = 0;
+    fireEvent.scroll(list);
+    act(() => resizeCallback?.([], {} as ResizeObserver));
+
+    expect(list.scrollTop).toBe(0);
   });
 
   it("stops chasing the tail once the reader scrolls up mid-stream", () => {

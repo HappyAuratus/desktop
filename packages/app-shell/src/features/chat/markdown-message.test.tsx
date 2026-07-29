@@ -42,6 +42,51 @@ describe("MarkdownMessage", () => {
     expect(screen.getByText("Still streaming.")).toBeInTheDocument();
   });
 
+  it("reveals only newly streamed prose without reanimating stable text", async () => {
+    const view = render(<MarkdownMessage content="Stable" streaming />);
+
+    expect(view.container.querySelector("[data-stream-text-reveal]")).toHaveTextContent("Stable");
+
+    view.rerender(<MarkdownMessage content="Stable addition" streaming />);
+
+    await waitFor(() => {
+      expect(view.container.querySelector("[data-stream-text-reveal]")?.textContent).toBe(" addition");
+    });
+    expect(view.container).toHaveTextContent("Stable addition");
+  });
+
+  it("does not animate completed Markdown or code contents", () => {
+    const completed = render(<MarkdownMessage content="Complete" />);
+    expect(completed.container.querySelector("[data-stream-text-reveal]")).toBeNull();
+    completed.unmount();
+
+    const streamingCode = render(<MarkdownMessage content={"```typescript\nconst answer = 42;\n```"} streaming />);
+    expect(streamingCode.container.querySelector("[data-stream-text-reveal]")).toBeNull();
+  });
+
+  it("uses a crisp opacity-only reveal without blur or movement", () => {
+    const originalAnimate = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "animate");
+    const originalGetAnimations = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "getAnimations");
+    const animation = { addEventListener: vi.fn() } as unknown as Animation;
+    const animate = vi.fn(() => animation);
+    Object.defineProperty(HTMLElement.prototype, "animate", { configurable: true, value: animate });
+    Object.defineProperty(HTMLElement.prototype, "getAnimations", { configurable: true, value: () => [] });
+
+    try {
+      render(<MarkdownMessage content="Crisp stream" streaming />);
+
+      expect(animate).toHaveBeenCalledWith(
+        [{ opacity: 0.2 }, { opacity: 1 }],
+        { duration: 180, easing: "cubic-bezier(0.2, 0, 0, 1)" },
+      );
+    } finally {
+      if (originalAnimate === undefined) Reflect.deleteProperty(HTMLElement.prototype, "animate");
+      else Object.defineProperty(HTMLElement.prototype, "animate", originalAnimate);
+      if (originalGetAnimations === undefined) Reflect.deleteProperty(HTMLElement.prototype, "getAnimations");
+      else Object.defineProperty(HTMLElement.prototype, "getAnimations", originalGetAnimations);
+    }
+  });
+
   it("preserves ordinary fenced code blocks", () => {
     render(<MarkdownMessage content={"Example:\n\n```markdown\n# Literal Markdown\n```"} />);
 
