@@ -542,9 +542,19 @@ describe("MessageList", () => {
     expect(list.style.scrollBehavior).toBe("auto");
     expect(list.scrollTop).toBe(560);
 
+    // A programmatic scroll event can arrive after another fast content growth.
+    // It must not look like a reader abandoning the live tail.
     Object.defineProperty(list, "clientHeight", { configurable: true, value: 100 });
-    Object.defineProperty(list, "scrollHeight", { configurable: true, value: 600 });
+    Object.defineProperty(list, "scrollHeight", { configurable: true, value: 720 });
+    list.scrollTop = 460;
+    fireEvent.scroll(list);
+    act(() => resizeCallback?.([], {} as ResizeObserver));
+
+    expect(list.scrollTop).toBe(720);
+
+    Object.defineProperty(list, "scrollHeight", { configurable: true, value: 800 });
     list.scrollTop = 0;
+    fireEvent.wheel(list, { deltaY: -120 });
     fireEvent.scroll(list);
     act(() => resizeCallback?.([], {} as ResizeObserver));
 
@@ -563,8 +573,9 @@ describe("MessageList", () => {
     Object.defineProperty(list, "scrollHeight", { configurable: true, value: 240 });
     Object.defineProperty(list, "clientHeight", { configurable: true, value: 100 });
 
-    // Scrolling far from the bottom is the signal that the reader is reading
-    // history rather than following the stream.
+    // An upward wheel gesture is the user intent; scroll events alone can also
+    // come from the component's own tail correction.
+    fireEvent.wheel(list, { deltaY: -120 });
     list.scrollTop = 0;
     fireEvent.scroll(list);
 
@@ -587,6 +598,7 @@ describe("MessageList", () => {
     const list = screen.getByTestId("message-list");
     Object.defineProperty(list, "scrollHeight", { configurable: true, value: 240 });
     Object.defineProperty(list, "clientHeight", { configurable: true, value: 100 });
+    fireEvent.wheel(list, { deltaY: -120 });
     list.scrollTop = 0;
     fireEvent.scroll(list);
 

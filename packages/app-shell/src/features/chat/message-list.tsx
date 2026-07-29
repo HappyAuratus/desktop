@@ -26,6 +26,7 @@ export function MessageList({ turns, userName, isResponding }: MessageListProps)
   const scrollRef = useRef<HTMLDivElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
   const followTailRef = useRef(true);
+  const pointerScrollRef = useRef(false);
   const pendingNavigationRef = useRef<PendingNavigation | null>(null);
   const lastTurn = turns.at(-1);
   const lastAnchorId = lastTurn === undefined
@@ -47,7 +48,6 @@ export function MessageList({ turns, userName, isResponding }: MessageListProps)
   const handleScroll = () => {
     const element = scrollRef.current;
     if (!element) return;
-    followTailRef.current = element.scrollHeight - element.scrollTop - element.clientHeight < TAIL_PROXIMITY_PX;
     const pendingNavigation = pendingNavigationRef.current;
     if (pendingNavigation) {
       const maximumScrollTop = Math.max(0, element.scrollHeight - element.clientHeight);
@@ -57,6 +57,9 @@ export function MessageList({ turns, userName, isResponding }: MessageListProps)
       }
       return;
     }
+    const atTail = element.scrollHeight - element.scrollTop - element.clientHeight < TAIL_PROXIMITY_PX;
+    if (atTail) followTailRef.current = true;
+    else if (pointerScrollRef.current) followTailRef.current = false;
     const nextAnchorId = findActiveAnchorId(element);
     setNavigation((current) => (
       current.activeAnchorId === nextAnchorId && current.lastAnchorId === lastAnchorId
@@ -68,6 +71,23 @@ export function MessageList({ turns, userName, isResponding }: MessageListProps)
   /** Returns control to position-based tracking when the reader manually moves the thread. */
   const cancelPendingNavigation = () => {
     pendingNavigationRef.current = null;
+  };
+
+  /** Stops tail-following only for an explicit upward wheel gesture. */
+  const handleWheel = (deltaY: number) => {
+    cancelPendingNavigation();
+    if (deltaY < 0) followTailRef.current = false;
+  };
+
+  /** Distinguishes scrollbar or touch dragging from scroll events emitted by programmatic tail updates. */
+  const beginPointerScroll = () => {
+    cancelPendingNavigation();
+    pointerScrollRef.current = true;
+  };
+
+  /** Ends pointer intent without changing the follow state established by any resulting scroll. */
+  const endPointerScroll = () => {
+    pointerScrollRef.current = false;
   };
 
   useLayoutEffect(() => {
@@ -122,9 +142,13 @@ export function MessageList({ turns, userName, isResponding }: MessageListProps)
       <div
         ref={scrollRef}
         onScroll={handleScroll}
-        onWheel={cancelPendingNavigation}
-        onPointerDown={cancelPendingNavigation}
-        onTouchStart={cancelPendingNavigation}
+        onWheel={(event) => handleWheel(event.deltaY)}
+        onPointerDown={beginPointerScroll}
+        onPointerUp={endPointerScroll}
+        onPointerCancel={endPointerScroll}
+        onTouchStart={beginPointerScroll}
+        onTouchEnd={endPointerScroll}
+        onTouchCancel={endPointerScroll}
         data-testid="message-list"
         aria-live="polite"
         className="scrollbar-hide h-full min-h-0 animate-in overflow-y-auto fade-in duration-500"
