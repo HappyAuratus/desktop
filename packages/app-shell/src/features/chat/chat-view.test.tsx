@@ -403,6 +403,51 @@ describe("MessageList", () => {
     expect(activity).toHaveTextContent(/1 个文件 · 1 次分析|1 file · 1 analysis step/);
   });
 
+  it("reveals only the live thought suffix and settles it before the next activity", () => {
+    const view = renderWithI18n(
+      <MessageList
+        turns={[turn("turn-1", "Inspect", 100, [
+          thoughtItem("thought-1", "Checking", 200),
+        ], "streaming")]}
+        userName="Eric"
+        isResponding
+      />,
+    );
+
+    expect(
+      Array.from(view.container.querySelectorAll("[data-stream-thought-reveal]"))
+        .map((node) => node.textContent),
+    ).toEqual(["Checking"]);
+
+    view.rerender(
+      <MessageList
+        turns={[turn("turn-1", "Inspect", 100, [
+          thoughtItem("thought-1", "Checking files", 200),
+        ], "streaming")]}
+        userName="Eric"
+        isResponding
+      />,
+    );
+
+    expect(
+      Array.from(view.container.querySelectorAll("[data-stream-thought-reveal]"))
+        .map((node) => node.textContent),
+    ).toEqual([" files"]);
+
+    view.rerender(
+      <MessageList
+        turns={[turn("turn-1", "Inspect", 100, [
+          thoughtItem("thought-1", "Checking files", 200),
+          toolCallItem("tool-1", 300),
+        ], "streaming")]}
+        userName="Eric"
+        isResponding
+      />,
+    );
+
+    expect(view.container.querySelector("[data-stream-thought-reveal]")).toBeNull();
+  });
+
   it("condenses interleaved analysis and file reads into one expandable activity timeline", async () => {
     const user = userEvent.setup();
     renderWithI18n(
