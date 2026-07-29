@@ -1,6 +1,5 @@
 import {
   isValidElement,
-  useDeferredValue,
   useEffect,
   useLayoutEffect,
   useMemo,
@@ -13,6 +12,7 @@ import {
 } from "react";
 import { IconCheck, IconChevronsDown, IconChevronsUp, IconCopy } from "@tabler/icons-react";
 import { Button } from "@ora/ui";
+import remend from "remend";
 import type { Components } from "react-markdown";
 import ReactMarkdown from "react-markdown";
 import { useTranslation } from "react-i18next";
@@ -26,6 +26,7 @@ interface MarkdownMessageProps {
 }
 
 const LANGUAGE_CLASS_PATTERN = /(?:^|\s)language-([^\s]+)/;
+const markdownRemarkPlugins = [remarkGfm];
 const highlightedCodeCache = new Map<string, Promise<ThemedTokenWithVariants[][] | null>>();
 
 interface ShikiTokenStyle extends CSSProperties {
@@ -107,8 +108,11 @@ const markdownComponents: Components = {
 /** Renders untrusted assistant Markdown without enabling raw HTML execution. */
 export function MarkdownMessage({ content, streaming = false }: MarkdownMessageProps) {
   const markdown = unwrapMarkdownDocument(content);
-  const deferredMarkdown = useDeferredValue(markdown);
-  const renderedMarkdown = streaming ? deferredMarkdown : markdown;
+  const renderedMarkdown = useFrameBatchedMarkdown(markdown, streaming);
+  const parseableMarkdown = useMemo(
+    () => streaming ? remend(renderedMarkdown) : renderedMarkdown,
+    [renderedMarkdown, streaming],
+  );
   const [storedRevealState, setStoredRevealState] = useState<StreamingRevealState>(() => ({
     renderedLength: renderedMarkdown.length,
     revealStart: streaming ? 0 : renderedMarkdown.length,
@@ -136,6 +140,22 @@ export function MarkdownMessage({ content, streaming = false }: MarkdownMessageP
     ...markdownComponents,
     span: (props) => <StreamingRevealSpan {...props} registryRef={revealNodesRef} />,
   }), []);
+  const rehypePlugins = useMemo(
+    () => streaming ? [revealPlugin] : [],
+    [revealPlugin, streaming],
+  );
+  const markdownBody = useMemo(
+    () => (
+      <ReactMarkdown
+        remarkPlugins={markdownRemarkPlugins}
+        rehypePlugins={rehypePlugins}
+        components={streaming ? streamingMarkdownComponents : markdownComponents}
+      >
+        {parseableMarkdown}
+      </ReactMarkdown>
+    ),
+    [parseableMarkdown, rehypePlugins, streaming, streamingMarkdownComponents],
+  );
 
   useLayoutEffect(() => {
     if (streaming) animateStreamingReveal(revealNodesRef.current);
@@ -143,15 +163,39 @@ export function MarkdownMessage({ content, streaming = false }: MarkdownMessageP
 
   return (
     <div data-selectable className="min-w-0 break-words text-[15px] leading-[26px] text-foreground">
-      <ReactMarkdown
-        remarkPlugins={[remarkGfm]}
-        rehypePlugins={streaming ? [revealPlugin] : []}
-        components={streaming ? streamingMarkdownComponents : markdownComponents}
-      >
-        {renderedMarkdown}
-      </ReactMarkdown>
+      {markdownBody}
     </div>
   );
+}
+
+/** Coalesces stream chunks per frame while guaranteeing progress during continuous output. */
+function useFrameBatchedMarkdown(markdown: string, streaming: boolean) {
+  const [renderedMarkdown, setRenderedMarkdown] = useState(markdown);
+  const latestMarkdownRef = useRef(markdown);
+  const committedMarkdownRef = useRef(markdown);
+  const frameRef = useRef<number | null>(null);
+
+  useLayoutEffect(() => {
+    latestMarkdownRef.current = markdown;
+    if (committedMarkdownRef.current === markdown || frameRef.current !== null) return;
+
+    const scheduleFrame = window.requestAnimationFrame
+      ?? ((callback: FrameRequestCallback) => window.setTimeout(() => callback(performance.now()), 16));
+    frameRef.current = scheduleFrame(() => {
+      frameRef.current = null;
+      const latestMarkdown = latestMarkdownRef.current;
+      committedMarkdownRef.current = latestMarkdown;
+      setRenderedMarkdown(latestMarkdown);
+    });
+  }, [markdown]);
+
+  useEffect(() => () => {
+    if (frameRef.current === null) return;
+    if (window.cancelAnimationFrame) window.cancelAnimationFrame(frameRef.current);
+    else window.clearTimeout(frameRef.current);
+  }, []);
+
+  return streaming ? renderedMarkdown : markdown;
 }
 
 /** Creates one Markdown transform that marks only newly streamed prose for reveal animation. */
@@ -178,9 +222,13 @@ function wrapStreamingText(node: MarkdownAstNode, revealStart: number) {
     const startOffset = child.position?.start.offset;
     if (startOffset === undefined || childEndOffset === undefined) continue;
 
-    const splitIndex = revealStart <= startOffset
+    const sourceLength = childEndOffset - startOffset;
+    // Entities and escapes can make source offsets diverge from visible text.
+    // Revealing the whole node is preferable to hiding freshly streamed text
+    // behind an unsafe proportional offset.
+    const splitIndex = revealStart <= startOffset || sourceLength !== child.value.length
       ? 0
-      : Math.round(((revealStart - startOffset) / Math.max(1, childEndOffset - startOffset)) * child.value.length);
+      : Math.min(child.value.length, revealStart - startOffset);
     const stableText = child.value.slice(0, splitIndex);
     const revealedText = child.value.slice(splitIndex);
     if (revealedText === "") continue;

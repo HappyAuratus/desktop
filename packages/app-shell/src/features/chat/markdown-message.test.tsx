@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import { AppI18nProvider } from "../../i18n/i18n";
@@ -35,11 +35,126 @@ describe("MarkdownMessage", () => {
     expect(screen.queryByText(/# Wrapped result/)).toBeNull();
   });
 
-  it("keeps streamed markdown visible while deferring expensive parsing", () => {
+  it("keeps streamed markdown visible while batching expensive parsing", () => {
     render(<MarkdownMessage content={"# Live heading\n\nStill streaming."} streaming />);
 
     expect(screen.getByRole("heading", { level: 1, name: "Live heading" })).toBeInTheDocument();
     expect(screen.getByText("Still streaming.")).toBeInTheDocument();
+  });
+
+  it("renders growing GFM block structures without waiting for completion", () => {
+    render(
+      <MarkdownMessage
+        content={"- first item\n- growing item\n\n> Live quote\n\n| Name | Value |\n| --- | --- |\n| Ora | stream"}
+        streaming
+      />,
+    );
+
+    expect(screen.getByRole("list")).toHaveTextContent("growing item");
+    expect(screen.getByText("Live quote").closest("blockquote")).not.toBeNull();
+    expect(screen.getByRole("table")).toHaveTextContent("Ora");
+    expect(screen.getByRole("table")).toHaveTextContent("stream");
+  });
+
+  it.each([
+    ["strong", "**Live strong", "strong"],
+    ["asterisk emphasis", "*Live emphasis", "em"],
+    ["underscore emphasis", "_Live emphasis", "em"],
+    ["strikethrough", "~~Live removed", "del"],
+    ["inline code", "`Live code", "code"],
+  ])("renders unfinished %s immediately with its final styling", (_label, content, selector) => {
+    const visibleText = content.replace(/^[*_~`]+/, "");
+    const view = render(<MarkdownMessage content={content} streaming />);
+
+    expect(screen.getByText(visibleText).closest(selector)).not.toBeNull();
+    expect(view.container).not.toHaveTextContent(content.slice(0, content.length - visibleText.length));
+  });
+
+  it("keeps nested unfinished emphasis stable when real delimiters arrive", async () => {
+    const view = render(<MarkdownMessage content="***Live bold italic" streaming />);
+
+    expect(screen.getByText("Live bold italic").closest("strong")).not.toBeNull();
+    expect(screen.getByText("Live bold italic").closest("em")).not.toBeNull();
+
+    view.rerender(<MarkdownMessage content="***Live bold italic***" streaming />);
+
+    await waitFor(() => {
+      expect(screen.getByText("Live bold italic").closest("strong")).not.toBeNull();
+      expect(screen.getByText("Live bold italic").closest("em")).not.toBeNull();
+    });
+    expect(view.container).not.toHaveTextContent("******");
+  });
+
+  it("completes partial links without exposing their destination syntax", () => {
+    const view = render(<MarkdownMessage content="[Documentation](https://exam" streaming />);
+
+    expect(screen.getByText("Documentation").closest("a")).not.toBeNull();
+    expect(view.container).not.toHaveTextContent("https://exam");
+  });
+
+  it("does not interpret formatting markers inside streamed inline code", () => {
+    render(<MarkdownMessage content="`**literal _markers_`" streaming />);
+
+    const code = screen.getByText("**literal _markers_");
+    expect(code.closest("code")).not.toBeNull();
+    expect(code.closest("strong")).toBeNull();
+    expect(code.closest("em")).toBeNull();
+  });
+
+  it("keeps escaped markers literal while streaming", () => {
+    render(<MarkdownMessage content={"\\*literal emphasis marker"} streaming />);
+
+    const text = screen.getByText("*literal emphasis marker");
+    expect(text.closest("em")).toBeNull();
+  });
+
+  it("keeps an unfinished fenced code block visible without parsing its contents as prose", () => {
+    render(<MarkdownMessage content={"```typescript\nconst marker = '**literal**';"} streaming />);
+
+    const code = screen.getByText("const marker = '**literal**';");
+    expect(code.closest(".markdown-code-block")).not.toBeNull();
+    expect(code.closest("strong")).toBeNull();
+  });
+
+  it("reveals entity-backed text without dropping newly appended characters", async () => {
+    const view = render(<MarkdownMessage content="Stable &amp;" streaming />);
+
+    view.rerender(<MarkdownMessage content="Stable &amp; addition" streaming />);
+
+    await waitFor(() => {
+      expect(view.container.querySelector("[data-stream-text-reveal]")?.textContent).toBe(" addition");
+    });
+    expect(view.container).toHaveTextContent("Stable & addition");
+  });
+
+  it("coalesces rapid chunks into one rendered update per animation frame", () => {
+    const originalRequestAnimationFrame = Object.getOwnPropertyDescriptor(window, "requestAnimationFrame");
+    const originalCancelAnimationFrame = Object.getOwnPropertyDescriptor(window, "cancelAnimationFrame");
+    let frameCallback: FrameRequestCallback | undefined;
+    const requestAnimationFrame = vi.fn((callback: FrameRequestCallback) => {
+      frameCallback = callback;
+      return 1;
+    });
+    Object.defineProperty(window, "requestAnimationFrame", { configurable: true, value: requestAnimationFrame });
+    Object.defineProperty(window, "cancelAnimationFrame", { configurable: true, value: vi.fn() });
+
+    try {
+      const view = render(<MarkdownMessage content="A" streaming />);
+      view.rerender(<MarkdownMessage content="AB" streaming />);
+      view.rerender(<MarkdownMessage content="ABC" streaming />);
+
+      expect(requestAnimationFrame).toHaveBeenCalledTimes(1);
+      expect(view.container).toHaveTextContent("A");
+
+      act(() => frameCallback?.(16));
+
+      expect(view.container).toHaveTextContent("ABC");
+    } finally {
+      if (originalRequestAnimationFrame === undefined) Reflect.deleteProperty(window, "requestAnimationFrame");
+      else Object.defineProperty(window, "requestAnimationFrame", originalRequestAnimationFrame);
+      if (originalCancelAnimationFrame === undefined) Reflect.deleteProperty(window, "cancelAnimationFrame");
+      else Object.defineProperty(window, "cancelAnimationFrame", originalCancelAnimationFrame);
+    }
   });
 
   it("reveals only newly streamed prose without reanimating stable text", async () => {
