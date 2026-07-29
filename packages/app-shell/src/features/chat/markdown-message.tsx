@@ -12,13 +12,13 @@ import {
 } from "react";
 import { IconCheck, IconChevronsDown, IconChevronsUp, IconCopy } from "@tabler/icons-react";
 import { Button } from "@ora/ui";
-import remend from "remend";
 import type { Components } from "react-markdown";
 import ReactMarkdown from "react-markdown";
 import { useTranslation } from "react-i18next";
 import remarkGfm from "remark-gfm";
 import type { BundledLanguage, ThemedTokenWithVariants } from "shiki";
 import { unwrapMarkdownDocument } from "./markdown-document";
+import { prepareStreamingMarkdown } from "./streaming-markdown";
 
 interface MarkdownMessageProps {
   content: string;
@@ -110,7 +110,7 @@ export function MarkdownMessage({ content, streaming = false }: MarkdownMessageP
   const markdown = unwrapMarkdownDocument(content);
   const renderedMarkdown = useFrameBatchedMarkdown(markdown, streaming);
   const parseableMarkdown = useMemo(
-    () => streaming ? remend(renderedMarkdown) : renderedMarkdown,
+    () => streaming ? prepareStreamingMarkdown(renderedMarkdown) : renderedMarkdown,
     [renderedMarkdown, streaming],
   );
   const [storedRevealState, setStoredRevealState] = useState<StreamingRevealState>(() => ({

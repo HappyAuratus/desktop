@@ -491,6 +491,23 @@ describe("MessageList", () => {
       expect(screen.getByText("Still streaming.")).toBeInTheDocument();
   });
 
+  it("flushes a previous text item's literal marker while the turn continues with a tool", () => {
+    renderWithI18n(
+      <MessageList
+        turns={[
+          turn("turn-1", "hello", 100, [
+            assistantItem("assistant-1", "Use literal *", 200),
+            toolCallItem("tool-1", 300),
+          ], "streaming"),
+        ]}
+        userName="Eric"
+        isResponding
+      />,
+    );
+
+    expect(screen.getByText("Use literal *")).toBeInTheDocument();
+  });
+
   it("keeps following when deferred content changes the rendered height", () => {
     let resizeCallback: ResizeObserverCallback | undefined;
     class TestResizeObserver implements ResizeObserver {

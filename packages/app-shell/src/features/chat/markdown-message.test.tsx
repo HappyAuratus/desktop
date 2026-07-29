@@ -42,6 +42,64 @@ describe("MarkdownMessage", () => {
     expect(screen.getByText("Still streaming.")).toBeInTheDocument();
   });
 
+  it.each(["*", "**", "***", "_", "__", "___", "~", "~~", "`", "``"])(
+    "withholds an ambiguous %s boundary until prose arrives",
+    (delimiter) => {
+      const view = render(<MarkdownMessage content={delimiter} streaming />);
+
+      expect(view.container).not.toHaveTextContent(delimiter);
+    },
+  );
+
+  it("reveals a buffered emphasis boundary and its first prose in one render", async () => {
+    const view = render(<MarkdownMessage content="Prefix **" streaming />);
+
+    expect(view.container).toHaveTextContent("Prefix");
+    expect(view.container).not.toHaveTextContent("**");
+
+    view.rerender(<MarkdownMessage content="Prefix **natural" streaming />);
+
+    await waitFor(() => expect(screen.getByText("natural").closest("strong")).not.toBeNull());
+    expect(view.container).toHaveTextContent("Prefix natural");
+  });
+
+  it("flushes an ambiguous literal marker when streaming completes", () => {
+    const view = render(<MarkdownMessage content="Literal *" streaming />);
+    expect(view.container).toHaveTextContent("Literal");
+    expect(view.container).not.toHaveTextContent("Literal *");
+
+    view.rerender(<MarkdownMessage content="Literal *" streaming={false} />);
+
+    expect(view.container).toHaveTextContent("Literal *");
+  });
+
+  it("withholds empty block markers without delaying completed block content", async () => {
+    const view = render(<MarkdownMessage content="##" streaming />);
+
+    expect(view.container).not.toHaveTextContent("##");
+
+    view.rerender(<MarkdownMessage content="## Live heading" streaming />);
+
+    await waitFor(() => {
+      expect(screen.getByRole("heading", { level: 2, name: "Live heading" })).toBeInTheDocument();
+    });
+  });
+
+  it("preserves trailing markers that belong to code or escaped prose", () => {
+    const code = render(<MarkdownMessage content={"`literal *`"} streaming />);
+    expect(screen.getByText("literal *").closest("code")).not.toBeNull();
+    code.unmount();
+
+    render(<MarkdownMessage content={"Escaped \\* and \\#"} streaming />);
+    expect(screen.getByText("Escaped * and #")).toBeInTheDocument();
+  });
+
+  it("releases literal marker characters as soon as following prose resolves them", () => {
+    render(<MarkdownMessage content="Use * as a wildcard and # as a heading marker." streaming />);
+
+    expect(screen.getByText("Use * as a wildcard and # as a heading marker.")).toBeInTheDocument();
+  });
+
   it("renders growing GFM block structures without waiting for completion", () => {
     render(
       <MarkdownMessage
