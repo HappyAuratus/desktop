@@ -15,6 +15,8 @@ This module owns the application-scoped runtime for supported agent CLIs and the
 - Session overflow, prompt timeout, or cancellation stops only the affected session. Connection framing, correlation, or stdio failure invalidates the connection generation and stops only sessions registered on that CLI.
 - Connection loss and queue overflow use an independent control path so failures remain observable when the normal queue is full. Permission requests that cannot enter their session queue are cancelled immediately.
 - Actors finish a load or prompt only after consuming its response from the FIFO, which guarantees all preceding updates are delivered before `Completed` and cannot leak into the next turn.
+- Before accepting the next load or prompt, the idle actor drains any residual queued events. Controls and commands stay ahead of new idle events so an update flood cannot starve Stop/Prompt.
+- Abandoned session requests unregister at the transport so a late response is discarded instead of entering a newer turn's FIFO.
 - Routes are generation-bound. Updates from old connections or unloaded sessions are discarded as stale.
 
 ## Lifecycle boundaries

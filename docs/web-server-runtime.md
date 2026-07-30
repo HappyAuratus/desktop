@@ -105,6 +105,8 @@ Task payloads do not expose backend-owned worktree identifiers, and the runtime 
 
 `GET /api/git/identity` returns the host's Git identity for the sidebar profile: the global Git config first, falling back to the authenticated GitHub CLI account when Git has no name configured.
 
+Load and prompt responses use `application/x-ndjson`. Each line is one complete frame. Session updates, permission requests, and terminating responses share one bounded per-session FIFO of 256 items (connection loss and overflow use a separate control path), frames are limited to 8 MiB, and overflow terminates the operation rather than dropping events silently.
+
 ### Agent runtime
 
 Backend construction immediately attempts one supervised `acp` child per supported CLI, rooted at the user's home directory. Executable resolution is platform-specific: on Unix each CLI is read from its fixed per-user directory (`<home>/.opencode/bin/opencode`, `<home>/.nga/bin/nga`, `<home>/.codeagentcli/bin/codeagentcli`); on Windows it is resolved from `PATH` through `where.exe` on every retry generation.

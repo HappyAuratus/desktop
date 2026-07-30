@@ -11,11 +11,11 @@ use serde::de::DeserializeOwned;
 use serde_json::{Value, json};
 use std::collections::HashMap;
 use std::marker::PhantomData;
-use std::sync::Arc;
 use std::sync::atomic::{AtomicI64, Ordering};
+use std::sync::{Arc, Mutex, PoisonError};
 use thiserror::Error;
 use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt};
-use tokio::sync::{Mutex, mpsc, oneshot};
+use tokio::sync::{Mutex as AsyncMutex, mpsc, oneshot};
 use tokio_util::codec::{FramedRead, LinesCodec, LinesCodecError};
 
 const MAX_FRAME_BYTES: usize = 8 * 1024 * 1024;
@@ -67,9 +67,14 @@ impl SessionResponse {
 }
 
 /// Completes a typed session request after its ordered response event is received.
+///
+/// Dropping an unsettled handle unregisters the request so a late response is discarded
+/// instead of being routed into a newer turn for the same session.
 pub struct PendingSessionRequest<Response> {
     request_id: RequestId,
     session_id: SessionId,
+    pending: Arc<Mutex<HashMap<RequestId, PendingRequest>>>,
+    unregister_on_drop: bool,
     response: PhantomData<Response>,
 }
 
@@ -77,20 +82,52 @@ impl<Response> PendingSessionRequest<Response>
 where
     Response: DeserializeOwned,
 {
+    /// Returns whether this handle owns the terminating response.
+    pub fn matches_response(&self, response: &SessionResponse) -> bool {
+        response.request_id == self.request_id && response.session_id == self.session_id
+    }
+
     /// Validates response ownership before decoding the typed result.
-    pub fn finish(self, response: SessionResponse) -> Result<Response, AcpError> {
-        if response.request_id != self.request_id || response.session_id != self.session_id {
+    pub fn finish(mut self, response: SessionResponse) -> Result<Response, AcpError> {
+        if !self.matches_response(&response) {
+            // The handle is consumed here; unregister so correlation cannot leak forever.
+            // Callers that need to keep waiting must filter with `matches_response` first.
+            lock_pending(&self.pending).remove(&self.request_id);
+            self.unregister_on_drop = false;
             return Err(AcpError::InvalidResponse(format!(
                 "response {} for session {} does not match request {} for session {}",
                 response.request_id, response.session_id, self.request_id, self.session_id
             )));
         }
+        // The reader already removed this id when the response entered the inbound stream.
+        self.unregister_on_drop = false;
         match response.response {
             Ok(result) => serde_json::from_value(result)
                 .map_err(|error| AcpError::InvalidResponse(error.to_string())),
             Err(error) => Err(AcpError::RequestFailed(error.message)),
         }
     }
+
+    /// Unregisters the request immediately so a late response cannot enter session routing.
+    pub fn abandon(mut self) {
+        lock_pending(&self.pending).remove(&self.request_id);
+        self.unregister_on_drop = false;
+    }
+}
+
+impl<Response> Drop for PendingSessionRequest<Response> {
+    fn drop(&mut self) {
+        if self.unregister_on_drop {
+            lock_pending(&self.pending).remove(&self.request_id);
+        }
+    }
+}
+
+/// Recovers a poisoned pending map so correlation can continue after a panic.
+fn lock_pending(
+    pending: &Mutex<HashMap<RequestId, PendingRequest>>,
+) -> std::sync::MutexGuard<'_, HashMap<RequestId, PendingRequest>> {
+    pending.lock().unwrap_or_else(PoisonError::into_inner)
 }
 
 /// Preserves wire order for all events that participate in a session turn.
@@ -104,7 +141,7 @@ pub enum AcpInboundEvent {
 
 /// Sends correlated ACP requests and protocol responses over one serialized writer.
 pub struct AcpClient<Writer> {
-    writer: Arc<Mutex<Writer>>,
+    writer: Arc<AsyncMutex<Writer>>,
     pending: Arc<Mutex<HashMap<RequestId, PendingRequest>>>,
     next_request_id: Arc<AtomicI64>,
 }
@@ -135,9 +172,7 @@ where
     {
         let request_id = RequestId::Number(self.next_request_id.fetch_add(1, Ordering::Relaxed));
         let (response_sender, response_receiver) = oneshot::channel();
-        self.pending
-            .lock()
-            .await
+        lock_pending(&self.pending)
             .insert(request_id.clone(), PendingRequest::Direct(response_sender));
         let frame = json!({
             "jsonrpc": "2.0",
@@ -146,7 +181,7 @@ where
             "params": params,
         });
         if let Err(error) = self.write_frame(&frame).await {
-            self.pending.lock().await.remove(&request_id);
+            lock_pending(&self.pending).remove(&request_id);
             return Err(error);
         }
         let response = response_receiver
@@ -171,7 +206,7 @@ where
         Response: DeserializeOwned,
     {
         let request_id = RequestId::Number(self.next_request_id.fetch_add(1, Ordering::Relaxed));
-        self.pending.lock().await.insert(
+        lock_pending(&self.pending).insert(
             request_id.clone(),
             PendingRequest::Session {
                 session_id: session_id.clone(),
@@ -184,12 +219,14 @@ where
             "params": params,
         });
         if let Err(error) = self.write_frame(&frame).await {
-            self.pending.lock().await.remove(&request_id);
+            lock_pending(&self.pending).remove(&request_id);
             return Err(error);
         }
         Ok(PendingSessionRequest {
             request_id,
             session_id,
+            pending: self.pending.clone(),
+            unregister_on_drop: true,
             response: PhantomData,
         })
     }
@@ -246,7 +283,7 @@ where
         Reader: AsyncRead + Unpin + Send + 'static,
     {
         let pending = Arc::new(Mutex::new(HashMap::new()));
-        let writer = Arc::new(Mutex::new(writer));
+        let writer = Arc::new(AsyncMutex::new(writer));
         // The application router applies bounded queues per provider session. Bounding this
         // connection-wide handoff would let one noisy session terminate every other session.
         let (inbound_sender, inbound) = mpsc::unbounded_channel();
@@ -280,7 +317,7 @@ where
 /// Parses agent frames and routes responses, updates, and requests without blocking on consumers.
 async fn read_frames<Reader, Writer>(
     reader: Reader,
-    writer: Arc<Mutex<Writer>>,
+    writer: Arc<AsyncMutex<Writer>>,
     pending: Arc<Mutex<HashMap<RequestId, PendingRequest>>>,
     inbound: mpsc::UnboundedSender<AcpInboundEvent>,
 ) where
@@ -296,18 +333,18 @@ async fn read_frames<Reader, Writer>(
                     let _ = inbound.send(AcpInboundEvent::Fatal(AcpError::InvalidFrame(
                         error.to_string(),
                     )));
-                    pending.lock().await.clear();
+                    lock_pending(&pending).clear();
                     return;
                 }
             },
             Err(LinesCodecError::MaxLineLengthExceeded) => {
                 let _ = inbound.send(AcpInboundEvent::Fatal(AcpError::FrameTooLarge));
-                pending.lock().await.clear();
+                lock_pending(&pending).clear();
                 return;
             }
             Err(LinesCodecError::Io(error)) => {
                 let _ = inbound.send(AcpInboundEvent::Fatal(AcpError::Io(error)));
-                pending.lock().await.clear();
+                lock_pending(&pending).clear();
                 return;
             }
         };
@@ -324,19 +361,19 @@ async fn read_frames<Reader, Writer>(
         }
         if let Err(error) = route_frame(value, &writer, &pending, &inbound).await {
             let _ = inbound.send(AcpInboundEvent::Fatal(error));
-            pending.lock().await.clear();
+            lock_pending(&pending).clear();
             return;
         }
     }
     let _ = inbound.send(AcpInboundEvent::Fatal(AcpError::StreamClosed));
     // Retaining these senders would turn a known EOF into unrelated outer timeouts.
-    pending.lock().await.clear();
+    lock_pending(&pending).clear();
 }
 
 /// Routes one validated JSON-RPC object and makes ambiguous shapes fatal.
 async fn route_frame<Writer>(
     value: Value,
-    writer: &Mutex<Writer>,
+    writer: &AsyncMutex<Writer>,
     pending: &Mutex<HashMap<RequestId, PendingRequest>>,
     inbound: &mpsc::UnboundedSender<AcpInboundEvent>,
 ) -> Result<(), AcpError>
@@ -404,9 +441,11 @@ where
                     "response has neither result nor error".to_string(),
                 ));
             };
-            let request = pending.lock().await.remove(&request_id).ok_or_else(|| {
-                AcpError::InvalidFrame(format!("unmatched response id {request_id}"))
-            })?;
+            // Abandoned session requests unregister before a late response arrives. Discarding
+            // unmatched ids keeps that late frame from killing the shared connection.
+            let Some(request) = lock_pending(pending).remove(&request_id) else {
+                return Ok(());
+            };
             match request {
                 PendingRequest::Direct(sender) => {
                     let _ = sender.send(response);
@@ -453,7 +492,7 @@ fn trace_frame_summary(value: &Value, direction: &str) -> (String, String, Strin
 }
 
 /// Writes a reader-originated protocol response through the connection's serialized sink.
-async fn write_frame<Writer>(writer: &Mutex<Writer>, value: &Value) -> Result<(), AcpError>
+async fn write_frame<Writer>(writer: &AsyncMutex<Writer>, value: &Value) -> Result<(), AcpError>
 where
     Writer: AsyncWrite + Unpin,
 {
@@ -611,6 +650,150 @@ mod tests {
             pending.finish(response).expect("finish session request"),
             json!({ "stopReason": "end_turn" })
         );
+    }
+
+    /// Verifies abandoning a session request discards its late response without a fatal.
+    #[tokio::test]
+    async fn discards_a_late_response_after_the_session_request_is_abandoned() {
+        let (ora_stream, agent_stream) = duplex(16 * 1024);
+        let (ora_reader, ora_writer) = split(ora_stream);
+        let (agent_reader, mut agent_writer) = split(agent_stream);
+        let mut agent_reader = BufReader::new(agent_reader);
+        let mut peer = AcpPeer::spawn(ora_reader, ora_writer);
+        let session_id = SessionId::new("session-1");
+        let pending = peer
+            .client
+            .start_session_request::<_, Value>(
+                session_id.clone(),
+                "session/prompt",
+                &json!({ "sessionId": session_id }),
+            )
+            .await
+            .expect("start session request");
+        let mut outbound = String::new();
+        agent_reader
+            .read_line(&mut outbound)
+            .await
+            .expect("read session request");
+        let outbound: Value = serde_json::from_str(outbound.trim()).expect("parse session request");
+        pending.abandon();
+        agent_writer
+            .write_all(
+                format!(
+                    "{}\n",
+                    json!({
+                        "jsonrpc": "2.0",
+                        "id": outbound["id"],
+                        "result": { "stopReason": "end_turn" },
+                    })
+                )
+                .as_bytes(),
+            )
+            .await
+            .expect("write abandoned session response");
+        agent_writer
+            .write_all(
+                format!(
+                    "{}\n",
+                    json!({
+                        "jsonrpc": "2.0",
+                        "method": "session/update",
+                        "params": SessionNotification::new(
+                            "session-1",
+                            SessionUpdate::SessionInfoUpdate(SessionInfoUpdate::new().title("Alive")),
+                        ),
+                    })
+                )
+                .as_bytes(),
+            )
+            .await
+            .expect("write follow-up update");
+
+        match peer.next_event().await.expect("receive follow-up update") {
+            AcpInboundEvent::SessionUpdate(update) => assert_eq!(
+                update,
+                SessionNotification::new(
+                    "session-1",
+                    SessionUpdate::SessionInfoUpdate(SessionInfoUpdate::new().title("Alive")),
+                )
+            ),
+            AcpInboundEvent::PermissionRequest(_)
+            | AcpInboundEvent::SessionResponse(_)
+            | AcpInboundEvent::Fatal(_) => {
+                panic!("expected session update after abandoned response")
+            }
+        }
+    }
+
+    /// Verifies dropping an unsettled handle unregisters the request like an explicit abandon.
+    #[tokio::test]
+    async fn dropping_a_pending_session_request_unregisters_it() {
+        let (ora_stream, agent_stream) = duplex(16 * 1024);
+        let (ora_reader, ora_writer) = split(ora_stream);
+        let (agent_reader, mut agent_writer) = split(agent_stream);
+        let mut agent_reader = BufReader::new(agent_reader);
+        let mut peer = AcpPeer::spawn(ora_reader, ora_writer);
+        let session_id = SessionId::new("session-1");
+        let pending = peer
+            .client
+            .start_session_request::<_, Value>(
+                session_id.clone(),
+                "session/prompt",
+                &json!({ "sessionId": session_id }),
+            )
+            .await
+            .expect("start session request");
+        let mut outbound = String::new();
+        agent_reader
+            .read_line(&mut outbound)
+            .await
+            .expect("read session request");
+        let outbound: Value = serde_json::from_str(outbound.trim()).expect("parse session request");
+        drop(pending);
+        agent_writer
+            .write_all(
+                format!(
+                    "{}\n",
+                    json!({
+                        "jsonrpc": "2.0",
+                        "id": outbound["id"],
+                        "result": { "stopReason": "cancelled" },
+                    })
+                )
+                .as_bytes(),
+            )
+            .await
+            .expect("write dropped session response");
+        agent_writer
+            .write_all(
+                format!(
+                    "{}\n",
+                    json!({
+                        "jsonrpc": "2.0",
+                        "method": "session/update",
+                        "params": SessionNotification::new(
+                            "session-1",
+                            SessionUpdate::SessionInfoUpdate(SessionInfoUpdate::new().title("Still open")),
+                        ),
+                    })
+                )
+                .as_bytes(),
+            )
+            .await
+            .expect("write follow-up update");
+
+        match peer.next_event().await.expect("receive follow-up update") {
+            AcpInboundEvent::SessionUpdate(update) => assert_eq!(
+                update,
+                SessionNotification::new(
+                    "session-1",
+                    SessionUpdate::SessionInfoUpdate(SessionInfoUpdate::new().title("Still open")),
+                )
+            ),
+            AcpInboundEvent::PermissionRequest(_)
+            | AcpInboundEvent::SessionResponse(_)
+            | AcpInboundEvent::Fatal(_) => panic!("expected session update after dropped request"),
+        }
     }
 
     /// Verifies extension requests receive method-not-found without closing request correlation.

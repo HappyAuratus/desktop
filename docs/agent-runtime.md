@@ -16,9 +16,9 @@
 
 ## Flow Control
 
-ACP stdout is newline-delimited JSON-RPC with an 8 MiB frame limit. The connection reader uses an unbounded handoff to the always-running central router, while each registered Session owns a bounded 256-item update queue and an independent control queue. This keeps connection-wide parsing from imposing one Session's backpressure on another. A per-Session overflow stops only the affected Session; no data is silently discarded.
+ACP stdout is newline-delimited JSON-RPC with an 8 MiB frame limit. The connection reader uses an unbounded ordered event handoff to the always-running central router, while each registered Session owns one bounded 256-item FIFO for updates, permission requests, and terminating responses, plus an independent control queue for connection loss and overflow. This keeps connection-wide parsing from imposing one Session's backpressure on another and preserves wire order so a response cannot overtake its turn's tail updates. A per-Session overflow stops only the affected Session; no data is silently discarded.
 
-Unknown agent-originated JSON-RPC requests receive a correlated `-32601` method-not-found response and do not terminate the connection. Malformed frames, unmatched responses, oversized frames, and stdio loss are connection failures. Routes are generation-bound, so updates from an old connection or an unloaded Session are treated as stale and discarded rather than taking down unrelated work.
+Unknown agent-originated JSON-RPC requests receive a correlated `-32601` method-not-found response and do not terminate the connection. Malformed frames, oversized frames, and stdio loss are connection failures. Abandoned session requests unregister so late responses are discarded instead of entering a newer turn. Updates for unloaded Sessions are treated as stale and discarded rather than taking down unrelated work.
 
 Control traffic such as permission requests travels a separate queue from session updates, so update backpressure can never block a required protocol response. A permission request arriving during `session/load` is answered as cancelled and reported as `agent_protocol_error`, because only a prompt can legitimately request permission.
 

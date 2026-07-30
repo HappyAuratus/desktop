@@ -13,7 +13,8 @@
 ## Boundaries and failure semantics
 
 - Frames are newline-delimited JSON with an 8 MiB maximum. An oversized or malformed frame is fatal to the connection.
-- Unmatched responses, stdio loss, and invalid response envelopes fail pending operations instead of being silently ignored.
+- Direct requests fail when the stream closes before their oneshot completes. Session requests unregister on abandon or drop so a late response is discarded instead of being routed into a newer turn.
+- Invalid response envelopes and stdio loss remain fatal to the connection.
 - Recognized permission requests are emitted as `PermissionRequest`. Unknown agent-originated methods receive a correlated method-not-found response without terminating the connection.
 - The connection-to-router event channel is intentionally unbounded. Per-session bounds and overflow policy belong to the backend runtime, where one noisy session can be isolated from others.
 - Writes share one mutex so concurrent JSON-RPC frames cannot interleave.

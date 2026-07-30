@@ -21,15 +21,35 @@ impl RuntimeActor {
         loop {
             let command = match self.channel.as_mut() {
                 Some(channel) => {
+                    // Drop already-queued residuals before waiting so they cannot attach to the
+                    // next turn. Prefer controls and commands afterward so an idle update flood
+                    // cannot starve Stop/Prompt, and QueueOverflow is not lost to a closed events
+                    // channel.
+                    Self::drain_idle_events(&channel.connection.client, &mut channel.events).await;
+                    if let Ok(control) = channel.controls.try_recv() {
+                        self.handle_idle_control(Some(control)).await;
+                        continue;
+                    }
                     tokio::select! {
                         biased;
-                        command = self.commands.recv() => command,
                         control = channel.controls.recv() => {
                             self.handle_idle_control(control).await;
                             continue;
                         }
+                        command = self.commands.recv() => {
+                            Self::drain_idle_events(
+                                &channel.connection.client,
+                                &mut channel.events,
+                            )
+                            .await;
+                            command
+                        }
                         event = channel.events.recv() => {
-                            self.handle_idle_event(event).await;
+                            let Some(event) = event else {
+                                self.mark_stopped();
+                                continue;
+                            };
+                            Self::settle_idle_event(&channel.connection.client, event).await;
                             continue;
                         }
                     }
@@ -148,6 +168,7 @@ impl RuntimeActor {
         tokio::pin!(deadline);
         loop {
             tokio::select! {
+                biased;
                 event = channel.events.recv() => {
                     let Some(event) = event else {
                         self.fail_load(&events, runtime_unavailable());
@@ -175,6 +196,9 @@ impl RuntimeActor {
                             return;
                         }
                         SessionEvent::Response(response) => {
+                            if !pending.matches_response(&response) {
+                                continue;
+                            }
                             match pending.finish(response) {
                                 Ok(_) => {
                                     ora_debug!(session_id = %self.session.id, "session/load completed");
@@ -201,7 +225,7 @@ impl RuntimeActor {
                         }
                         Some(SessionControl::QueueOverflow) => {
                             let _ = events.try_send(Err(runtime_internal(
-                                "agent_update_overflow",
+                                "agent_event_overflow",
                                 "session event queue overflowed",
                             )));
                             self.isolate_channel(channel).await;
@@ -227,6 +251,15 @@ impl RuntimeActor {
                             if cancelled == operation_id =>
                         {
                             self.cancel(&client, &HashMap::new()).await;
+                            let _ = timeout(
+                                CANCELLATION_GRACE,
+                                settle_abandoned_session_response(
+                                    &mut channel,
+                                    &client,
+                                    pending,
+                                ),
+                            )
+                            .await;
                             self.isolate_channel(channel).await;
                             return;
                         }
@@ -263,6 +296,25 @@ impl RuntimeActor {
             return;
         };
         let client = channel.connection.client.clone();
+        // Catch residuals that arrived after idle accepted this prompt and before we took the
+        // channel, so they cannot be attributed to the new turn.
+        Self::drain_idle_events(&client, &mut channel.events).await;
+        if let Ok(control) = channel.controls.try_recv() {
+            match control {
+                SessionControl::QueueOverflow => {
+                    let _ = events.try_send(Err(runtime_internal(
+                        "agent_event_overflow",
+                        "session event queue overflowed",
+                    )));
+                    self.isolate_channel(channel).await;
+                    return;
+                }
+                SessionControl::ConnectionLost(error) => {
+                    self.fail_prompt(&events, error);
+                    return;
+                }
+            }
+        }
         let text_len = text.len();
         let request = PromptRequest::new(self.session.agent_session_id.clone(), vec![text.into()]);
         ora_debug!(session_id = %self.session.id, text_len = text_len, "session/prompt sent");
@@ -284,6 +336,7 @@ impl RuntimeActor {
         let mut permissions = HashMap::new();
         loop {
             tokio::select! {
+                biased;
                 event = channel.events.recv() => {
                     let Some(event) = event else {
                         self.fail_prompt(&events, runtime_unavailable());
@@ -316,6 +369,9 @@ impl RuntimeActor {
                             }
                         }
                         SessionEvent::Response(response) => {
+                            if !pending.matches_response(&response) {
+                                continue;
+                            }
                             match pending.finish(response) {
                                 Ok(response) => {
                                     ora_debug!(session_id = %self.session.id, stop_reason = ?response.stop_reason, "prompt completed");
@@ -351,7 +407,7 @@ impl RuntimeActor {
                         Some(SessionControl::QueueOverflow) => {
                             self.cancel(&client, &permissions).await;
                             let _ = events.try_send(Err(runtime_internal(
-                                "agent_update_overflow",
+                                "agent_event_overflow",
                                 "session event queue overflowed",
                             )));
                             self.isolate_channel(channel).await;
@@ -371,23 +427,11 @@ impl RuntimeActor {
                         }
                         Some(RuntimeCommand::Cancel { operation_id: cancelled }) if cancelled == operation_id => {
                             self.cancel(&client, &permissions).await;
-                            let settled = timeout(CANCELLATION_GRACE, async {
-                                loop {
-                                    match channel.events.recv().await {
-                                        Some(SessionEvent::Update(_)) => {}
-                                        Some(SessionEvent::Permission(permission)) => {
-                                            let _ = client.respond(
-                                                &permission.request_id,
-                                                &RequestPermissionResponse::new(RequestPermissionOutcome::Cancelled),
-                                            ).await;
-                                        }
-                                        Some(SessionEvent::Response(response)) => {
-                                            return Some(pending.finish(response));
-                                        }
-                                        None => return None,
-                                    }
-                                }
-                            }).await;
+                            let settled = timeout(
+                                CANCELLATION_GRACE,
+                                settle_abandoned_session_response(&mut channel, &client, pending),
+                            )
+                            .await;
                             match settled {
                                 Ok(Some(Ok(_)))
                                 | Ok(Some(Err(ora_acp::AcpError::RequestFailed(_)))) => {
@@ -419,22 +463,34 @@ impl RuntimeActor {
     }
 
     /// Settles unexpected idle events without allowing them to leak into a later operation.
-    async fn handle_idle_event(&mut self, event: Option<SessionEvent>) {
+    async fn settle_idle_event(client: &AcpClient<ChildStdin>, event: SessionEvent) {
         match event {
-            Some(SessionEvent::Permission(permission)) => {
-                if let Some(channel) = &self.channel {
-                    let _ = channel
-                        .connection
-                        .client
-                        .respond(
-                            &permission.request_id,
-                            &RequestPermissionResponse::new(RequestPermissionOutcome::Cancelled),
-                        )
-                        .await;
-                }
+            SessionEvent::Permission(permission) => {
+                let _ = client
+                    .respond(
+                        &permission.request_id,
+                        &RequestPermissionResponse::new(RequestPermissionOutcome::Cancelled),
+                    )
+                    .await;
             }
-            Some(SessionEvent::Update(_)) | Some(SessionEvent::Response(_)) => {}
-            None => self.mark_stopped(),
+            SessionEvent::Update(_) | SessionEvent::Response(_) => {}
+        }
+    }
+
+    /// Clears events already sitting in the session FIFO before a new turn starts.
+    ///
+    /// Bound the drain to the queue snapshot so a concurrent producer cannot livelock the actor
+    /// before it reaches the idle select that prefers controls and commands.
+    async fn drain_idle_events(
+        client: &AcpClient<ChildStdin>,
+        events: &mut mpsc::Receiver<SessionEvent>,
+    ) {
+        let queued = events.len();
+        for _ in 0..queued {
+            let Ok(event) = events.try_recv() else {
+                break;
+            };
+            Self::settle_idle_event(client, event).await;
         }
     }
 
@@ -525,6 +581,37 @@ impl RuntimeActor {
             .with_status(SessionStatus::Stopped, self.clock.now_timestamp_millis());
         let _ = self.repository.update_session(self.session.clone());
         ora_debug!(session_id = %self.session.id, "session marked stopped");
+    }
+}
+
+/// Drains queued traffic until the abandoned request's own response arrives or the route closes.
+async fn settle_abandoned_session_response<Response>(
+    channel: &mut SessionChannel,
+    client: &AcpClient<ChildStdin>,
+    pending: ora_acp::PendingSessionRequest<Response>,
+) -> Option<Result<Response, ora_acp::AcpError>>
+where
+    Response: serde::de::DeserializeOwned,
+{
+    loop {
+        match channel.events.recv().await {
+            Some(SessionEvent::Update(_)) => {}
+            Some(SessionEvent::Permission(permission)) => {
+                let _ = client
+                    .respond(
+                        &permission.request_id,
+                        &RequestPermissionResponse::new(RequestPermissionOutcome::Cancelled),
+                    )
+                    .await;
+            }
+            Some(SessionEvent::Response(response)) => {
+                if !pending.matches_response(&response) {
+                    continue;
+                }
+                return Some(pending.finish(response));
+            }
+            None => return None,
+        }
     }
 }
 

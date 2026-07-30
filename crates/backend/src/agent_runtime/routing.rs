@@ -352,4 +352,70 @@ mod tests {
         assert!(new_controls_receiver.try_recv().is_err());
         assert!(routes.read_entries().contains_key("new"));
     }
+
+    /// Verifies a response already queued remains readable after generation failure notifies loss.
+    ///
+    /// Actors rely on this so a biased `events`-before-`controls` select can still complete a turn
+    /// whose terminating response arrived before EOF.
+    #[tokio::test]
+    async fn keeps_queued_events_readable_after_connection_loss() {
+        let (ora_stream, agent_stream) = duplex(4096);
+        let (ora_reader, ora_writer) = split(ora_stream);
+        let (agent_reader, mut agent_writer) = split(agent_stream);
+        let mut agent_reader = BufReader::new(agent_reader);
+        let mut peer = AcpPeer::spawn(ora_reader, ora_writer);
+        let session_id = SessionId::new("session-1");
+        let _pending = peer
+            .client
+            .start_session_request::<_, Value>(
+                session_id.clone(),
+                "session/prompt",
+                &json!({ "sessionId": session_id }),
+            )
+            .await
+            .expect("start session request");
+        let mut outbound = String::new();
+        agent_reader
+            .read_line(&mut outbound)
+            .await
+            .expect("read session request");
+        let outbound: Value = serde_json::from_str(outbound.trim()).expect("parse session request");
+        agent_writer
+            .write_all(
+                format!(
+                    "{}\n",
+                    json!({
+                        "jsonrpc": "2.0",
+                        "id": outbound["id"],
+                        "result": { "stopReason": "end_turn" },
+                    })
+                )
+                .as_bytes(),
+            )
+            .await
+            .expect("write session response");
+        let response = match peer.next_event().await.expect("receive response event") {
+            AcpInboundEvent::SessionResponse(response) => response,
+            AcpInboundEvent::SessionUpdate(_)
+            | AcpInboundEvent::PermissionRequest(_)
+            | AcpInboundEvent::Fatal(_) => panic!("expected session response"),
+        };
+        let routes = Arc::new(RouteRegistry::default());
+        let (events, mut events_receiver) = mpsc::channel(2);
+        let (controls, mut controls_receiver) = mpsc::unbounded_channel();
+        let _registration = routes.register("session-1", 1, events, controls);
+        assert!(routes.route_event(SessionEvent::Response(response)).is_ok());
+        let error = super::super::runtime_internal("agent_runtime_unavailable", "connection lost");
+
+        routes.fail_generation(1, error);
+
+        assert!(matches!(
+            events_receiver.recv().await,
+            Some(SessionEvent::Response(_))
+        ));
+        assert!(matches!(
+            controls_receiver.recv().await,
+            Some(SessionControl::ConnectionLost(_))
+        ));
+    }
 }
