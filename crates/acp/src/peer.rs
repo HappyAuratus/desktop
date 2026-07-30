@@ -1,4 +1,5 @@
 use futures_util::StreamExt;
+use ora_contracts::acp::common::SessionId;
 use ora_contracts::acp::error::Error as RpcError;
 use ora_contracts::acp::literals::CLIENT_METHOD_NAMES;
 use ora_contracts::acp::notification::SessionNotification;
@@ -9,6 +10,7 @@ use serde::Serialize;
 use serde::de::DeserializeOwned;
 use serde_json::{Value, json};
 use std::collections::HashMap;
+use std::marker::PhantomData;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicI64, Ordering};
 use thiserror::Error;
@@ -19,6 +21,11 @@ use tokio_util::codec::{FramedRead, LinesCodec, LinesCodecError};
 const MAX_FRAME_BYTES: usize = 8 * 1024 * 1024;
 
 type PendingResponse = Result<Value, RpcError>;
+
+enum PendingRequest {
+    Direct(oneshot::Sender<PendingResponse>),
+    Session { session_id: SessionId },
+}
 
 /// Reports framing, correlation, serialization, and process-pipe failures.
 #[derive(Debug, Error)]
@@ -44,17 +51,61 @@ pub struct PermissionRequest {
     pub request: RequestPermissionRequest,
 }
 
-/// Carries low-volume control messages separately from bounded session updates.
+/// Carries a response that terminates one ordered session request.
 #[derive(Debug)]
-pub enum AcpControl {
+pub struct SessionResponse {
+    request_id: RequestId,
+    session_id: SessionId,
+    response: PendingResponse,
+}
+
+impl SessionResponse {
+    /// Identifies the provider session that owns this response.
+    pub fn session_id(&self) -> &SessionId {
+        &self.session_id
+    }
+}
+
+/// Completes a typed session request after its ordered response event is received.
+pub struct PendingSessionRequest<Response> {
+    request_id: RequestId,
+    session_id: SessionId,
+    response: PhantomData<Response>,
+}
+
+impl<Response> PendingSessionRequest<Response>
+where
+    Response: DeserializeOwned,
+{
+    /// Validates response ownership before decoding the typed result.
+    pub fn finish(self, response: SessionResponse) -> Result<Response, AcpError> {
+        if response.request_id != self.request_id || response.session_id != self.session_id {
+            return Err(AcpError::InvalidResponse(format!(
+                "response {} for session {} does not match request {} for session {}",
+                response.request_id, response.session_id, self.request_id, self.session_id
+            )));
+        }
+        match response.response {
+            Ok(result) => serde_json::from_value(result)
+                .map_err(|error| AcpError::InvalidResponse(error.to_string())),
+            Err(error) => Err(AcpError::RequestFailed(error.message)),
+        }
+    }
+}
+
+/// Preserves wire order for all events that participate in a session turn.
+#[derive(Debug)]
+pub enum AcpInboundEvent {
+    SessionUpdate(SessionNotification),
     PermissionRequest(PermissionRequest),
+    SessionResponse(SessionResponse),
     Fatal(AcpError),
 }
 
 /// Sends correlated ACP requests and protocol responses over one serialized writer.
 pub struct AcpClient<Writer> {
     writer: Arc<Mutex<Writer>>,
-    pending: Arc<Mutex<HashMap<RequestId, oneshot::Sender<PendingResponse>>>>,
+    pending: Arc<Mutex<HashMap<RequestId, PendingRequest>>>,
     next_request_id: Arc<AtomicI64>,
 }
 
@@ -87,7 +138,7 @@ where
         self.pending
             .lock()
             .await
-            .insert(request_id.clone(), response_sender);
+            .insert(request_id.clone(), PendingRequest::Direct(response_sender));
         let frame = json!({
             "jsonrpc": "2.0",
             "id": request_id,
@@ -106,6 +157,41 @@ where
                 .map_err(|error| AcpError::InvalidResponse(error.to_string())),
             Err(error) => Err(AcpError::RequestFailed(error.message)),
         }
+    }
+
+    /// Starts a session request whose response must remain ordered with session events.
+    pub async fn start_session_request<Request, Response>(
+        &self,
+        session_id: SessionId,
+        method: &str,
+        params: &Request,
+    ) -> Result<PendingSessionRequest<Response>, AcpError>
+    where
+        Request: Serialize,
+        Response: DeserializeOwned,
+    {
+        let request_id = RequestId::Number(self.next_request_id.fetch_add(1, Ordering::Relaxed));
+        self.pending.lock().await.insert(
+            request_id.clone(),
+            PendingRequest::Session {
+                session_id: session_id.clone(),
+            },
+        );
+        let frame = json!({
+            "jsonrpc": "2.0",
+            "id": request_id,
+            "method": method,
+            "params": params,
+        });
+        if let Err(error) = self.write_frame(&frame).await {
+            self.pending.lock().await.remove(&request_id);
+            return Err(error);
+        }
+        Ok(PendingSessionRequest {
+            request_id,
+            session_id,
+            response: PhantomData,
+        })
     }
 
     /// Sends a notification that intentionally has no JSON-RPC response.
@@ -144,11 +230,10 @@ where
     }
 }
 
-/// Owns the independent data and control receivers for one ACP connection.
+/// Owns the ordered inbound receiver for one ACP connection.
 pub struct AcpPeer<Writer> {
     pub client: AcpClient<Writer>,
-    updates: mpsc::UnboundedReceiver<SessionNotification>,
-    control: mpsc::UnboundedReceiver<AcpControl>,
+    inbound: mpsc::UnboundedReceiver<AcpInboundEvent>,
 }
 
 impl<Writer> AcpPeer<Writer>
@@ -164,14 +249,12 @@ where
         let writer = Arc::new(Mutex::new(writer));
         // The application router applies bounded queues per provider session. Bounding this
         // connection-wide handoff would let one noisy session terminate every other session.
-        let (updates_sender, updates) = mpsc::unbounded_channel();
-        let (control_sender, control) = mpsc::unbounded_channel();
+        let (inbound_sender, inbound) = mpsc::unbounded_channel();
         tokio::spawn(read_frames(
             reader,
             writer.clone(),
             pending.clone(),
-            updates_sender,
-            control_sender,
+            inbound_sender,
         ));
         Self {
             client: AcpClient {
@@ -179,30 +262,18 @@ where
                 pending,
                 next_request_id: Arc::new(AtomicI64::new(1)),
             },
-            updates,
-            control,
+            inbound,
         }
     }
 
-    /// Receives the next high-volume session update from the bounded data path.
-    pub async fn next_update(&mut self) -> Option<SessionNotification> {
-        self.updates.recv().await
+    /// Receives the next session event in transport order.
+    pub async fn next_event(&mut self) -> Option<AcpInboundEvent> {
+        self.inbound.recv().await
     }
 
-    /// Receives the next permission or fatal condition from the unbounded control path.
-    pub async fn next_control(&mut self) -> Option<AcpControl> {
-        self.control.recv().await
-    }
-
-    /// Splits the peer so callers can select over independent data and control receivers.
-    pub fn into_parts(
-        self,
-    ) -> (
-        AcpClient<Writer>,
-        mpsc::UnboundedReceiver<SessionNotification>,
-        mpsc::UnboundedReceiver<AcpControl>,
-    ) {
-        (self.client, self.updates, self.control)
+    /// Splits the peer into its writer client and ordered inbound receiver.
+    pub fn into_parts(self) -> (AcpClient<Writer>, mpsc::UnboundedReceiver<AcpInboundEvent>) {
+        (self.client, self.inbound)
     }
 }
 
@@ -210,9 +281,8 @@ where
 async fn read_frames<Reader, Writer>(
     reader: Reader,
     writer: Arc<Mutex<Writer>>,
-    pending: Arc<Mutex<HashMap<RequestId, oneshot::Sender<PendingResponse>>>>,
-    updates: mpsc::UnboundedSender<SessionNotification>,
-    control: mpsc::UnboundedSender<AcpControl>,
+    pending: Arc<Mutex<HashMap<RequestId, PendingRequest>>>,
+    inbound: mpsc::UnboundedSender<AcpInboundEvent>,
 ) where
     Reader: AsyncRead + Unpin,
     Writer: AsyncWrite + Unpin,
@@ -223,19 +293,20 @@ async fn read_frames<Reader, Writer>(
             Ok(line) => match serde_json::from_str::<Value>(&line) {
                 Ok(value) => value,
                 Err(error) => {
-                    let _ =
-                        control.send(AcpControl::Fatal(AcpError::InvalidFrame(error.to_string())));
+                    let _ = inbound.send(AcpInboundEvent::Fatal(AcpError::InvalidFrame(
+                        error.to_string(),
+                    )));
                     pending.lock().await.clear();
                     return;
                 }
             },
             Err(LinesCodecError::MaxLineLengthExceeded) => {
-                let _ = control.send(AcpControl::Fatal(AcpError::FrameTooLarge));
+                let _ = inbound.send(AcpInboundEvent::Fatal(AcpError::FrameTooLarge));
                 pending.lock().await.clear();
                 return;
             }
             Err(LinesCodecError::Io(error)) => {
-                let _ = control.send(AcpControl::Fatal(AcpError::Io(error)));
+                let _ = inbound.send(AcpInboundEvent::Fatal(AcpError::Io(error)));
                 pending.lock().await.clear();
                 return;
             }
@@ -251,13 +322,13 @@ async fn read_frames<Reader, Writer>(
                 "{}", msg,
             );
         }
-        if let Err(error) = route_frame(value, &writer, &pending, &updates, &control).await {
-            let _ = control.send(AcpControl::Fatal(error));
+        if let Err(error) = route_frame(value, &writer, &pending, &inbound).await {
+            let _ = inbound.send(AcpInboundEvent::Fatal(error));
             pending.lock().await.clear();
             return;
         }
     }
-    let _ = control.send(AcpControl::Fatal(AcpError::StreamClosed));
+    let _ = inbound.send(AcpInboundEvent::Fatal(AcpError::StreamClosed));
     // Retaining these senders would turn a known EOF into unrelated outer timeouts.
     pending.lock().await.clear();
 }
@@ -266,9 +337,8 @@ async fn read_frames<Reader, Writer>(
 async fn route_frame<Writer>(
     value: Value,
     writer: &Mutex<Writer>,
-    pending: &Mutex<HashMap<RequestId, oneshot::Sender<PendingResponse>>>,
-    updates: &mpsc::UnboundedSender<SessionNotification>,
-    control: &mpsc::UnboundedSender<AcpControl>,
+    pending: &Mutex<HashMap<RequestId, PendingRequest>>,
+    inbound: &mpsc::UnboundedSender<AcpInboundEvent>,
 ) -> Result<(), AcpError>
 where
     Writer: AsyncWrite + Unpin,
@@ -294,8 +364,8 @@ where
             let request =
                 serde_json::from_value(object.get("params").cloned().unwrap_or(Value::Null))
                     .map_err(|error| AcpError::InvalidFrame(error.to_string()))?;
-            control
-                .send(AcpControl::PermissionRequest(PermissionRequest {
+            inbound
+                .send(AcpInboundEvent::PermissionRequest(PermissionRequest {
                     request_id,
                     request,
                 }))
@@ -318,8 +388,8 @@ where
             let notification =
                 serde_json::from_value(object.get("params").cloned().unwrap_or(Value::Null))
                     .map_err(|error| AcpError::InvalidFrame(error.to_string()))?;
-            updates
-                .send(notification)
+            inbound
+                .send(AcpInboundEvent::SessionUpdate(notification))
                 .map_err(|_| AcpError::StreamClosed)
         }
         (Some(_), None) => Ok(()),
@@ -334,11 +404,22 @@ where
                     "response has neither result nor error".to_string(),
                 ));
             };
-            let sender = pending.lock().await.remove(&request_id).ok_or_else(|| {
+            let request = pending.lock().await.remove(&request_id).ok_or_else(|| {
                 AcpError::InvalidFrame(format!("unmatched response id {request_id}"))
             })?;
-            let _ = sender.send(response);
-            Ok(())
+            match request {
+                PendingRequest::Direct(sender) => {
+                    let _ = sender.send(response);
+                    Ok(())
+                }
+                PendingRequest::Session { session_id } => inbound
+                    .send(AcpInboundEvent::SessionResponse(SessionResponse {
+                        request_id,
+                        session_id,
+                        response,
+                    }))
+                    .map_err(|_| AcpError::StreamClosed),
+            }
         }
         (None, None) => Err(AcpError::InvalidFrame(
             "frame has neither method nor id".to_string(),
@@ -401,7 +482,8 @@ where
 
 #[cfg(test)]
 mod tests {
-    use super::{AcpError, AcpPeer};
+    use super::{AcpError, AcpInboundEvent, AcpPeer};
+    use ora_contracts::acp::common::SessionId;
     use ora_contracts::acp::notification::SessionNotification;
     use ora_contracts::acp::session::{SessionInfoUpdate, SessionUpdate};
     use pretty_assertions::assert_eq;
@@ -439,9 +521,96 @@ mod tests {
 
         let mut received = Vec::with_capacity(expected.len());
         for _ in 0..expected.len() {
-            received.push(peer.next_update().await.expect("receive session update"));
+            match peer.next_event().await.expect("receive session event") {
+                AcpInboundEvent::SessionUpdate(update) => received.push(update),
+                AcpInboundEvent::PermissionRequest(_)
+                | AcpInboundEvent::SessionResponse(_)
+                | AcpInboundEvent::Fatal(_) => panic!("expected session update"),
+            }
         }
         assert_eq!(received, expected);
+    }
+
+    /// Verifies tail updates and their terminating response preserve transport order.
+    #[tokio::test]
+    async fn orders_session_updates_before_the_session_response() {
+        let (ora_stream, agent_stream) = duplex(16 * 1024);
+        let (ora_reader, ora_writer) = split(ora_stream);
+        let (agent_reader, mut agent_writer) = split(agent_stream);
+        let mut agent_reader = BufReader::new(agent_reader);
+        let mut peer = AcpPeer::spawn(ora_reader, ora_writer);
+        let session_id = SessionId::new("session-1");
+        let pending = peer
+            .client
+            .start_session_request::<_, Value>(
+                session_id.clone(),
+                "session/prompt",
+                &json!({ "sessionId": session_id }),
+            )
+            .await
+            .expect("start session request");
+        let mut outbound = String::new();
+        agent_reader
+            .read_line(&mut outbound)
+            .await
+            .expect("read session request");
+        let outbound: Value = serde_json::from_str(outbound.trim()).expect("parse session request");
+        let request_id = outbound["id"].clone();
+        let expected = ["First", "Second"].map(|title| {
+            SessionNotification::new(
+                "session-1",
+                SessionUpdate::SessionInfoUpdate(SessionInfoUpdate::new().title(title)),
+            )
+        });
+        for update in &expected {
+            agent_writer
+                .write_all(
+                    format!(
+                        "{}\n",
+                        json!({
+                            "jsonrpc": "2.0",
+                            "method": "session/update",
+                            "params": update,
+                        })
+                    )
+                    .as_bytes(),
+                )
+                .await
+                .expect("write session update");
+        }
+        agent_writer
+            .write_all(
+                format!(
+                    "{}\n",
+                    json!({
+                        "jsonrpc": "2.0",
+                        "id": request_id,
+                        "result": { "stopReason": "end_turn" },
+                    })
+                )
+                .as_bytes(),
+            )
+            .await
+            .expect("write session response");
+
+        for expected_update in expected {
+            match peer.next_event().await.expect("receive update event") {
+                AcpInboundEvent::SessionUpdate(update) => assert_eq!(update, expected_update),
+                AcpInboundEvent::PermissionRequest(_)
+                | AcpInboundEvent::SessionResponse(_)
+                | AcpInboundEvent::Fatal(_) => panic!("expected session update"),
+            }
+        }
+        let response = match peer.next_event().await.expect("receive response event") {
+            AcpInboundEvent::SessionResponse(response) => response,
+            AcpInboundEvent::SessionUpdate(_)
+            | AcpInboundEvent::PermissionRequest(_)
+            | AcpInboundEvent::Fatal(_) => panic!("expected session response"),
+        };
+        assert_eq!(
+            pending.finish(response).expect("finish session request"),
+            json!({ "stopReason": "end_turn" })
+        );
     }
 
     /// Verifies extension requests receive method-not-found without closing request correlation.

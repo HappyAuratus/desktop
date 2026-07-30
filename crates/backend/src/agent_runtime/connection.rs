@@ -1,17 +1,16 @@
-use super::routing::{RouteRegistry, SessionChannel};
+use super::routing::{RouteRegistry, SessionChannel, SessionEvent};
 use super::{
     CANCELLATION_GRACE, CONTRACT_QUEUE_CAPACITY, INITIALIZE_TIMEOUT, map_acp_error,
     resolve_agent_cli_path, runtime_internal,
 };
 use crate::BackendError;
 use crate::clock::SystemClock;
-use ora_acp::{AcpClient, AcpControl, AcpPeer};
+use ora_acp::{AcpClient, AcpInboundEvent, AcpPeer};
 use ora_application::{Clock, SessionRepository};
 use ora_contracts::acp::initialization::{
     Implementation, InitializeRequest, InitializeResponse, ProtocolVersion,
 };
 use ora_contracts::acp::literals::AGENT_METHOD_NAMES;
-use ora_contracts::acp::notification::SessionNotification;
 use ora_contracts::acp::permission::{RequestPermissionOutcome, RequestPermissionResponse};
 use ora_db::{RepositoryPool, SqliteSessionRepository};
 use ora_domain::{AgentCli, SessionStatus};
@@ -166,7 +165,7 @@ impl ConnectionSupervisor {
         }
     }
 
-    /// Registers bounded update and independent control routes for one provider session.
+    /// Registers a bounded ordered event route and independent failure controls for one session.
     pub fn open_session_channel(
         &self,
         agent_session_id: &str,
@@ -178,12 +177,12 @@ impl ConnectionSupervisor {
                 format!("{} runtime is recovering", self.agent_cli.executable_name()),
             ));
         }
-        let (updates_sender, updates) = mpsc::channel(CONTRACT_QUEUE_CAPACITY);
+        let (events_sender, events) = mpsc::channel(CONTRACT_QUEUE_CAPACITY);
         let (controls_sender, controls) = mpsc::unbounded_channel();
         let registration = self.routes.register(
             agent_session_id,
             connection.generation,
-            updates_sender,
+            events_sender,
             controls_sender,
         );
         if self.active_generation.load(Ordering::Acquire) != connection.generation {
@@ -195,7 +194,7 @@ impl ConnectionSupervisor {
         }
         Ok(SessionChannel {
             connection,
-            updates,
+            events,
             controls,
             _registration: registration,
         })
@@ -243,8 +242,7 @@ impl Drop for ConnectionSupervisor {
 struct SharedProcess {
     child: TokioManagedProcess,
     client: AcpClient<ChildStdin>,
-    updates: mpsc::UnboundedReceiver<SessionNotification>,
-    control: mpsc::UnboundedReceiver<AcpControl>,
+    inbound: mpsc::UnboundedReceiver<AcpInboundEvent>,
     load_session_supported: bool,
     close_session_supported: bool,
 }
@@ -327,23 +325,32 @@ async fn run_process_generation(
 ) -> bool {
     loop {
         tokio::select! {
-            update = process.updates.recv() => {
-                match update {
-                    Some(update) => routes.route_update(update),
-                    None => return false,
-                }
-            }
-            control = process.control.recv() => {
-                match control {
-                    Some(AcpControl::PermissionRequest(permission)) => {
-                        if let Err(orphan) = routes.route_permission(permission) {
-                            let _ = process.client.respond(
-                                &orphan.request_id,
-                                &RequestPermissionResponse::new(RequestPermissionOutcome::Cancelled),
-                            ).await;
+            inbound = process.inbound.recv() => {
+                match inbound {
+                    Some(AcpInboundEvent::SessionUpdate(update)) => {
+                        let _ = routes.route_event(SessionEvent::Update(update));
+                    }
+                    Some(AcpInboundEvent::PermissionRequest(permission)) => {
+                        if let Err(orphan) =
+                            routes.route_event(SessionEvent::Permission(permission))
+                        {
+                            match *orphan {
+                                SessionEvent::Permission(orphan) => {
+                                    let _ = process.client.respond(
+                                        &orphan.request_id,
+                                        &RequestPermissionResponse::new(
+                                            RequestPermissionOutcome::Cancelled,
+                                        ),
+                                    ).await;
+                                }
+                                SessionEvent::Update(_) | SessionEvent::Response(_) => {}
+                            }
                         }
                     }
-                    Some(AcpControl::Fatal(error)) => {
+                    Some(AcpInboundEvent::SessionResponse(response)) => {
+                        let _ = routes.route_event(SessionEvent::Response(response));
+                    }
+                    Some(AcpInboundEvent::Fatal(error)) => {
                         ora_warn!(
                             error = %error,
                             "agent CLI ACP connection failed"
@@ -413,12 +420,11 @@ async fn spawn_initialized_process(
             ));
         }
     };
-    let (client, updates, control) = peer.into_parts();
+    let (client, inbound) = peer.into_parts();
     Ok(SharedProcess {
         child,
         client,
-        updates,
-        control,
+        inbound,
         load_session_supported: response.agent_capabilities.load_session,
         close_session_supported: response
             .agent_capabilities

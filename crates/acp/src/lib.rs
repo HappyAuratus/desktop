@@ -2,4 +2,7 @@
 
 mod peer;
 
-pub use peer::{AcpClient, AcpControl, AcpError, AcpPeer, PermissionRequest};
+pub use peer::{
+    AcpClient, AcpError, AcpInboundEvent, AcpPeer, PendingSessionRequest, PermissionRequest,
+    SessionResponse,
+};

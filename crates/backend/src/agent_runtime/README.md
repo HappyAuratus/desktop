@@ -11,9 +11,10 @@ This module owns the application-scoped runtime for supported agent CLIs and the
 
 ## Flow control and failure isolation
 
-- The central connection router receives unbounded connection-wide updates, then forwards them into bounded per-session queues of 256 items.
+- The central connection router receives one ordered connection-wide event stream, then forwards updates, permission requests, and terminating responses into one bounded FIFO of 256 items per session.
 - Session overflow, prompt timeout, or cancellation stops only the affected session. Connection framing, correlation, or stdio failure invalidates the connection generation and stops only sessions registered on that CLI.
-- Control messages such as permission requests use a separate path so update backpressure cannot block required protocol responses.
+- Connection loss and queue overflow use an independent control path so failures remain observable when the normal queue is full. Permission requests that cannot enter their session queue are cancelled immediately.
+- Actors finish a load or prompt only after consuming its response from the FIFO, which guarantees all preceding updates are delivered before `Completed` and cannot leak into the next turn.
 - Routes are generation-bound. Updates from old connections or unloaded sessions are discarded as stale.
 
 ## Lifecycle boundaries
