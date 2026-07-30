@@ -28,6 +28,7 @@ export function MessageList({ turns, userName, isResponding }: MessageListProps)
   const followTailRef = useRef(true);
   const pointerScrollRef = useRef(false);
   const pendingNavigationRef = useRef<PendingNavigation | null>(null);
+  const [isAtTail, setIsAtTail] = useState(true);
   const lastTurn = turns.at(-1);
   const lastAnchorId = lastTurn === undefined
     ? null
@@ -48,6 +49,11 @@ export function MessageList({ turns, userName, isResponding }: MessageListProps)
   const handleScroll = () => {
     const element = scrollRef.current;
     if (!element) return;
+    // Report the true tail state before the pending-navigation fast path returns:
+    // the smooth jump to the tail emits intermediate scroll events that would
+    // otherwise leave the navigator's bottom-state stale.
+    const nextIsAtTail = element.scrollHeight - element.scrollTop - element.clientHeight < TAIL_PROXIMITY_PX;
+    setIsAtTail(nextIsAtTail);
     const pendingNavigation = pendingNavigationRef.current;
     if (pendingNavigation) {
       const maximumScrollTop = Math.max(0, element.scrollHeight - element.clientHeight);
@@ -137,6 +143,19 @@ export function MessageList({ turns, userName, isResponding }: MessageListProps)
     highlightTurn(anchor, reduceMotion);
   };
 
+  /** Finishes navigation past the final anchor and resumes following live output. */
+  const navigateToTail = () => {
+    const element = scrollRef.current;
+    if (!element) return;
+
+    followTailRef.current = true;
+    pendingNavigationRef.current = { scrollTop: element.scrollHeight };
+    setNavigation({ activeAnchorId: lastAnchorId, lastAnchorId });
+    const behavior = window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth";
+    if (typeof element.scrollTo === "function") element.scrollTo({ top: element.scrollHeight, behavior });
+    else element.scrollTop = element.scrollHeight;
+  };
+
   return (
     <div className="relative min-h-0 flex-1">
       <div
@@ -171,7 +190,13 @@ export function MessageList({ turns, userName, isResponding }: MessageListProps)
           <div className="h-8" />
         </div>
       </div>
-      <ConversationNavigator turns={turns} activeAnchorId={activeAnchorId} onNavigate={navigateToAnchor} />
+      <ConversationNavigator
+        turns={turns}
+        activeAnchorId={activeAnchorId}
+        isAtTail={isAtTail}
+        onNavigate={navigateToAnchor}
+        onNavigateToTail={navigateToTail}
+      />
     </div>
   );
 }

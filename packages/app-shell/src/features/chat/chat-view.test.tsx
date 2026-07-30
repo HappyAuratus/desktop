@@ -686,7 +686,15 @@ describe("ConversationNavigator", () => {
   /** Keeps navigation state local so repeated clicks exercise the real hover-to-boundary transition. */
   function StatefulNavigator() {
     const [activeAnchorId, setActiveAnchorId] = useState("turn-2:user");
-    return <ConversationNavigator turns={turns} activeAnchorId={activeAnchorId} onNavigate={setActiveAnchorId} />;
+    return (
+      <ConversationNavigator
+        turns={turns}
+        activeAnchorId={activeAnchorId}
+        isAtTail
+        onNavigate={setActiveAnchorId}
+        onNavigateToTail={() => {}}
+      />
+    );
   }
 
   it("moves one anchor at a time and keeps disabled boundary controls visible", async () => {
@@ -694,7 +702,13 @@ describe("ConversationNavigator", () => {
     const onNavigate = vi.fn();
     const view = renderWithI18n(
       <TooltipProvider>
-        <ConversationNavigator turns={turns} activeAnchorId="turn-2:user" onNavigate={onNavigate} />
+        <ConversationNavigator
+          turns={turns}
+          activeAnchorId="turn-2:user"
+          isAtTail
+          onNavigate={onNavigate}
+          onNavigateToTail={() => {}}
+        />
       </TooltipProvider>,
     );
 
@@ -707,7 +721,13 @@ describe("ConversationNavigator", () => {
 
     view.rerender(
         <TooltipProvider>
-          <ConversationNavigator turns={turns} activeAnchorId="turn-1:user" onNavigate={onNavigate} />
+          <ConversationNavigator
+            turns={turns}
+            activeAnchorId="turn-1:user"
+            isAtTail
+            onNavigate={onNavigate}
+            onNavigateToTail={() => {}}
+          />
         </TooltipProvider>
     );
     expect(previousButton).toBeDisabled();
@@ -719,15 +739,23 @@ describe("ConversationNavigator", () => {
 
     view.rerender(
         <TooltipProvider>
-          <ConversationNavigator turns={turns} activeAnchorId="turn-3:response" onNavigate={onNavigate} />
+          <ConversationNavigator
+            turns={turns}
+            activeAnchorId="turn-3:response"
+            isAtTail
+            onNavigate={onNavigate}
+            onNavigateToTail={() => {}}
+          />
         </TooltipProvider>
     );
     expect(previousButton).toBeEnabled();
     expect(nextButton).toBeDisabled();
     expect(nextButton).toBeVisible();
-    expect(nextButton).toHaveAccessibleName(/这是最后一条消息|This is the last message/);
+    expect(nextButton).toHaveAccessibleName(/已到达对话底部|You're at the bottom of the conversation/);
     await user.hover(nextButton.parentElement!);
-    expect(await screen.findByText(/这是最后一条消息|This is the last message/)).toBeVisible();
+    expect(await screen.findByTestId("conversation-navigation-end-hint")).toHaveTextContent(
+      /已到达对话底部|You're at the bottom of the conversation/,
+    );
   });
 
   it("opens the boundary hint when repeated clicks disable the button under the pointer", async () => {
@@ -747,12 +775,72 @@ describe("ConversationNavigator", () => {
     const nextButton = screen.getByRole("button", { name: /下一条消息|Next message/ });
     for (let index = 0; index < 5; index += 1) await user.click(nextButton);
     expect(nextButton).toBeDisabled();
-    expect(await screen.findByText(/这是最后一条消息|This is the last message/)).toBeVisible();
+    expect(await screen.findByTestId("conversation-navigation-end-hint")).toHaveTextContent(
+      /已到达对话底部|You're at the bottom of the conversation/,
+    );
+  });
+
+  it("uses the final downward action to reach the thread tail", async () => {
+    const user = userEvent.setup();
+    const onNavigate = vi.fn();
+    const onNavigateToTail = vi.fn();
+    const view = renderWithI18n(
+      <TooltipProvider>
+        <ConversationNavigator
+          turns={turns}
+          activeAnchorId="turn-3:response"
+          isAtTail={false}
+          onNavigate={onNavigate}
+          onNavigateToTail={onNavigateToTail}
+        />
+      </TooltipProvider>,
+    );
+
+    const nextButton = screen.getByRole("button", { name: /滚动到底部|Scroll to bottom/ });
+    expect(nextButton).toBeEnabled();
+    await user.hover(nextButton.parentElement!);
+    expect(await screen.findByTestId("conversation-navigation-end-hint")).toHaveTextContent(
+      /滚动到底部|Scroll to bottom/,
+    );
+    await user.click(nextButton);
+    expect(onNavigate).not.toHaveBeenCalled();
+    expect(onNavigateToTail).toHaveBeenCalledOnce();
+    expect(screen.getByTestId("conversation-navigation-end-hint")).toHaveTextContent(
+      /滚动到底部|Scroll to bottom/,
+    );
+
+    view.rerender(
+      <TooltipProvider>
+        <ConversationNavigator
+          turns={turns}
+          activeAnchorId="turn-3:response"
+          isAtTail
+          onNavigate={onNavigate}
+          onNavigateToTail={onNavigateToTail}
+        />
+      </TooltipProvider>,
+    );
+    expect(nextButton).toBeDisabled();
+    expect(nextButton).toHaveAccessibleName(/已到达对话底部|You're at the bottom of the conversation/);
+    expect(screen.getByTestId("conversation-navigation-end-hint")).toHaveTextContent(
+      /已到达对话底部|You're at the bottom of the conversation/,
+    );
+    expect(screen.getByTestId("conversation-navigation-end-hint")).toHaveClass(
+      "animate-in",
+      "fade-in-0",
+      "duration-300",
+    );
   });
 
   it("shows no question heading in previews and labels responses as Ora", () => {
     renderWithI18n(
-      <ConversationNavigator turns={turns} activeAnchorId="turn-2:user" onNavigate={() => {}} />,
+      <ConversationNavigator
+        turns={turns}
+        activeAnchorId="turn-2:user"
+        isAtTail
+        onNavigate={() => {}}
+        onNavigateToTail={() => {}}
+      />,
     );
 
     fireEvent.mouseEnter(screen.getByRole("button", { name: /问题 1|Question 1/ }), { clientY: 10 });
@@ -779,7 +867,13 @@ describe("ConversationNavigator", () => {
       turns[2],
     ];
     renderWithI18n(
-      <ConversationNavigator turns={longTurns} activeAnchorId="long-1:response" onNavigate={() => {}} />,
+      <ConversationNavigator
+        turns={longTurns}
+        activeAnchorId="long-1:response"
+        isAtTail
+        onNavigate={() => {}}
+        onNavigateToTail={() => {}}
+      />,
     );
 
     fireEvent.mouseEnter(screen.getByRole("button", { name: /回复 1|Response 1/ }), { clientY: 10 });
@@ -793,7 +887,13 @@ describe("ConversationNavigator", () => {
       turns[2],
     ];
     renderWithI18n(
-      <ConversationNavigator turns={codeTurns} activeAnchorId="code-1:response" onNavigate={() => {}} />,
+      <ConversationNavigator
+        turns={codeTurns}
+        activeAnchorId="code-1:response"
+        isAtTail
+        onNavigate={() => {}}
+        onNavigateToTail={() => {}}
+      />,
     );
 
     fireEvent.mouseEnter(screen.getByRole("button", { name: /回复 1|Response 1/ }), { clientY: 10 });
