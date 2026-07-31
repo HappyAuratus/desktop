@@ -2,6 +2,7 @@ mod actor;
 mod connection;
 mod models;
 mod routing;
+mod scheduling;
 mod stream;
 mod support;
 

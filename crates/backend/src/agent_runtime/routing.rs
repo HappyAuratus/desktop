@@ -355,8 +355,7 @@ mod tests {
 
     /// Verifies a response already queued remains readable after generation failure notifies loss.
     ///
-    /// Actors rely on this so a biased `events`-before-`controls` select can still complete a turn
-    /// whose terminating response arrived before EOF.
+    /// Active scheduling drains this queue before applying a terminal connection control.
     #[tokio::test]
     async fn keeps_queued_events_readable_after_connection_loss() {
         let (ora_stream, agent_stream) = duplex(4096);

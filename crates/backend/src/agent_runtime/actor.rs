@@ -1,4 +1,5 @@
 use super::routing::{SessionControl, SessionEvent};
+use super::scheduling::{ActiveInput, ActiveInputState};
 use super::*;
 use ora_acp::AcpClient;
 use ora_contracts::SessionPermissionRequest;
@@ -166,75 +167,17 @@ impl RuntimeActor {
         };
         let deadline = tokio::time::sleep(SESSION_SETUP_TIMEOUT);
         tokio::pin!(deadline);
+        let mut input_state = ActiveInputState::default();
         loop {
-            tokio::select! {
+            let input = tokio::select! {
+                // The input scheduler already bounds live event bursts. Prefer an accepted
+                // terminal response over a simultaneously-ready setup deadline.
                 biased;
-                event = channel.events.recv() => {
-                    let Some(event) = event else {
-                        self.fail_load(&events, runtime_unavailable());
-                        return;
-                    };
-                    match event {
-                        SessionEvent::Update(update) => {
-                            deadline.as_mut().reset(Instant::now() + SESSION_SETUP_TIMEOUT);
-                            if events.try_send(Ok(LoadSessionEvent::SessionUpdate { update: update.update })).is_err() {
-                                self.cancel(&client, &HashMap::new()).await;
-                                self.isolate_channel(channel).await;
-                                return;
-                            }
-                        }
-                        SessionEvent::Permission(permission) => {
-                            let _ = client.respond(
-                                &permission.request_id,
-                                &RequestPermissionResponse::new(RequestPermissionOutcome::Cancelled),
-                            ).await;
-                            let _ = events.try_send(Err(runtime_internal(
-                                "agent_protocol_error",
-                                "permission request during session/load is unsupported",
-                            )));
-                            self.isolate_channel(channel).await;
-                            return;
-                        }
-                        SessionEvent::Response(response) => {
-                            if !pending.matches_response(&response) {
-                                continue;
-                            }
-                            match pending.finish(response) {
-                                Ok(_) => {
-                                    ora_debug!(session_id = %self.session.id, "session/load completed");
-                                    if events.try_send(Ok(LoadSessionEvent::Completed)).is_ok() {
-                                        self.channel = Some(channel);
-                                    } else {
-                                        self.isolate_channel(channel).await;
-                                    }
-                                }
-                                Err(error) => {
-                                    ora_debug!(session_id = %self.session.id, error = %error, "session/load failed");
-                                    let _ = events.try_send(Err(map_acp_error(error)));
-                                    self.isolate_channel(channel).await;
-                                }
-                            }
-                            return;
-                        }
-                    }
-                }
-                control = channel.controls.recv() => {
-                    match control {
-                        Some(SessionControl::ConnectionLost(error)) => {
-                            self.fail_load(&events, error);
-                        }
-                        Some(SessionControl::QueueOverflow) => {
-                            let _ = events.try_send(Err(runtime_internal(
-                                "agent_event_overflow",
-                                "session event queue overflowed",
-                            )));
-                            self.isolate_channel(channel).await;
-                            return;
-                        }
-                        None => self.fail_load(&events, runtime_unavailable()),
-                    }
-                    return;
-                }
+                input = input_state.recv(
+                    &mut channel.events,
+                    &mut channel.controls,
+                    &mut self.commands,
+                ) => input,
                 _ = &mut deadline => {
                     ora_debug!(session_id = %self.session.id, "session/load timed out");
                     self.cancel(&client, &HashMap::new()).await;
@@ -245,41 +188,107 @@ impl RuntimeActor {
                     self.isolate_channel(channel).await;
                     return;
                 }
-                command = self.commands.recv() => {
-                    match command {
-                        Some(RuntimeCommand::Cancel { operation_id: cancelled })
-                            if cancelled == operation_id =>
-                        {
-                            self.cancel(&client, &HashMap::new()).await;
-                            let _ = timeout(
-                                CANCELLATION_GRACE,
-                                settle_abandoned_session_response(
-                                    &mut channel,
-                                    &client,
-                                    pending,
-                                ),
-                            )
-                            .await;
-                            self.isolate_channel(channel).await;
-                            return;
-                        }
-                        Some(RuntimeCommand::Stop { response }) => {
-                            self.cancel(&client, &HashMap::new()).await;
-                            self.isolate_channel(channel).await;
-                            let _ = response.send(Ok(StopSessionResponse {
-                                session: contract_session(self.session.clone()),
-                            }));
-                            return;
-                        }
-                        Some(RuntimeCommand::Prompt { accepted, .. })
-                        | Some(RuntimeCommand::Load { accepted, .. }) => {
-                            let _ = accepted.send(Err(session_busy()));
-                        }
-                        Some(RuntimeCommand::RespondToPermission { response, .. }) => {
-                            let _ = response.send(Err(permission_not_pending()));
-                        }
-                        Some(RuntimeCommand::Cancel { .. }) | None => {}
+            };
+            match input {
+                ActiveInput::Event(SessionEvent::Update(update)) => {
+                    deadline
+                        .as_mut()
+                        .reset(Instant::now() + SESSION_SETUP_TIMEOUT);
+                    if events
+                        .try_send(Ok(LoadSessionEvent::SessionUpdate {
+                            update: update.update,
+                        }))
+                        .is_err()
+                    {
+                        self.cancel(&client, &HashMap::new()).await;
+                        self.isolate_channel(channel).await;
+                        return;
                     }
+                }
+                ActiveInput::Event(SessionEvent::Permission(permission)) => {
+                    let _ = client
+                        .respond(
+                            &permission.request_id,
+                            &RequestPermissionResponse::new(RequestPermissionOutcome::Cancelled),
+                        )
+                        .await;
+                    let _ = events.try_send(Err(runtime_internal(
+                        "agent_protocol_error",
+                        "permission request during session/load is unsupported",
+                    )));
+                    self.isolate_channel(channel).await;
+                    return;
+                }
+                ActiveInput::Event(SessionEvent::Response(response)) => {
+                    if !pending.matches_response(&response) {
+                        continue;
+                    }
+                    match pending.finish(response) {
+                        Ok(_) => {
+                            ora_debug!(session_id = %self.session.id, "session/load completed");
+                            if events.try_send(Ok(LoadSessionEvent::Completed)).is_ok() {
+                                self.channel = Some(channel);
+                            } else {
+                                self.isolate_channel(channel).await;
+                            }
+                        }
+                        Err(error) => {
+                            ora_debug!(session_id = %self.session.id, error = %error, "session/load failed");
+                            let _ = events.try_send(Err(map_acp_error(error)));
+                            self.isolate_channel(channel).await;
+                        }
+                    }
+                    return;
+                }
+                ActiveInput::Control(SessionControl::ConnectionLost(error)) => {
+                    self.fail_load(&events, error);
+                    return;
+                }
+                ActiveInput::Control(SessionControl::QueueOverflow) => {
+                    let _ = events.try_send(Err(runtime_internal(
+                        "agent_event_overflow",
+                        "session event queue overflowed",
+                    )));
+                    self.isolate_channel(channel).await;
+                    return;
+                }
+                ActiveInput::EventsClosed | ActiveInput::ControlsClosed => {
+                    self.fail_load(&events, runtime_unavailable());
+                    return;
+                }
+                ActiveInput::Command(RuntimeCommand::Cancel {
+                    operation_id: cancelled,
+                }) if cancelled == operation_id => {
+                    self.cancel(&client, &HashMap::new()).await;
+                    let _ = timeout(
+                        CANCELLATION_GRACE,
+                        settle_abandoned_session_response(&mut channel, &client, pending),
+                    )
+                    .await;
+                    self.isolate_channel(channel).await;
+                    return;
+                }
+                ActiveInput::Command(RuntimeCommand::Stop { response }) => {
+                    self.cancel(&client, &HashMap::new()).await;
+                    self.isolate_channel(channel).await;
+                    let _ = response.send(Ok(StopSessionResponse {
+                        session: contract_session(self.session.clone()),
+                    }));
+                    return;
+                }
+                ActiveInput::Command(
+                    RuntimeCommand::Prompt { accepted, .. } | RuntimeCommand::Load { accepted, .. },
+                ) => {
+                    let _ = accepted.send(Err(session_busy()));
+                }
+                ActiveInput::Command(RuntimeCommand::RespondToPermission { response, .. }) => {
+                    let _ = response.send(Err(permission_not_pending()));
+                }
+                ActiveInput::Command(RuntimeCommand::Cancel { .. }) => {}
+                ActiveInput::CommandsClosed => {
+                    self.cancel(&client, &HashMap::new()).await;
+                    self.isolate_channel(channel).await;
+                    return;
                 }
             }
         }
@@ -334,129 +343,138 @@ impl RuntimeActor {
             }
         };
         let mut permissions = HashMap::new();
+        let mut input_state = ActiveInputState::default();
         loop {
-            tokio::select! {
-                biased;
-                event = channel.events.recv() => {
-                    let Some(event) = event else {
-                        self.fail_prompt(&events, runtime_unavailable());
+            match input_state
+                .recv(
+                    &mut channel.events,
+                    &mut channel.controls,
+                    &mut self.commands,
+                )
+                .await
+            {
+                ActiveInput::Event(SessionEvent::Update(update)) => {
+                    if events
+                        .try_send(Ok(PromptSessionEvent::SessionUpdate {
+                            update: update.update,
+                        }))
+                        .is_err()
+                    {
+                        self.cancel(&client, &permissions).await;
+                        self.isolate_channel(channel).await;
                         return;
-                    };
-                    match event {
-                        SessionEvent::Update(update) => {
-                            if events.try_send(Ok(PromptSessionEvent::SessionUpdate { update: update.update })).is_err() {
-                                self.cancel(&client, &permissions).await;
-                                self.isolate_channel(channel).await;
-                                return;
-                            }
-                        }
-                        SessionEvent::Permission(permission) => {
-                            let public_id = permission.request_id.to_string();
-                            let option_ids = permission.request.options.iter()
-                                .map(|option| option.option_id.to_string())
-                                .collect::<Vec<_>>();
-                            ora_debug!(session_id = %self.session.id, tool_call = ?permission.request.tool_call, option_count = option_ids.len(), request_id = %public_id, "permission requested");
-                            permissions.insert(public_id.clone(), (permission.request_id, option_ids));
-                            let event = PromptSessionEvent::PermissionRequest(SessionPermissionRequest {
-                                permission_request_id: public_id,
-                                tool_call: permission.request.tool_call,
-                                options: permission.request.options,
-                            });
-                            if events.try_send(Ok(event)).is_err() {
-                                self.cancel(&client, &permissions).await;
-                                self.isolate_channel(channel).await;
-                                return;
-                            }
-                        }
-                        SessionEvent::Response(response) => {
-                            if !pending.matches_response(&response) {
-                                continue;
-                            }
-                            match pending.finish(response) {
-                                Ok(response) => {
-                                    ora_debug!(session_id = %self.session.id, stop_reason = ?response.stop_reason, "prompt completed");
-                                    if events.try_send(Ok(PromptSessionEvent::Completed {
-                                        stop_reason: response.stop_reason,
-                                    })).is_ok() {
-                                        self.channel = Some(channel);
-                                    } else {
-                                        self.isolate_channel(channel).await;
-                                    }
-                                }
-                                Err(error) => {
-                                    let reusable = matches!(&error, ora_acp::AcpError::RequestFailed(_));
-                                    ora_debug!(session_id = %self.session.id, error = %error, reusable = reusable, "prompt failed");
-                                    let delivered = events.try_send(Err(map_acp_error(error))).is_ok();
-                                    if reusable && delivered {
-                                        self.channel = Some(channel);
-                                    } else {
-                                        self.isolate_channel(channel).await;
-                                    }
-                                }
-                            }
-                            return;
-                        }
                     }
                 }
-                control = channel.controls.recv() => {
-                    match control {
-                        Some(SessionControl::ConnectionLost(error)) => {
-                            self.fail_prompt(&events, error);
-                            return;
-                        }
-                        Some(SessionControl::QueueOverflow) => {
-                            self.cancel(&client, &permissions).await;
-                            let _ = events.try_send(Err(runtime_internal(
-                                "agent_event_overflow",
-                                "session event queue overflowed",
-                            )));
-                            self.isolate_channel(channel).await;
-                            return;
-                        }
-                        None => {
-                            self.fail_prompt(&events, runtime_unavailable());
-                            return;
-                        }
+                ActiveInput::Event(SessionEvent::Permission(permission)) => {
+                    let public_id = permission.request_id.to_string();
+                    let option_ids = permission
+                        .request
+                        .options
+                        .iter()
+                        .map(|option| option.option_id.to_string())
+                        .collect::<Vec<_>>();
+                    ora_debug!(session_id = %self.session.id, tool_call = ?permission.request.tool_call, option_count = option_ids.len(), request_id = %public_id, "permission requested");
+                    permissions.insert(public_id.clone(), (permission.request_id, option_ids));
+                    let event = PromptSessionEvent::PermissionRequest(SessionPermissionRequest {
+                        permission_request_id: public_id,
+                        tool_call: permission.request.tool_call,
+                        options: permission.request.options,
+                    });
+                    if events.try_send(Ok(event)).is_err() {
+                        self.cancel(&client, &permissions).await;
+                        self.isolate_channel(channel).await;
+                        return;
                     }
                 }
-                command = self.commands.recv() => {
-                    match command {
-                        Some(RuntimeCommand::RespondToPermission { request, response }) => {
-                            let result = respond_permission(&client, request, &mut permissions).await;
-                            let _ = response.send(result);
-                        }
-                        Some(RuntimeCommand::Cancel { operation_id: cancelled }) if cancelled == operation_id => {
-                            self.cancel(&client, &permissions).await;
-                            let settled = timeout(
-                                CANCELLATION_GRACE,
-                                settle_abandoned_session_response(&mut channel, &client, pending),
-                            )
-                            .await;
-                            match settled {
-                                Ok(Some(Ok(_)))
-                                | Ok(Some(Err(ora_acp::AcpError::RequestFailed(_)))) => {
-                                    self.channel = Some(channel);
-                                }
-                                Ok(Some(Err(_))) | Ok(None) | Err(_) => {
-                                    self.isolate_channel(channel).await;
-                                }
-                            }
-                            return;
-                        }
-                        Some(RuntimeCommand::Stop { response }) => {
-                            self.cancel(&client, &permissions).await;
-                            self.isolate_channel(channel).await;
-                            let _ = response.send(Ok(StopSessionResponse {
-                                session: contract_session(self.session.clone()),
-                            }));
-                            return;
-                        }
-                        Some(RuntimeCommand::Prompt { accepted, .. })
-                        | Some(RuntimeCommand::Load { accepted, .. }) => {
-                            let _ = accepted.send(Err(session_busy()));
-                        }
-                        Some(RuntimeCommand::Cancel { .. }) | None => {}
+                ActiveInput::Event(SessionEvent::Response(response)) => {
+                    if !pending.matches_response(&response) {
+                        continue;
                     }
+                    match pending.finish(response) {
+                        Ok(response) => {
+                            ora_debug!(session_id = %self.session.id, stop_reason = ?response.stop_reason, "prompt completed");
+                            if events
+                                .try_send(Ok(PromptSessionEvent::Completed {
+                                    stop_reason: response.stop_reason,
+                                }))
+                                .is_ok()
+                            {
+                                self.channel = Some(channel);
+                            } else {
+                                self.isolate_channel(channel).await;
+                            }
+                        }
+                        Err(error) => {
+                            let reusable = matches!(&error, ora_acp::AcpError::RequestFailed(_));
+                            ora_debug!(session_id = %self.session.id, error = %error, reusable = reusable, "prompt failed");
+                            let delivered = events.try_send(Err(map_acp_error(error))).is_ok();
+                            if reusable && delivered {
+                                self.channel = Some(channel);
+                            } else {
+                                self.isolate_channel(channel).await;
+                            }
+                        }
+                    }
+                    return;
+                }
+                ActiveInput::Control(SessionControl::ConnectionLost(error)) => {
+                    self.fail_prompt(&events, error);
+                    return;
+                }
+                ActiveInput::Control(SessionControl::QueueOverflow) => {
+                    self.cancel(&client, &permissions).await;
+                    let _ = events.try_send(Err(runtime_internal(
+                        "agent_event_overflow",
+                        "session event queue overflowed",
+                    )));
+                    self.isolate_channel(channel).await;
+                    return;
+                }
+                ActiveInput::EventsClosed | ActiveInput::ControlsClosed => {
+                    self.fail_prompt(&events, runtime_unavailable());
+                    return;
+                }
+                ActiveInput::Command(RuntimeCommand::RespondToPermission { request, response }) => {
+                    let result = respond_permission(&client, request, &mut permissions).await;
+                    let _ = response.send(result);
+                }
+                ActiveInput::Command(RuntimeCommand::Cancel {
+                    operation_id: cancelled,
+                }) if cancelled == operation_id => {
+                    self.cancel(&client, &permissions).await;
+                    let settled = timeout(
+                        CANCELLATION_GRACE,
+                        settle_abandoned_session_response(&mut channel, &client, pending),
+                    )
+                    .await;
+                    match settled {
+                        Ok(Some(Ok(_))) | Ok(Some(Err(ora_acp::AcpError::RequestFailed(_)))) => {
+                            self.channel = Some(channel);
+                        }
+                        Ok(Some(Err(_))) | Ok(None) | Err(_) => {
+                            self.isolate_channel(channel).await;
+                        }
+                    }
+                    return;
+                }
+                ActiveInput::Command(RuntimeCommand::Stop { response }) => {
+                    self.cancel(&client, &permissions).await;
+                    self.isolate_channel(channel).await;
+                    let _ = response.send(Ok(StopSessionResponse {
+                        session: contract_session(self.session.clone()),
+                    }));
+                    return;
+                }
+                ActiveInput::Command(
+                    RuntimeCommand::Prompt { accepted, .. } | RuntimeCommand::Load { accepted, .. },
+                ) => {
+                    let _ = accepted.send(Err(session_busy()));
+                }
+                ActiveInput::Command(RuntimeCommand::Cancel { .. }) => {}
+                ActiveInput::CommandsClosed => {
+                    self.cancel(&client, &permissions).await;
+                    self.isolate_channel(channel).await;
+                    return;
                 }
             }
         }

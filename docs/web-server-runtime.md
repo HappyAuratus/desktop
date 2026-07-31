@@ -105,15 +105,13 @@ Task payloads do not expose backend-owned worktree identifiers, and the runtime 
 
 `GET /api/git/identity` returns the host's Git identity for the sidebar profile: the global Git config first, falling back to the authenticated GitHub CLI account when Git has no name configured.
 
-Load and prompt responses use `application/x-ndjson`. Each line is one complete frame. Session updates, permission requests, and terminating responses share one bounded per-session FIFO of 256 items (connection loss and overflow use a separate control path), frames are limited to 8 MiB, and overflow terminates the operation rather than dropping events silently.
-
 ### Agent runtime
 
 Backend construction immediately attempts one supervised `acp` child per supported CLI, rooted at the user's home directory. Executable resolution is platform-specific: on Unix each CLI is read from its fixed per-user directory (`<home>/.opencode/bin/opencode`, `<home>/.nga/bin/nga`, `<home>/.codeagentcli/bin/codeagentcli`); on Windows it is resolved from `PATH` through `where.exe` on every retry generation.
 
 Each independent supervisor performs `initialize` once per process generation and retries failures without blocking healthy CLIs or non-agent APIs. Session create calls `session/new` on the connection selected by `agentCli`; load calls `session/load` using the private provider session id and the Task worktree `cwd`. The public Session payload never exposes that id. `GET /api/agent-models` concurrently runs each CLI's bounded `models` discovery command and returns only successful groups.
 
-Load and prompt responses use `application/x-ndjson`. Each line is one complete frame. Data and control paths are separate, session-update queues are bounded at 256 items, frames are limited to 8 MiB, and overflow terminates the operation rather than dropping updates silently. See [ACP Agent Runtime](agent-runtime.md).
+Load and prompt responses use `application/x-ndjson`. Each line is one complete frame. Session updates, permission requests, and terminating responses share one bounded per-session FIFO of 256 items; connection loss and overflow use a separate control path. Frames are limited to 8 MiB, overflow terminates the operation rather than dropping events silently, and active sessions drain queued events before terminal controls while polling commands between bounded event batches. See [ACP Agent Runtime](agent-runtime.md).
 
 ### Project work contexts
 
