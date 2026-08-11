@@ -83,6 +83,7 @@ beforeEach(() => {
     expandedTasks: new Set(),
     dialog: null,
     deleteTarget: null,
+    workflowRunReplayRequest: null,
   });
   useUnreadSessionsStore.setState({ unread: new Set() });
 });
@@ -327,6 +328,33 @@ describe("WorkspaceSidebar", () => {
       conversations: { [SESSION.id]: conversation({ isResponding: false }) },
     }));
     await waitFor(() => expect(workingIndicator()).toBeNull());
+  });
+
+  it("requests replay from a terminal workflow run menu action", async () => {
+    const user = userEvent.setup();
+    const state = createMockClientState();
+    state.projects = [PROJECT];
+    state.workflowRuns = [{
+      id: "run-1",
+      projectId: PROJECT.id,
+      workflowId: "wf-1",
+      snapshotId: "snap-1",
+      name: "Review workflow run",
+      status: "succeeded",
+      taskId: "task-run-1",
+      createdAt: 1n,
+      updatedAt: 1n,
+      startedAt: 1_000n,
+      finishedAt: 5_000n,
+    }];
+    renderSidebar(state);
+
+    const row = await screen.findByRole("button", { name: /Review workflow run/ });
+    await user.click(within(row.parentElement!).getByRole("button", { name: /打开操作菜单|Open actions/ }));
+    await user.click(await screen.findByRole("menuitem", { name: /回放|Replay/ }));
+
+    expect(useWorkspaceSelectionStore.getState().selection.workflowRunId).toBe("run-1");
+    expect(useUiStore.getState().workflowRunReplayRequest?.runId).toBe("run-1");
   });
 
   // Matches the unread-mark aria-label in either shipped locale.

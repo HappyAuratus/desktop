@@ -70,6 +70,8 @@ export function WorkflowRunWorkspace({ runId }: WorkflowRunWorkspaceProps) {
   const { t } = useTranslation();
   const sidebarCollapsed = useUiStore((s) => s.sidebarCollapsed);
   const setSidebarCollapsed = useUiStore((s) => s.setSidebarCollapsed);
+  const workflowRunReplayRequest = useUiStore((s) => s.workflowRunReplayRequest);
+  const clearWorkflowRunReplayRequest = useUiStore((s) => s.clearWorkflowRunReplayRequest);
   const selectWorkflowRun = useWorkspaceSelectionStore((s) => s.selectWorkflowRun);
   const projectId = useWorkspaceSelectionStore((s) => s.selection.projectId);
   const projectsQuery = useProjects();
@@ -309,6 +311,15 @@ export function WorkflowRunWorkspace({ runId }: WorkflowRunWorkspaceProps) {
     : run;
   const runTone = displayRun !== null ? runStatusTone(displayRun.status) : null;
   const actionBusy = startRun.isPending || cancelRun.isPending || rerun.isPending || replaying;
+
+  // Sidebar menu can request replay for the selected run row.
+  useEffect(() => {
+    if (workflowRunReplayRequest?.runId !== runId || !canReplay) {
+      return;
+    }
+    startReplay();
+    clearWorkflowRunReplayRequest();
+  }, [workflowRunReplayRequest?.key, workflowRunReplayRequest?.runId, runId, canReplay]);
 
   // Run-task worktree Diff / Files — same surface as chat Task Changes.
   const reviewContext: WorkspaceReviewContext = runTaskId !== null
@@ -558,21 +569,6 @@ export function WorkflowRunWorkspace({ runId }: WorkflowRunWorkspaceProps) {
             >
               <IconPlayerStop className="size-3.5" />
               {t("workflowRun.stopAction")}
-            </Button>
-          )}
-          {canRunAgain && run && !replaying && (
-            <Button
-              type="button"
-              size="sm"
-              variant="secondary"
-              className="h-7 gap-1.5 px-2.5 text-xs"
-              disabled={!canReplay || startRun.isPending || cancelRun.isPending || rerun.isPending}
-              onClick={() => {
-                startReplay();
-              }}
-            >
-              <IconPlayerPlay className="size-3.5" />
-              {t("workflowRun.replayAction")}
             </Button>
           )}
           {canRunAgain && run && (

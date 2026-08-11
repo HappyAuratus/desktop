@@ -25,6 +25,7 @@ import {
   IconLayoutSidebarLeftCollapse,
   IconMessageCircle,
   IconPencil,
+  IconPlayerPlay,
   IconPlayerStop,
   IconPlus,
   IconRoute,
@@ -48,6 +49,7 @@ import { AgentActivityDots } from "../../components/agent-activity-dots";
 import { DragRegion } from "../../components/drag-region";
 import { useChatStore } from "../../chat-store-context";
 import type { GraphWorkflowRunStatus } from "@ora/workflow-runtime";
+import { isTerminalRunStatus } from "../workflow-run/run-status-style";
 
 interface WorkspaceSidebarProps {
   user: CurrentUser;
@@ -88,6 +90,7 @@ export function WorkspaceSidebar({ user, onSignOut }: WorkspaceSidebarProps) {
   const setSettingsOpen = useUiStore((s) => s.setSettingsOpen);
   const setDialog = useUiStore((s) => s.setDialog);
   const setDeleteTarget = useUiStore((s) => s.setDeleteTarget);
+  const requestWorkflowRunReplay = useUiStore((s) => s.requestWorkflowRunReplay);
 
   const needle = query.trim().toLowerCase();
 
@@ -278,6 +281,10 @@ export function WorkspaceSidebar({ user, onSignOut }: WorkspaceSidebarProps) {
                       name: run.name,
                       projectId: project.id,
                     })}
+                    onReplayRun={(runId) => {
+                      selectWorkflowRun(runId, project.id);
+                      requestWorkflowRunReplay(runId);
+                    }}
                   />
                   {projectTasks.map((task) => {
                     const taskSessions = sessions.filter((session) => session.taskId === task.id);
@@ -532,12 +539,14 @@ function ProjectWorkflowRunRows({
   onSelectRun,
   onEditRun,
   onDeleteRun,
+  onReplayRun,
 }: {
   projectId: string;
   activeRunId: string | null;
   onSelectRun: (runId: string) => void;
   onEditRun: (run: { id: string; name: string }) => void;
   onDeleteRun: (run: { id: string; name: string }) => void;
+  onReplayRun: (runId: string) => void;
 }) {
   const { t } = useTranslation();
   const runsQuery = useWorkflowRunsByProject(projectId);
@@ -562,6 +571,7 @@ function ProjectWorkflowRunRows({
           onClick={() => onSelectRun(run.id)}
           menu={(
             <EntityMenu
+              onReplay={isTerminalRunStatus(run.status) ? () => onReplayRun(run.id) : undefined}
               onEdit={() => onEditRun({ id: run.id, name: run.name })}
               onDelete={() => onDeleteRun({ id: run.id, name: run.name })}
             />
@@ -626,10 +636,12 @@ function NewDirectChatButton({ onClick }: { onClick: () => void }) {
 
 /** Provides contextual CRUD commands without making every tree row visually noisy. */
 function EntityMenu({
+  onReplay,
   onEdit,
   onCancel,
   onDelete,
 }: {
+  onReplay?: () => void;
   onEdit?: () => void;
   onCancel?: () => void;
   onDelete: () => void;
@@ -641,6 +653,7 @@ function EntityMenu({
         <IconDots />
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-44">
+        {onReplay && <DropdownMenuItem onClick={onReplay}><IconPlayerPlay />{t("workflowRun.replayAction")}</DropdownMenuItem>}
         {onEdit && <DropdownMenuItem onClick={onEdit}><IconPencil />{t("common.edit")}</DropdownMenuItem>}
         {onCancel && (
           <DropdownMenuItem onClick={onCancel}>

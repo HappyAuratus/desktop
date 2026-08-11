@@ -28,6 +28,8 @@ interface UiState {
   expandedTasks: Set<string>;
   dialog: DialogState | null;
   deleteTarget: DeleteTarget | null;
+  /** Pending replay request keyed by run id; consumed by WorkflowRunWorkspace. */
+  workflowRunReplayRequest: { runId: string; key: number } | null;
   setSidebarCollapsed: (collapsed: boolean) => void;
   setSettingsOpen: (open: boolean) => void;
   setDashboardOpen: (open: boolean) => void;
@@ -41,6 +43,8 @@ interface UiState {
   expandTask: (taskId: string) => void;
   setDialog: (dialog: DialogState | null) => void;
   setDeleteTarget: (target: DeleteTarget | null) => void;
+  requestWorkflowRunReplay: (runId: string) => void;
+  clearWorkflowRunReplayRequest: () => void;
 }
 
 /** Global UI state for the app shell: sidebar folding, tree expansion, and dialog switches. */
@@ -54,6 +58,7 @@ export const useUiStore = create<UiState>((set) => ({
   expandedTasks: new Set<string>(),
   dialog: null,
   deleteTarget: null,
+  workflowRunReplayRequest: null,
   setSidebarCollapsed: (sidebarCollapsed) => set({ sidebarCollapsed }),
   setSettingsOpen: (settingsOpen) => set({ settingsOpen }),
   setDashboardOpen: (dashboardOpen) => set({ dashboardOpen }),
@@ -87,4 +92,12 @@ export const useUiStore = create<UiState>((set) => ({
     ),
   setDialog: (dialog) => set({ dialog }),
   setDeleteTarget: (deleteTarget) => set({ deleteTarget }),
+  requestWorkflowRunReplay: (runId) =>
+    set((state) => ({
+      workflowRunReplayRequest: {
+        runId,
+        key: (state.workflowRunReplayRequest?.key ?? 0) + 1,
+      },
+    })),
+  clearWorkflowRunReplayRequest: () => set({ workflowRunReplayRequest: null }),
 }));

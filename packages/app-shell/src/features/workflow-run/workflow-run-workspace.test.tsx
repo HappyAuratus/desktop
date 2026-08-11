@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -12,6 +12,7 @@ import {
 import { createMockClient, createMockClientState } from "../../test/mock-client";
 import { createStubPlatform } from "../../test/stub-platform";
 import { useLocationActionsStore } from "../../state/stores/location-actions-store";
+import { useUiStore } from "../../state/stores/ui-store";
 import { useWorkspaceSelectionStore } from "../../state/stores/workspace-selection-store";
 import { WorkflowRunWorkspace } from "./workflow-run-workspace";
 
@@ -225,7 +226,7 @@ describe("WorkflowRunWorkspace", () => {
     runtime.dispose();
   });
 
-  it("replays one finished run locally without replacing the selected run", async () => {
+  it("replays one finished run from a sidebar replay request", async () => {
     const state = seedRunWithTask();
     state.workflowRuns[0].status = "succeeded";
     state.workflowRuns[0].startedAt = 1_000n;
@@ -251,10 +252,12 @@ describe("WorkflowRunWorkspace", () => {
     await waitFor(() => {
       expect(screen.getByText("审查流程 1")).toBeInTheDocument();
     });
-    await user.click(screen.getByRole("button", { name: /回放|Replay/ }));
+    act(() => {
+      useUiStore.getState().requestWorkflowRunReplay("run-1");
+    });
     expect(screen.getByRole("button", { name: /终止|Stop/ })).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: /终止|Stop/ }));
-    expect(screen.getByRole("button", { name: /回放|Replay/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /再次运行|Run again/ })).toBeInTheDocument();
     expect(useWorkspaceSelectionStore.getState().selection.workflowRunId).toBe("run-1");
 
     runtime.dispose();
