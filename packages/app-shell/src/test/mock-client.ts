@@ -34,6 +34,8 @@ export interface MockWorkflowRunRecord {
   taskId: string;
   createdAt: bigint;
   updatedAt: bigint;
+  startedAt?: bigint | null;
+  finishedAt?: bigint | null;
 }
 
 /** Builds the public run payload for one mock workflow-run record. */
@@ -48,8 +50,8 @@ function mockWorkflowRun(record: MockWorkflowRunRecord): WorkflowRun {
     output: null,
     error: null,
     payload: null,
-    startedAt: null,
-    finishedAt: null,
+    startedAt: record.startedAt ?? null,
+    finishedAt: record.finishedAt ?? null,
     createdAt: record.createdAt,
     updatedAt: record.updatedAt,
   };
@@ -573,8 +575,8 @@ export function createMockClient(state: MockClientState): ContractsClient {
             output: null,
             error: null,
             payload: null,
-            startedAt: null,
-            finishedAt: null,
+            startedAt: record.startedAt ?? null,
+            finishedAt: record.finishedAt ?? null,
             createdAt: record.createdAt,
             updatedAt: record.updatedAt,
           },
@@ -613,8 +615,8 @@ export function createMockClient(state: MockClientState): ContractsClient {
             projectId: record.projectId,
             workflowId: record.workflowId,
             status: record.status,
-            startedAt: null,
-            finishedAt: null,
+            startedAt: record.startedAt ?? null,
+            finishedAt: record.finishedAt ?? null,
             createdAt: record.createdAt,
           })),
       }),
@@ -627,8 +629,8 @@ export function createMockClient(state: MockClientState): ContractsClient {
             projectId: record.projectId,
             workflowId: record.workflowId,
             status: record.status,
-            startedAt: null,
-            finishedAt: null,
+            startedAt: record.startedAt ?? null,
+            finishedAt: record.finishedAt ?? null,
             createdAt: record.createdAt,
           })),
       }),

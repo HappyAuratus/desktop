@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
+import type { GraphWorkflowRun } from "@ora/workflow-runtime";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -85,9 +86,12 @@ export function WorkflowRunWorkspace({ runId }: WorkflowRunWorkspaceProps) {
   const startRun = useStartWorkflowRun();
   const cancelRun = useCancelWorkflowRun();
   const rerun = useRestartWorkflowRun();
+  const replayTimerRef = useRef<number | null>(null);
 
   const [viewMode, setViewMode] = useState<WorkflowRunViewMode>("overview");
   const [focusNodeId, setFocusNodeId] = useState<string | null>(null);
+  const [replayNowMs, setReplayNowMs] = useState<number | null>(null);
+  const [replayActive, setReplayActive] = useState(false);
   /** Node whose session dock is open — survives Overview ↔ Theater remounts. */
   const [conversationNodeId, setConversationNodeId] = useState<string | null>(null);
   const [stopOpen, setStopOpen] = useState(false);
@@ -155,10 +159,18 @@ export function WorkflowRunWorkspace({ runId }: WorkflowRunWorkspaceProps) {
     setStopOpen(false);
     setOpenInspectorOnTheaterEnter(false);
     setReviewPanelOpen(false);
+    setReplayNowMs(null);
+    setReplayActive(false);
   }
   useEffect(() => {
     focusStatusSampleRef.current = null;
   }, [runId]);
+  useEffect(() => () => {
+    if (replayTimerRef.current !== null) {
+      window.clearInterval(replayTimerRef.current);
+      replayTimerRef.current = null;
+    }
+  }, []);
 
   const conversationNodeIdRef = useRef<string | null>(null);
   conversationNodeIdRef.current = conversationNodeId;
@@ -289,8 +301,14 @@ export function WorkflowRunWorkspace({ runId }: WorkflowRunWorkspaceProps) {
   const canStop = run !== null
     && (run.status === "running" || run.status === "awaiting_input");
   const canRunAgain = run !== null && isTerminalRunStatus(run.status);
-  const runTone = run !== null ? runStatusTone(run.status) : null;
-  const actionBusy = startRun.isPending || cancelRun.isPending || rerun.isPending;
+  const replayWindow = run !== null ? resolveReplayWindow(run) : null;
+  const canReplay = canRunAgain && replayWindow !== null;
+  const replaying = replayActive && replayNowMs !== null && replayWindow !== null;
+  const displayRun = run !== null && replayNowMs !== null
+    ? buildReplayDisplayRun(run, replayNowMs)
+    : run;
+  const runTone = displayRun !== null ? runStatusTone(displayRun.status) : null;
+  const actionBusy = startRun.isPending || cancelRun.isPending || rerun.isPending || replaying;
 
   // Run-task worktree Diff / Files — same surface as chat Task Changes.
   const reviewContext: WorkspaceReviewContext = runTaskId !== null
@@ -321,7 +339,7 @@ export function WorkflowRunWorkspace({ runId }: WorkflowRunWorkspaceProps) {
   function focusNodeFromOverview(nodeId: string): void {
     setConversationNodeId(null);
     setFocusNodeId(nodeId);
-    const waiting = run !== null && run.nodeStates[nodeId]?.status === "awaiting_input";
+    const waiting = displayRun !== null && displayRun.nodeStates[nodeId]?.status === "awaiting_input";
     const stageWidth = stageAreaRef.current?.getBoundingClientRect().width
       ?? Number.POSITIVE_INFINITY;
     // Narrow stages cannot host the act card and inspector without crushing the card.
@@ -378,6 +396,7 @@ export function WorkflowRunWorkspace({ runId }: WorkflowRunWorkspaceProps) {
     if (run === null || !canRunAgain) {
       return;
     }
+    stopReplay();
     try {
       // Restart re-runs the same run in place; the id is unchanged.
       await rerun.mutateAsync({ runId: run.id });
@@ -385,6 +404,42 @@ export function WorkflowRunWorkspace({ runId }: WorkflowRunWorkspaceProps) {
     } catch {
       toast.error(t("workflowRun.rerunFailed"));
     }
+  }
+
+  /** Stops local replay and restores the persisted run unchanged. */
+  function stopReplay(): void {
+    if (replayTimerRef.current !== null) {
+      window.clearInterval(replayTimerRef.current);
+      replayTimerRef.current = null;
+    }
+    setReplayActive(false);
+    setReplayNowMs(null);
+  }
+
+  /** Replays one finished run from persisted timestamps without backend writes. */
+  function startReplay(): void {
+    if (replayWindow === null) {
+      return;
+    }
+    stopReplay();
+    const wallStartMs = Date.now();
+    setReplayNowMs(replayWindow.startMs);
+    setReplayActive(true);
+    enterTheater();
+    replayTimerRef.current = window.setInterval(() => {
+      const elapsedMs = Date.now() - wallStartMs;
+      const nextReplayMs = replayWindow.startMs + elapsedMs;
+      if (nextReplayMs >= replayWindow.endMs) {
+        setReplayNowMs(replayWindow.endMs);
+        setReplayActive(false);
+        if (replayTimerRef.current !== null) {
+          window.clearInterval(replayTimerRef.current);
+          replayTimerRef.current = null;
+        }
+        return;
+      }
+      setReplayNowMs(nextReplayMs);
+    }, 200);
   }
 
   async function handleConfirmStop(): Promise<void> {
@@ -423,12 +478,12 @@ export function WorkflowRunWorkspace({ runId }: WorkflowRunWorkspaceProps) {
         <DragRegion className="min-w-0 flex-1">
           <div className="flex min-w-0 items-center gap-2">
             <p className="min-w-0 truncate text-sm font-medium tracking-[-0.01em]">
-              {run?.name ?? t("workflowRun.loading")}
+              {displayRun?.name ?? t("workflowRun.loading")}
             </p>
             {runTone
               ? (
                 <RunStatusBadge
-                  status={run!.status}
+                  status={displayRun!.status}
                   quiet
                   className="hidden shrink-0 sm:inline-flex"
                 />
@@ -505,20 +560,42 @@ export function WorkflowRunWorkspace({ runId }: WorkflowRunWorkspaceProps) {
               {t("workflowRun.stopAction")}
             </Button>
           )}
+          {canRunAgain && run && !replaying && (
+            <Button
+              type="button"
+              size="sm"
+              variant="secondary"
+              className="h-7 gap-1.5 px-2.5 text-xs"
+              disabled={!canReplay || startRun.isPending || cancelRun.isPending || rerun.isPending}
+              onClick={() => {
+                startReplay();
+              }}
+            >
+              <IconPlayerPlay className="size-3.5" />
+              {t("workflowRun.replayAction")}
+            </Button>
+          )}
           {canRunAgain && run && (
             <Button
               type="button"
               size="sm"
               className="h-7 gap-1.5 px-2.5 text-xs"
-              disabled={actionBusy}
+              variant={replaying ? "outline" : "default"}
+              disabled={actionBusy && !replaying}
               onClick={() => {
+                if (replaying) {
+                  stopReplay();
+                  return;
+                }
                 void handleRunAgain();
               }}
             >
-              {rerun.isPending
+              {replaying
+                ? <IconPlayerStop className="size-3.5" />
+                : rerun.isPending
                 ? <Spinner className="size-3.5" />
                 : <IconPlayerPlay className="size-3.5" />}
-              {t("workflowRun.runAgainAction")}
+              {replaying ? t("workflowRun.stopAction") : t("workflowRun.runAgainAction")}
             </Button>
           )}
         </div>
@@ -530,14 +607,14 @@ export function WorkflowRunWorkspace({ runId }: WorkflowRunWorkspaceProps) {
         <WindowControls />
       </header>
 
-      {runQuery.isLoading && run === null
+      {runQuery.isLoading && displayRun === null
         ? (
           <div className="flex flex-1 items-center justify-center gap-2 text-sm text-muted-foreground">
             <Spinner className="size-4" />
             {t("workflowRun.loading")}
           </div>
         )
-        : run === null
+        : displayRun === null
         ? (
           <div className="flex flex-1 items-center justify-center text-sm text-muted-foreground">
             {t("workflowRun.missing")}
@@ -553,7 +630,7 @@ export function WorkflowRunWorkspace({ runId }: WorkflowRunWorkspaceProps) {
               {viewMode === "theater"
                 ? (
                   <RunTheater
-                    run={run}
+                    run={displayRun}
                     focusNodeId={stageFocusNodeId}
                     onFocusNode={focusNode}
                     onClearFocus={clearPathFocus}
@@ -576,7 +653,7 @@ export function WorkflowRunWorkspace({ runId }: WorkflowRunWorkspaceProps) {
                 )
                 : (
                   <RunOverviewCanvas
-                    run={run}
+                    run={displayRun}
                     focusedNodeId={stageFocusNodeId}
                     onFocusNode={focusNodeFromOverview}
                     artifacts={artifactsQuery.artifacts}
@@ -618,4 +695,68 @@ export function WorkflowRunWorkspace({ runId }: WorkflowRunWorkspaceProps) {
       </AlertDialog>
     </main>
   );
+}
+
+/** Parses an ISO timestamp into epoch milliseconds for replay timing. */
+function parseIsoMillis(value: string | undefined): number | null {
+  if (value === undefined) {
+    return null;
+  }
+  const millis = Date.parse(value);
+  return Number.isFinite(millis) ? millis : null;
+}
+
+/** Resolves the replay window from persisted run/node timestamps. */
+function resolveReplayWindow(run: GraphWorkflowRun): { startMs: number; endMs: number } | null {
+  const runFinishedMs = parseIsoMillis(run.finishedAt);
+  if (runFinishedMs === null) {
+    return null;
+  }
+  const nodeStartedMs = Object.values(run.nodeStates)
+    .map((nodeState) => parseIsoMillis(nodeState.startedAt))
+    .filter((value): value is number => value !== null);
+  const runStartedMs = parseIsoMillis(run.startedAt)
+    ?? (nodeStartedMs.length > 0 ? Math.min(...nodeStartedMs) : null);
+  if (runStartedMs === null || runStartedMs >= runFinishedMs) {
+    return null;
+  }
+  return { startMs: runStartedMs, endMs: runFinishedMs };
+}
+
+/** Builds a read-only replay frame at a virtual timestamp. */
+function buildReplayDisplayRun(run: GraphWorkflowRun, replayNowMs: number): GraphWorkflowRun {
+  const replayWindow = resolveReplayWindow(run);
+  if (replayWindow === null) {
+    return run;
+  }
+  const clampedNowMs = Math.min(Math.max(replayNowMs, replayWindow.startMs), replayWindow.endMs);
+  const replayStatus = clampedNowMs >= replayWindow.endMs
+    ? run.status
+    : clampedNowMs <= replayWindow.startMs
+    ? "pending"
+    : "running";
+  const nodeStates = Object.fromEntries(
+    Object.entries(run.nodeStates).map(([nodeId, nodeState]) => {
+      const nodeStartedMs = parseIsoMillis(nodeState.startedAt);
+      const nodeFinishedMs = parseIsoMillis(nodeState.finishedAt);
+      if (nodeStartedMs === null || clampedNowMs < nodeStartedMs) {
+        return [nodeId, { status: "pending" }];
+      }
+      if (nodeFinishedMs === null || clampedNowMs < nodeFinishedMs) {
+        return [nodeId, {
+          ...(nodeState.sessionId !== undefined ? { sessionId: nodeState.sessionId } : {}),
+          ...(nodeState.startedAt !== undefined ? { startedAt: nodeState.startedAt } : {}),
+          status: nodeState.status === "awaiting_input" ? "awaiting_input" : "running",
+        }];
+      }
+      return [nodeId, nodeState];
+    }),
+  );
+  return {
+    ...run,
+    status: replayStatus,
+    nodeStates,
+    openHitls: [],
+    ...(replayStatus === run.status && run.finishedAt !== undefined ? { finishedAt: run.finishedAt } : {}),
+  };
 }

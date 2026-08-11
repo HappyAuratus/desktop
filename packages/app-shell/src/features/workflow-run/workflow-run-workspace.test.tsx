@@ -224,4 +224,39 @@ describe("WorkflowRunWorkspace", () => {
 
     runtime.dispose();
   });
+
+  it("replays one finished run locally without replacing the selected run", async () => {
+    const state = seedRunWithTask();
+    state.workflowRuns[0].status = "succeeded";
+    state.workflowRuns[0].startedAt = 1_000n;
+    state.workflowRuns[0].finishedAt = 6_000n;
+    const client = createMockClient(state);
+    const runtime = createMemoryWorkflowRuntime();
+    const Wrapper = createHookWrapper(
+      client,
+      createTestQueryClient(),
+      createChatStore(client.session),
+      runtime,
+    );
+    const user = userEvent.setup();
+
+    render(
+      <PlatformProvider adapter={createStubPlatform()}>
+        <Wrapper>
+          <WorkflowRunWorkspace runId="run-1" />
+        </Wrapper>
+      </PlatformProvider>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("审查流程 1")).toBeInTheDocument();
+    });
+    await user.click(screen.getByRole("button", { name: /回放|Replay/ }));
+    expect(screen.getByRole("button", { name: /终止|Stop/ })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: /终止|Stop/ }));
+    expect(screen.getByRole("button", { name: /回放|Replay/ })).toBeInTheDocument();
+    expect(useWorkspaceSelectionStore.getState().selection.workflowRunId).toBe("run-1");
+
+    runtime.dispose();
+  });
 });

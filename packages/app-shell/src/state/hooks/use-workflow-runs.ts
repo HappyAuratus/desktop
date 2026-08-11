@@ -292,6 +292,7 @@ export function buildDisplayRun(
     openHitls: [],
     createdAt: toIso(detail.run.createdAt),
     updatedAt: toIso(detail.run.updatedAt),
+    ...(detail.run.startedAt != null ? { startedAt: toIso(detail.run.startedAt) } : {}),
     ...(detail.run.finishedAt != null ? { finishedAt: toIso(detail.run.finishedAt) } : {}),
   };
 }
