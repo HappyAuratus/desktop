@@ -6,15 +6,22 @@ import { queryKeys } from "./query-keys";
 const INITIAL_RECONNECT_DELAY_MS = 1_000;
 const MAX_RECONNECT_DELAY_MS = 30_000;
 
-let documentClientInstanceId: string | undefined;
+const DOCUMENT_CLIENT_INSTANCE_ID = Symbol.for("ora.app-shell.document-client-instance-id");
+
+type AppEventDocumentGlobal = typeof globalThis & {
+  [DOCUMENT_CLIENT_INSTANCE_ID]?: string;
+};
 
 /** Returns one in-memory identifier shared by every shell mounted in this document. */
 function getDocumentClientInstanceId(): string {
-  if (documentClientInstanceId === undefined) {
-    documentClientInstanceId = globalThis.crypto?.randomUUID?.()
+  const documentGlobal = globalThis as AppEventDocumentGlobal;
+  if (documentGlobal[DOCUMENT_CLIENT_INSTANCE_ID] === undefined) {
+    // The global realm survives Vite module replacement, while a separate tab receives its own
+    // realm. Module-local state would make HMR look like a second client to the backend lease.
+    documentGlobal[DOCUMENT_CLIENT_INSTANCE_ID] = globalThis.crypto?.randomUUID?.()
       ?? `${Date.now()}-${Math.random().toString(16).slice(2)}`;
   }
-  return documentClientInstanceId;
+  return documentGlobal[DOCUMENT_CLIENT_INSTANCE_ID];
 }
 
 /** Maintains the application stream and invalidates authoritative session state on loss. */
