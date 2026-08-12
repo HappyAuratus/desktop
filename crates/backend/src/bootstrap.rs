@@ -574,12 +574,9 @@ impl Backend {
         self.agent_runtime.load_session(request).await
     }
 
-    /// Opens the application event stream after acquiring the backend's client lease.
-    pub async fn watch_app_events(
-        &self,
-        request: WatchAppEventsRequest,
-    ) -> Result<SessionEventStream<AppEvent>, BackendError> {
-        self.app_events.subscribe(request.client_instance_id)
+    /// Opens one subscriber to the shared application event stream.
+    pub fn watch_app_events(&self) -> SessionEventStream<AppEvent> {
+        self.app_events.subscribe()
     }
 
     /// Streams one structured ACP prompt turn for a running session.

@@ -97,9 +97,9 @@ Route paths come from shared `ora-contracts` path constants, while the generatio
 
 ### appEvents
 
-- `POST /api/app-events/watch` with `{ "clientInstanceId": "..." }`
+- `GET /api/app-events/watch`
 
-The first data frame is `Ready`. During an idle connection the Web adapter may write blank NDJSON lines as transport-only heartbeats; they are not application events. One backend process grants the stream to one active client instance. A second instance receives `multiple_clients_unsupported`, and a disconnected stream releases the lease. Events are not persisted or replayed, so clients refetch sessions after initial subscription, stream loss, lag, or queue overflow.
+The first data frame is `Ready`. The backend broadcasts subsequent invalidations to every active subscriber and does not use the HTTP connection as a browser-page lease. Events are not persisted or replayed, so clients refetch sessions after initial subscription, stream loss, lag, or queue overflow. The Web App Shell separately uses a same-origin Web Lock to ensure only one browser tab mounts normal application work.
 
 ### agentRuntime
 

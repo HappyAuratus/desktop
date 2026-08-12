@@ -97,7 +97,7 @@ pub fn build_router(app_state: AppState) -> Router {
         // never captured as a session id.
         .route(SESSION_WARM_PATH, post(sessions::warm_session))
         .route(SESSIONS_PATH, get(sessions::list_sessions))
-        .route(APP_EVENT_WATCH_PATH, post(sessions::watch_app_events))
+        .route(APP_EVENT_WATCH_PATH, get(sessions::watch_app_events))
         .route(
             SESSION_PATH,
             get(sessions::get_session).delete(sessions::delete_session),
