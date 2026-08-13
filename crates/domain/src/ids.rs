@@ -43,10 +43,7 @@ define_id!(
     TaskDiffCommentId,
     "Identifies a persisted task diff comment."
 );
-define_id!(VirtualFolderId, "Identifies a persisted virtual folder.");
-define_id!(VirtualEntryId, "Identifies a persisted virtual entry.");
 define_id!(SessionId, "Identifies a persisted session.");
-define_id!(ArtifactId, "Identifies a persisted artifact.");
 define_id!(SkillId, "Identifies a persisted skill.");
 define_id!(
     AgentDefinitionId,

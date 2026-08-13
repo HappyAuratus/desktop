@@ -88,7 +88,7 @@ impl ProjectSpecSourceOverrideRepository for SqliteProjectSpecSourceOverrideRepo
     }
 }
 
-/// Splits the strongly typed workflow into columns constrained by migration `0007`.
+/// Splits the strongly typed workflow into columns constrained by migration `0005`.
 fn workflow_columns(workflow: &SpecWorkflow) -> (&'static str, Option<&str>) {
     match workflow {
         SpecWorkflow::OpenSpec => ("open_spec", None),

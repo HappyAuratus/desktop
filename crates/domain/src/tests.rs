@@ -1,8 +1,7 @@
 use crate::{
-    AgentCli, AgentDefinition, AgentDefinitionId, Artifact, ArtifactId, AuditFields,
-    DomainModelError, HistoryState, Project, ProjectId, Session, SessionId, SessionStatus, Skill,
-    SkillId, Task, TaskId, TaskStatus, TaskType, VirtualEntry, VirtualEntryId, VirtualEntryKind,
-    VirtualFolder, VirtualFolderId, Worktree, WorktreeActivity, WorktreeBaseline, WorktreeId,
+    AgentCli, AgentDefinition, AgentDefinitionId, AuditFields, DomainModelError, HistoryState,
+    Project, ProjectId, Session, SessionId, SessionStatus, Skill, SkillId, Task, TaskId,
+    TaskStatus, TaskType, Worktree, WorktreeActivity, WorktreeBaseline, WorktreeId,
 };
 use pretty_assertions::assert_eq;
 
@@ -31,28 +30,6 @@ fn constructs_schema_backed_entities() {
         "Implement domain models",
         TaskStatus::Doing,
         Some(worktree.id.clone()),
-        audit_fields.clone(),
-    );
-    let virtual_folder = VirtualFolder::new(
-        VirtualFolderId::new("folder-1"),
-        project.id.clone(),
-        "Context",
-        ".ora/mounts/context",
-        audit_fields.clone(),
-    );
-    let artifact = Artifact::new(
-        ArtifactId::new("artifact-1"),
-        task.id.clone(),
-        Some("proposal".to_string()),
-        audit_fields.clone(),
-    );
-    let entry = VirtualEntry::new(
-        VirtualEntryId::new("entry-1"),
-        virtual_folder.id.clone(),
-        /*parent_entry_id*/ None,
-        "proposal.md",
-        VirtualEntryKind::File,
-        Some(artifact.id.clone()),
         audit_fields.clone(),
     );
     let session = Session::new(
@@ -110,37 +87,6 @@ fn constructs_schema_backed_entities() {
             task_type: TaskType::Default,
             workflow_run_id: None,
             worktree_id: Some(WorktreeId::new("worktree-1")),
-            audit_fields: audit_fields.clone(),
-        }
-    );
-    assert_eq!(
-        virtual_folder,
-        VirtualFolder {
-            id: VirtualFolderId::new("folder-1"),
-            project_id: ProjectId::new("project-1"),
-            name: "Context".to_string(),
-            mount_point: ".ora/mounts/context".to_string(),
-            audit_fields: audit_fields.clone(),
-        }
-    );
-    assert_eq!(
-        artifact,
-        Artifact {
-            id: ArtifactId::new("artifact-1"),
-            task_id: TaskId::new("task-1"),
-            content: Some("proposal".to_string()),
-            audit_fields: audit_fields.clone(),
-        }
-    );
-    assert_eq!(
-        entry,
-        VirtualEntry {
-            id: VirtualEntryId::new("entry-1"),
-            virtual_folder_id: VirtualFolderId::new("folder-1"),
-            parent_entry_id: None,
-            name: "proposal.md".to_string(),
-            kind: VirtualEntryKind::File,
-            content_ref: Some(ArtifactId::new("artifact-1")),
             audit_fields: audit_fields.clone(),
         }
     );
@@ -265,12 +211,6 @@ fn round_trips_database_backed_enums() {
     assert_eq!(WorktreeActivity::Inactive.database_value(), 0);
 
     assert_eq!(
-        VirtualEntryKind::from_database_value(0),
-        Ok(VirtualEntryKind::File)
-    );
-    assert_eq!(VirtualEntryKind::Directory.database_value(), 1);
-
-    assert_eq!(
         SessionStatus::from_database_value(1),
         Ok(SessionStatus::Stopped)
     );
@@ -291,10 +231,6 @@ fn rejects_invalid_database_values() {
     assert_eq!(
         WorktreeActivity::from_database_value(-1),
         Err(DomainModelError::InvalidWorktreeActivity(-1))
-    );
-    assert_eq!(
-        VirtualEntryKind::from_database_value(9),
-        Err(DomainModelError::InvalidVirtualEntryKind(9))
     );
     assert_eq!(
         SessionStatus::from_database_value(5),

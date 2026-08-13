@@ -19,8 +19,6 @@ pub enum DomainModelError {
     InvalidWorktreeActivity(i64),
     #[error("invalid git cleanup job state value: {0}")]
     InvalidGitCleanupJobState(String),
-    #[error("invalid virtual entry kind value: {0}")]
-    InvalidVirtualEntryKind(i64),
     #[error("invalid session status value: {0}")]
     InvalidSessionStatus(i64),
     #[error("invalid agent CLI value: {0}")]
