@@ -106,7 +106,7 @@ export function WorkspaceReviewLayout({
     setExpanded(false);
     setClosing(false);
     setViewType("unified");
-  }, []);
+  }, [setReviewOpen]);
 
   const close = useCallback(() => {
     cancelPanelWidthAnimation(panelAnimationRef);

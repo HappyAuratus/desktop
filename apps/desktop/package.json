@@ -6,8 +6,8 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
-    "lint": "eslint .",
-    "test": "vitest run web/tauri-transport.test.ts",
+    "lint": "eslint . --max-warnings 0",
+    "test": "node ../../scripts/run-with-clean-stderr.mjs \"vitest run web/tauri-transport.test.ts\"",
     "preview": "vite preview",
     "tauri": "tauri"
   },

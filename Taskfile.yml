@@ -66,7 +66,7 @@ tasks:
     desc: Run linters on all Rust crates
     silent: true
     cmds:
-      - cargo fmt --all
+      - cargo fmt --all -- --check
       - cargo clippy --workspace -- -D warnings
 
   lint:frontend:
@@ -85,7 +85,7 @@ tasks:
     silent: true
     cmds:
       - pnpm --filter @ora/desktop lint
-      - cargo fmt --manifest-path apps/desktop/src-tauri/Cargo.toml --all
+      - cargo fmt --manifest-path apps/desktop/src-tauri/Cargo.toml --all -- --check
       - cargo clippy --manifest-path apps/desktop/src-tauri/Cargo.toml -- -D warnings
 
   export-contracts:

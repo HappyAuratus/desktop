@@ -847,11 +847,6 @@ impl FakeTaskRepository {
         }
     }
 
-    /// Configures the next repository call to fail with a deterministic error.
-    fn fail_next(&self, error: RepositoryError) {
-        self.next_error.replace(Some(error));
-    }
-
     /// Returns every non-deleted task so tests can assert visible repository state.
     fn visible_tasks(&self) -> Vec<Task> {
         self.tasks
