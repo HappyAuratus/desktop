@@ -1,4 +1,4 @@
-import { useMemo, useState, type FormEvent } from "react";
+import { useMemo, useRef, useState, type FormEvent } from "react";
 import { IconFolderOpen } from "@tabler/icons-react";
 import { usePlatform, type PathSelectionKind } from "@ora/platform";
 import {
@@ -16,6 +16,7 @@ import {
   SelectItem,
   SelectTrigger,
   SelectValue,
+  Spinner,
 } from "@ora/ui";
 import { useTranslation } from "react-i18next";
 import { localizeContractError } from "../../i18n/contract-error";
@@ -34,6 +35,8 @@ interface TextEntityField extends EntityFieldBase {
 interface SelectEntityField extends EntityFieldBase {
   kind: "select";
   options: Array<{ label: string; value: string }>;
+  /** True while options are still loading, so submit cannot race an empty value. */
+  loading?: boolean;
 }
 
 interface PathEntityField extends EntityFieldBase {
@@ -49,6 +52,8 @@ interface EntityDialogProps {
   title: string;
   description?: string;
   submitLabel: string;
+  /** In-flight label; create flows pass a creating verb instead of "Saving…". */
+  pendingLabel?: string;
   fields: EntityField[];
   onOpenChange: (open: boolean) => void;
   onSubmit: (values: Record<string, string>) => Promise<void>;
@@ -60,6 +65,7 @@ export function EntityDialog({
   title,
   description,
   submitLabel,
+  pendingLabel,
   fields,
   onOpenChange,
   onSubmit,
@@ -71,10 +77,14 @@ export function EntityDialog({
     Object.fromEntries(fields.map((field) => [field.name, field.value])),
   );
   const [submitting, setSubmitting] = useState(false);
+  // Ref closes the window between the first submit and the disabled re-render.
+  const submittingRef = useRef(false);
   const [validationError, setValidationError] = useState(false);
   const [selectingField, setSelectingField] = useState<string | null>(null);
   const [pathSelectionError, setPathSelectionError] = useState<string | null>(null);
   const [submissionError, setSubmissionError] = useState<string | null>(null);
+  const optionsLoading = fields.some((field) => field.kind === "select" && field.loading === true);
+  const inFlightLabel = pendingLabel ?? t("common.saving");
 
   const resolvedValues = useMemo(() => {
     // Select options arrive asynchronously for repository-backed forms. Fill only
@@ -110,10 +120,12 @@ export function EntityDialog({
 
   const handleSubmit = async (event: FormEvent) => {
     event.preventDefault();
+    if (submittingRef.current || optionsLoading) return;
     if (fields.some((field) => !resolvedValues[field.name]?.trim())) {
       setValidationError(true);
       return;
     }
+    submittingRef.current = true;
     setSubmitting(true);
     setSubmissionError(null);
     try {
@@ -122,6 +134,7 @@ export function EntityDialog({
     } catch (error) {
       setSubmissionError(localizeContractError(error, t));
     } finally {
+      submittingRef.current = false;
       setSubmitting(false);
     }
   };
@@ -141,10 +154,13 @@ export function EntityDialog({
                 {field.kind === "select" ? (
                   <Select
                     value={resolvedValues[field.name] ?? ""}
+                    disabled={submitting || field.loading === true}
                     onValueChange={(value) => setValues((current) => ({ ...current, [field.name]: value ?? "" }))}
                   >
-                    <SelectTrigger id={`entity-${field.name}`} className="w-full">
-                      <SelectValue />
+                    <SelectTrigger id={`entity-${field.name}`} className="w-full" aria-busy={field.loading === true}>
+                      {field.loading === true
+                        ? <Spinner className="size-3.5 text-muted-foreground" aria-hidden="true" />
+                        : <SelectValue />}
                     </SelectTrigger>
                     <SelectContent>
                       {field.options.map((option) => (
@@ -159,6 +175,7 @@ export function EntityDialog({
                       className="min-w-0 flex-1"
                       value={values[field.name] ?? ""}
                       placeholder={field.placeholder}
+                      disabled={submitting}
                       aria-invalid={validationError && !resolvedValues[field.name]?.trim()}
                       onChange={(event) => {
                         setValues((current) => ({ ...current, [field.name]: event.target.value }));
@@ -182,6 +199,7 @@ export function EntityDialog({
                     id={`entity-${field.name}`}
                     value={resolvedValues[field.name] ?? ""}
                     placeholder={field.placeholder}
+                    disabled={submitting}
                     aria-invalid={validationError && !resolvedValues[field.name]?.trim()}
                     onChange={(event) => {
                       setValues((current) => ({ ...current, [field.name]: event.target.value }));
@@ -202,7 +220,10 @@ export function EntityDialog({
           {submissionError && <p role="alert" data-selectable className="text-xs text-destructive">{submissionError}</p>}
           <DialogFooter>
             <Button type="button" variant="outline" disabled={submitting} onClick={() => onOpenChange(false)}>{t("common.cancel")}</Button>
-            <Button type="submit" disabled={submitting}>{submitting ? t("common.saving") : submitLabel}</Button>
+            <Button type="submit" disabled={submitting || optionsLoading} aria-busy={submitting}>
+              {submitting ? <Spinner className="size-3.5" aria-hidden="true" /> : null}
+              {submitting ? inFlightLabel : submitLabel}
+            </Button>
           </DialogFooter>
         </form>
       </DialogContent>

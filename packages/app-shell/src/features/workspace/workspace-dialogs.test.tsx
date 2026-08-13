@@ -126,6 +126,63 @@ describe("WorkspaceDialogs task creation", () => {
     expect(submittedBaseBranch).toBe("origin/main");
   });
 
+  it("shows a spinner on the create button while worktree provisioning is in flight", async () => {
+    const user = userEvent.setup();
+    const state = createMockClientState();
+    const baseClient = createMockClient(state);
+    let releaseCreate: () => void = () => {};
+    const createGate = new Promise<void>((resolve) => {
+      releaseCreate = resolve;
+    });
+    const client: ContractsClient = {
+      ...baseClient,
+      task: {
+        ...baseClient.task,
+        create: async (request, options) => {
+          await createGate;
+          return baseClient.task.create(request, options);
+        },
+      },
+    };
+    const Wrapper = createHookWrapper(client, createTestQueryClient(), createChatStore(client.session));
+    useUiStore.getState().setDialog({ kind: "task", projectId: "p1" });
+
+    render(
+      <Wrapper>
+        <AppI18nProvider>
+          <PlatformProvider adapter={createStubPlatform()}>
+            <TooltipProvider>
+              <WorkspaceDialogs />
+            </TooltipProvider>
+          </PlatformProvider>
+        </AppI18nProvider>
+      </Wrapper>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: /创建任务|Create task/ })).toBeEnabled();
+    });
+    await user.type(screen.getByLabelText(/任务标题|Task title/), "Slow worktree");
+    await user.click(screen.getByRole("button", { name: /创建任务|Create task/ }));
+
+    const submitButton = screen.getByRole("button", { name: /创建中|Creating/ });
+    expect(submitButton).toBeDisabled();
+    expect(submitButton).toHaveAttribute("aria-busy", "true");
+    expect(submitButton.querySelector("[data-slot=spinner]")).not.toBeNull();
+    expect(state.tasks).toEqual([]);
+
+    releaseCreate();
+    await waitFor(() => expect(state.tasks).toEqual([{
+      id: "t1",
+      projectId: "p1",
+      title: "Slow worktree",
+      status: "todo",
+      workspaceMode: "worktree",
+      type: "default",
+      workflowRunId: null,
+    }]));
+  });
+
   it("does not show helper text when editing a worktree task", () => {
     const state = createMockClientState();
     const client = createMockClient(state);
@@ -192,6 +249,9 @@ describe("WorkspaceDialogs task creation", () => {
       </Wrapper>,
     );
 
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: /创建任务|Create task/ })).toBeEnabled();
+    });
     await user.type(screen.getByLabelText(/任务标题|Task title/), "Needs Git");
     await user.click(screen.getByRole("button", { name: /创建任务|Create task/ }));
 
