@@ -137,12 +137,15 @@ function WorkspaceEntityDialog({ dialog, onOpenChange }: { dialog: DialogState; 
   const renameWorkflowRun = useRenameWorkflowRun();
   const settingsAgentCli = useSettingsStore((state) => state.settings.agentCli);
   const branchProjectId = dialog.kind === "task" && !dialog.entity ? dialog.projectId : null;
-  const { data: projectBranches = [] } = useProjectBranches(branchProjectId);
+  const { data: projectBranches = [], isLoading: branchesLoading } = useProjectBranches(branchProjectId);
   let title: string;
   let description: string | undefined;
   let fields: EntityField[];
   let submitLabel: string;
   let submit: (values: Record<string, string>) => Promise<void>;
+  const pendingLabel = dialog.kind !== "workflowRun" && dialog.entity === undefined
+    ? t("common.creating")
+    : t("common.saving");
 
   if (dialog.kind === "project") {
     title = dialog.entity ? t("dialog.editProject") : t("dialog.addProject");
@@ -173,6 +176,7 @@ function WorkspaceEntityDialog({ dialog, onOpenChange }: { dialog: DialogState; 
         label: t("dialog.baseBranch"),
         value: preferredBaseBranch(projectBranches),
         options: projectBranches.map((branch) => ({ label: branch.displayName, value: branch.refName })),
+        loading: branchesLoading,
       }] : []),
       // Status is only meaningful once a task exists; a new task always starts at "todo".
       ...(dialog.entity ? [{ kind: "select" as const, name: "status", label: t("dialog.status"), value: dialog.entity.status, options: [
@@ -225,7 +229,7 @@ function WorkspaceEntityDialog({ dialog, onOpenChange }: { dialog: DialogState; 
     ? `${dialog.kind}-${dialog.entity.id}`
     : `${dialog.kind}-${dialog.entity?.id ?? "new"}`;
 
-  return <EntityDialog key={dialogKey} open title={title} description={description} submitLabel={submitLabel} fields={fields} onOpenChange={onOpenChange} onSubmit={submit} />;
+  return <EntityDialog key={dialogKey} open title={title} description={description} submitLabel={submitLabel} pendingLabel={pendingLabel} fields={fields} onOpenChange={onOpenChange} onSubmit={submit} />;
 }
 
 /** Prefers a fetched conventional primary branch while preserving repositories with custom defaults. */
