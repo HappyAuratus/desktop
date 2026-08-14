@@ -13,7 +13,8 @@ from one folder tree or one supported archive (`.zip`, `.skill`, `.tar.gz`, `.tg
   `conflict` and carries that skill's identity for the user's `skip`/`overwrite` decision.
   An existing row whose package is missing is `ready`: importing the same name restores that
   row instead of asking for a conflict decision. A leftover package with no catalog row is
-  replaced: the user is claiming that name.
+  replaced through a journaled swap: the user is claiming that name, and a failed persist
+  restores the original leftover.
 - Commit (`commit`) validates that every conflict candidate has a decision, freezes the decisions,
   and starts a detached background task that processes candidates in stable source-path order.
   Each skill is staged under the formal skills root and promoted atomically with its database

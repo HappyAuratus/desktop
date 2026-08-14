@@ -132,15 +132,12 @@ fn recover_journal(
                 remove_if_present(storage, &staging)?;
             }
             JournalPhase::Swapped => {
-                let from_visible = repository
-                    .find_skill_by_name(&Namespace::local(), &journal.from_name)
-                    .map_err(operation_failed)?
-                    .is_some();
                 if target_visible {
                     // Fully committed; only the compensation backup remains.
                     remove_if_present(storage, &backup)?;
-                } else if from_visible {
-                    // Database write never happened; restore the original directory.
+                } else {
+                    // Database write never happened. Restore the original directory whether
+                    // a catalog row still owns `from_name` or the leftover was untracked.
                     if storage.formal_exists(&journal.name) {
                         storage
                             .remove_dir(&formal_path(&journal.name))
@@ -151,14 +148,6 @@ fn recover_journal(
                             .restore_backup(&backup, &journal.from_name)
                             .map_err(operation_failed)?;
                     }
-                } else {
-                    // No record claims either name; drop both leftovers.
-                    if storage.formal_exists(&journal.name) {
-                        storage
-                            .remove_dir(&formal_path(&journal.name))
-                            .map_err(operation_failed)?;
-                    }
-                    remove_if_present(storage, &backup)?;
                 }
                 remove_if_present(storage, &staging)?;
             }
@@ -488,6 +477,46 @@ mod tests {
         reconcile_skill_storage(&pool(&temp.path().join("ora.sqlite3")), &skills_root).unwrap();
 
         assert!(!skills_root.join("orphan").exists());
+    }
+
+    #[test]
+    fn restores_untracked_package_after_interrupted_claim_swap() {
+        let temp = TempDir::new().unwrap();
+        let skills_root = temp.path().join("atoms").join("skills");
+        create_formal(&skills_root, "stray", "untracked body");
+        let staging = skills_root.join(".ora-staging").join("txn");
+        fs::create_dir_all(&staging).unwrap();
+        fs::write(staging.join("SKILL.md"), "new body").unwrap();
+        let backup = skills_root.join(".ora-backup").join("txn");
+        fs::create_dir_all(&backup).unwrap();
+        fs::write(backup.join("SKILL.md"), "untracked body").unwrap();
+        fs::remove_dir_all(skills_root.join("stray")).unwrap();
+        create_formal(&skills_root, "stray", "new body");
+
+        let journal = TransactionJournal {
+            op: ora_application::JournalOp::Swap,
+            name: "stray".to_string(),
+            from_name: "stray".to_string(),
+            staging: staging.to_string_lossy().into_owned(),
+            backup: backup.to_string_lossy().into_owned(),
+            phase: ora_application::JournalPhase::Swapped,
+            file: skills_root
+                .join(".ora-journal")
+                .join("txn.json")
+                .to_string_lossy()
+                .into_owned(),
+        };
+        write_journal(&journal);
+
+        reconcile_skill_storage(&pool(&temp.path().join("ora.sqlite3")), &skills_root).unwrap();
+
+        assert_eq!(
+            fs::read_to_string(skills_root.join("stray").join("SKILL.md")).unwrap(),
+            "untracked body"
+        );
+        assert!(!backup.exists());
+        assert!(!staging.exists());
+        assert!(!skills_root.join(".ora-journal").join("txn.json").exists());
     }
 
     #[test]

@@ -14,9 +14,8 @@ pub use handlers::{
     CreateSkillHandler, DeleteSkillHandler, GetSkillHandler, ListSkillsHandler, UpdateSkillHandler,
 };
 pub use id_generator::UuidSkillIdGenerator;
-pub(crate) use package_health::{
-    claim_untracked_name, clear_incomplete_package, has_usable_package,
-};
+pub use package_health::has_usable_package;
+pub(crate) use package_health::{commit_restored_package, commit_unclaimed_package};
 pub use ports::{SkillIdGenerator, SkillRepository};
 pub use storage::{
     BACKUP_DIR_NAME, CreateHandle, DeleteHandle, JOURNAL_DIR_NAME, JournalOp, JournalPhase,

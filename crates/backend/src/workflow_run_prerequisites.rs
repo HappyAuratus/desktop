@@ -1,6 +1,6 @@
 use ora_application::{
     AgentDefinitionRepository, FilesystemSkillStorage, NodeType, RepositoryError, SkillRepository,
-    SkillStorage, StartPrerequisitesError, WorkflowGraph, WorkflowRunWorktreeInitializer,
+    StartPrerequisitesError, WorkflowGraph, WorkflowRunWorktreeInitializer, has_usable_package,
 };
 use ora_db::{RepositoryPool, SqliteAgentDefinitionRepository, SqliteSkillRepository};
 use ora_domain::{AgentDefinitionId, Namespace, SkillId};
@@ -140,7 +140,7 @@ fn resolve_skill_catalog_name(
     skill_id: &str,
 ) -> Result<String, StartPrerequisitesError> {
     let candidate = skill_id.rsplit(':').next().unwrap_or(skill_id);
-    if skill_package_usable(storage, candidate) {
+    if skill_package_usable(storage, candidate)? {
         return Ok(candidate.to_string());
     }
     if let Some(repository) = skill_repository {
@@ -152,7 +152,7 @@ fn resolve_skill_catalog_name(
                 skill_id: skill_id.to_string(),
             });
         };
-        if skill_package_usable(storage, &skill.name) {
+        if skill_package_usable(storage, &skill.name)? {
             return Ok(skill.name);
         }
     }
@@ -161,9 +161,16 @@ fn resolve_skill_catalog_name(
     })
 }
 
-/// Returns whether the catalog still has a formal directory with a root `SKILL.md`.
-fn skill_package_usable(storage: &FilesystemSkillStorage, name: &str) -> bool {
-    storage.formal_exists(name) && storage.read_manifest(name).ok().flatten().is_some()
+/// Returns whether the catalog still has a formal package that Get can load.
+fn skill_package_usable(
+    storage: &FilesystemSkillStorage,
+    name: &str,
+) -> Result<bool, StartPrerequisitesError> {
+    has_usable_package(storage, name).map_err(|error| {
+        StartPrerequisitesError::SkillMaterializationError {
+            message: error.to_string(),
+        }
+    })
 }
 
 /// Resolves an enabled skill id to the executable `/name` the agent CLI uses to invoke it: the
@@ -304,6 +311,25 @@ mod tests {
             assert_eq!(manifest.name, "sfmea-review");
             assert_eq!(manifest.description, "review");
         }
+    }
+
+    #[test]
+    fn materialize_skill_reports_an_unreadable_manifest_as_missing() {
+        let temp = TempDir::new().unwrap();
+        let skills_root = temp.path().join("skills");
+        let skill_dir = skills_root.join("broken");
+        std::fs::create_dir_all(&skill_dir).unwrap();
+        std::fs::write(skill_dir.join("SKILL.md"), "---\nname: [unclosed").unwrap();
+        let storage = FilesystemSkillStorage::new(skills_root);
+        let worktree = temp.path().join("worktree");
+        std::fs::create_dir_all(&worktree).unwrap();
+
+        let error = materialize_skill(&storage, None, &worktree, "broken").unwrap_err();
+        assert!(matches!(
+            error,
+            StartPrerequisitesError::WorkflowSkillNotFound { skill_id }
+                if skill_id == "broken"
+        ));
     }
 
     #[test]

@@ -1,11 +1,12 @@
 use crate::skill::mapper::{map_skill, map_skill_details};
 use crate::skill::package_health::{
-    claim_untracked_name, clear_incomplete_package, has_usable_package, package_availability,
+    claim_untracked_name, clear_incomplete_package, commit_restored_package,
+    commit_unclaimed_package, has_usable_package, manifest_is_usable, package_availability,
 };
 use crate::skill::ports::{SkillIdGenerator, SkillRepository};
 use crate::skill::storage::{SkillStorage, SkillStorageError};
 use crate::{ApplicationError, Clock};
-use gray_matter::{Matter, ParsedEntity, engine::YAML};
+use gray_matter::{Matter, engine::YAML};
 use ora_contracts::{
     CreateSkillRequest, CreateSkillResponse, DeleteSkillRequest, DeleteSkillResponse,
     GetSkillRequest, GetSkillResponse, ListSkillsRequest, ListSkillsResponse, SkillAvailability,
@@ -13,7 +14,6 @@ use ora_contracts::{
 };
 use ora_domain::{AuditFields, Namespace, Skill, SkillId};
 use ora_skill_package::manifest::{render_manifest, rewrite_manifest, rewrite_manifest_body};
-use serde_json::Value;
 
 /// Handles atomic creation of a reusable skill definition (database plus formal directory).
 pub struct CreateSkillHandler<Repository, Storage, IdGenerator, ClockSource> {
@@ -87,10 +87,9 @@ where
             namespace,
             name,
             request.description,
-            AuditFields::new(now, now, false),
+            AuditFields::new(now, now, /*is_deleted*/ false),
         )
         .map_err(ApplicationError::from_skill_domain_error)?;
-        claim_untracked_name(&self.storage, &skill.name)?;
 
         let staging = self
             .storage
@@ -104,17 +103,12 @@ where
         self.storage
             .write_manifest(&staging, manifest.as_bytes())
             .map_err(ApplicationError::from_skill_storage_error)?;
-        let handle = self
-            .storage
-            .commit_create(&skill.name, &staging)
-            .map_err(ApplicationError::from_skill_storage_error)?;
+        let promoted = commit_unclaimed_package(&self.storage, &skill.name, &staging)?;
         let created = self.repository.create_skill(skill).map_err(|error| {
-            let _ = self.storage.rollback_create(&handle);
+            promoted.rollback(&self.storage);
             ApplicationError::from_skill_repository_error(error)
         })?;
-        self.storage
-            .finish_create(&handle)
-            .map_err(ApplicationError::from_skill_storage_error)?;
+        promoted.finish(&self.storage)?;
 
         Ok(CreateSkillResponse {
             skill: map_skill(created, SkillAvailability::Available),
@@ -161,14 +155,18 @@ where
                 skill: map_skill_details(skill, String::new(), SkillAvailability::Unavailable),
             });
         };
-        let text = String::from_utf8(manifest).map_err(|_| {
-            ApplicationError::from_manifest_error(ora_skill_package::ManifestError::YamlInvalid)
-        })?;
-        let parsed: ParsedEntity<Value> = Matter::<YAML>::new().parse(&text).map_err(|_| {
-            ApplicationError::from_manifest_error(ora_skill_package::ManifestError::YamlInvalid)
-        })?;
+        if !manifest_is_usable(&manifest) {
+            return Ok(GetSkillResponse {
+                skill: map_skill_details(skill, String::new(), SkillAvailability::Unavailable),
+            });
+        }
+        let content = std::str::from_utf8(&manifest)
+            .ok()
+            .and_then(|text| Matter::<YAML>::new().parse::<serde_json::Value>(text).ok())
+            .map(|parsed| parsed.content)
+            .unwrap_or_default();
         Ok(GetSkillResponse {
-            skill: map_skill_details(skill, parsed.content, SkillAvailability::Available),
+            skill: map_skill_details(skill, content, SkillAvailability::Available),
         })
     }
 }
@@ -193,7 +191,7 @@ where
     Repository: SkillRepository,
     Storage: SkillStorage,
 {
-    /// Lists every visible skill and reports whether its formal package is still present.
+    /// Lists every visible skill and reports whether its formal package is still loadable.
     pub fn handle(
         &self,
         _request: ListSkillsRequest,
@@ -274,7 +272,7 @@ where
             AuditFields::new(
                 existing.audit_fields.created_at,
                 self.clock.now_timestamp_millis(),
-                false,
+                /*is_deleted*/ false,
             ),
         )
         .map_err(ApplicationError::from_skill_domain_error)?;
@@ -421,6 +419,9 @@ fn reject_conflicting_name<Repository: SkillRepository>(
 }
 
 /// Writes a new formal package onto an unavailable catalog row, preserving its identity.
+///
+/// Restoring in place copies any leftover package files first so a truncated `SKILL.md`
+/// does not destroy sibling scripts; the manifest is then replaced.
 fn restore_unavailable_skill<Repository, Storage>(
     repository: &Repository,
     storage: &Storage,
@@ -439,35 +440,43 @@ where
         existing.namespace.clone(),
         name,
         description,
-        AuditFields::new(existing.audit_fields.created_at, now, false),
+        AuditFields::new(
+            existing.audit_fields.created_at,
+            now,
+            /*is_deleted*/ false,
+        ),
     )
     .map_err(ApplicationError::from_skill_domain_error)?;
-    clear_incomplete_package(storage, &existing.name)?;
     if skill.name != existing.name {
+        // The restored package lands under the new name; drop an incomplete leftover left
+        // behind at the old path so it cannot block a later claim of that name.
+        clear_incomplete_package(storage, &existing.name)?;
         if has_usable_package(storage, &skill.name)? {
             return Err(ApplicationError::SkillNameConflict {
                 namespace: skill.namespace.to_string(),
                 name: skill.name,
             });
         }
-        clear_incomplete_package(storage, &skill.name)?;
     }
     let staging = storage
         .create_staging()
         .map_err(ApplicationError::from_skill_storage_error)?;
+    // Keep extra package files when restoring in place over a leftover directory
+    // (for example a truncated SKILL.md that still sits beside scripts).
+    if skill.name == existing.name && storage.formal_exists(&skill.name) {
+        storage
+            .stage_existing(&skill.name, &staging)
+            .map_err(ApplicationError::from_skill_storage_error)?;
+    }
     let manifest = render_manifest(&skill.name, &skill.description, content.unwrap_or(""));
     storage
         .write_manifest(&staging, manifest.as_bytes())
         .map_err(ApplicationError::from_skill_storage_error)?;
-    let handle = storage
-        .commit_create(&skill.name, &staging)
-        .map_err(ApplicationError::from_skill_storage_error)?;
+    let promoted = commit_restored_package(storage, &skill.name, &staging)?;
     let updated = repository.update_skill(skill).map_err(|error| {
-        let _ = storage.rollback_create(&handle);
+        promoted.rollback(storage);
         ApplicationError::from_skill_repository_error(error)
     })?;
-    storage
-        .finish_create(&handle)
-        .map_err(ApplicationError::from_skill_storage_error)?;
+    promoted.finish(storage)?;
     Ok(updated)
 }

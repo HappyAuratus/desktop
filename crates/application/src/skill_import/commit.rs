@@ -3,9 +3,9 @@ use super::ports::{
     ImportSessionState, SkillImportProgressEvent,
 };
 use crate::skill::{
-    SkillStorage, claim_untracked_name, clear_incomplete_package, has_usable_package,
+    SkillStorage, commit_restored_package, commit_unclaimed_package, has_usable_package,
 };
-use crate::{Clock, SkillRepository};
+use crate::{ApplicationError, Clock, SkillRepository};
 use ora_domain::{AuditFields, Namespace, Skill, SkillId};
 use std::collections::HashMap;
 use std::path::Path;
@@ -204,7 +204,7 @@ where
                 .map(|skill| skill.audit_fields.created_at)
                 .unwrap_or(now),
             now,
-            false,
+            /*is_deleted*/ false,
         ),
     ) {
         Ok(skill) => skill,
@@ -226,34 +226,26 @@ where
     if let Err(error_code) = stage_boundary(storage, &staging, snapshot, candidate) {
         return CandidateOutcome::Failed { error_code };
     }
-    if existing.is_none() {
-        if claim_untracked_name(storage, &skill.name).is_err() {
-            return CandidateOutcome::Failed {
-                error_code: "skill_storage_error".to_string(),
-            };
-        }
-    } else {
-        match has_usable_package(storage, &skill.name) {
-            Ok(true) => return CandidateOutcome::StaleConflict,
-            Ok(false) => {}
+    let promoted = if existing.is_some() {
+        match commit_restored_package(storage, &skill.name, &staging) {
+            Ok(promoted) => promoted,
+            Err(ApplicationError::SkillNameConflict { .. }) => {
+                return CandidateOutcome::StaleConflict;
+            }
             Err(_) => {
                 return CandidateOutcome::Failed {
                     error_code: "skill_storage_error".to_string(),
                 };
             }
         }
-        if clear_incomplete_package(storage, &skill.name).is_err() {
-            return CandidateOutcome::Failed {
-                error_code: "skill_storage_error".to_string(),
-            };
-        }
-    }
-    let handle = match storage.commit_create(&skill.name, &staging) {
-        Ok(handle) => handle,
-        Err(_) => {
-            return CandidateOutcome::Failed {
-                error_code: "skill_storage_error".to_string(),
-            };
+    } else {
+        match commit_unclaimed_package(storage, &skill.name, &staging) {
+            Ok(promoted) => promoted,
+            Err(_) => {
+                return CandidateOutcome::Failed {
+                    error_code: "skill_storage_error".to_string(),
+                };
+            }
         }
     };
     let persist_ok = if existing.is_some() {
@@ -262,12 +254,12 @@ where
         repository.create_skill(skill).is_ok()
     };
     if !persist_ok {
-        let _ = storage.rollback_create(&handle);
+        promoted.rollback(storage);
         return CandidateOutcome::Failed {
             error_code: "skill_repository_error".to_string(),
         };
     }
-    let _ = storage.finish_create(&handle);
+    let _ = promoted.finish(storage);
     CandidateOutcome::Imported
 }
 
@@ -302,7 +294,7 @@ where
         frozen.namespace.clone(),
         candidate.name.clone(),
         candidate.description.clone(),
-        AuditFields::new(frozen.created_at, now, false),
+        AuditFields::new(frozen.created_at, now, /*is_deleted*/ false),
     ) {
         Ok(skill) => skill,
         Err(_) => {

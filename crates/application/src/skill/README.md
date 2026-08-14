@@ -9,14 +9,15 @@ on-disk packages.
   atomically persists the database row together with a minimal `SKILL.md` under
   `<skills_root>/<name>/`.
 - Get and list operations expose every visible catalog row and report `availability` from
-  the on-disk package. A missing directory or root `SKILL.md` marks the skill unavailable
-  instead of deleting it or failing the request.
+  the on-disk package. A missing directory, missing root `SKILL.md`, or `SKILL.md` that
+  cannot be loaded as YAML front matter marks the skill unavailable instead of deleting
+  it or failing the request.
 - Creating or importing the same name as an unavailable skill restores that row's package
   while keeping its identifier. Incomplete leftover directories may be cleared first. A
   complete untracked package is left in place at startup and when renaming onto that name;
-  creating or importing an unclaimed name takes over any leftover at that path so a deleted
-  skill can be installed again. Delete still succeeds when the formal directory is already
-  gone.
+  creating or importing an unclaimed name replaces any leftover at that path through a
+  journaled swap so a failed persist restores the original package. Delete still succeeds
+  when the formal directory is already gone.
 - Update preserves identity and creation time, copies the existing package into a transaction
   staging directory, rewrites only the manifest (preserving unknown front matter values and the
   Markdown body), renames the formal directory when the name changes, and keeps the database and

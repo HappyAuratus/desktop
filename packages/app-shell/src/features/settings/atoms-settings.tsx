@@ -167,6 +167,8 @@ export function RolesSettings() {
 }
 
 /** The Skills pane manages the reusable skills surfaced to Ora sessions. */
+const EMPTY_SKILLS: Skill[] = [];
+
 export function SkillsSettings() {
   const { t } = useTranslation();
   const skillsQuery = useSkills();
@@ -179,7 +181,7 @@ export function SkillsSettings() {
   const [restoreName, setRestoreName] = useState<string | null>(null);
   const [recoverTarget, setRecoverTarget] = useState<Skill | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<Skill | null>(null);
-  const skills = skillsQuery.data ?? [];
+  const skills = skillsQuery.data ?? EMPTY_SKILLS;
   const unavailableCount = skills.filter(
     (skill) => skill.availability === "unavailable",
   ).length;

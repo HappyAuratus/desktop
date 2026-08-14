@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
-/// Reports whether a catalog skill still has a usable on-disk package.
+/// Reports whether a catalog skill still has a loadable on-disk package.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "snake_case")]
 #[ts(export_to = "skill.ts")]
