@@ -1,12 +1,15 @@
 use crate::skill::mapper::{map_skill, map_skill_details};
+use crate::skill::package_health::{
+    claim_untracked_name, clear_incomplete_package, has_usable_package, package_availability,
+};
 use crate::skill::ports::{SkillIdGenerator, SkillRepository};
-use crate::skill::storage::SkillStorage;
+use crate::skill::storage::{SkillStorage, SkillStorageError};
 use crate::{ApplicationError, Clock};
 use gray_matter::{Matter, ParsedEntity, engine::YAML};
 use ora_contracts::{
     CreateSkillRequest, CreateSkillResponse, DeleteSkillRequest, DeleteSkillResponse,
-    GetSkillRequest, GetSkillResponse, ListSkillsRequest, ListSkillsResponse, UpdateSkillRequest,
-    UpdateSkillResponse,
+    GetSkillRequest, GetSkillResponse, ListSkillsRequest, ListSkillsResponse, SkillAvailability,
+    UpdateSkillRequest, UpdateSkillResponse,
 };
 use ora_domain::{AuditFields, Namespace, Skill, SkillId};
 use ora_skill_package::manifest::{render_manifest, rewrite_manifest, rewrite_manifest_body};
@@ -53,9 +56,32 @@ where
     ) -> Result<CreateSkillResponse, ApplicationError> {
         let name = request.name.trim().to_string();
         let namespace = Namespace::local();
-        reject_existing_name(&self.repository, &namespace, &name)?;
-
         let now = self.clock.now_timestamp_millis();
+        if let Some(existing) = self
+            .repository
+            .find_skill_by_name(&namespace, &name)
+            .map_err(ApplicationError::from_skill_repository_error)?
+        {
+            if has_usable_package(&self.storage, &existing.name)? {
+                return Err(ApplicationError::SkillNameConflict {
+                    namespace: namespace.to_string(),
+                    name,
+                });
+            }
+            let restored = restore_unavailable_skill(
+                &self.repository,
+                &self.storage,
+                existing,
+                name,
+                request.description,
+                request.content.as_deref(),
+                now,
+            )?;
+            return Ok(CreateSkillResponse {
+                skill: map_skill(restored, SkillAvailability::Available),
+            });
+        }
+
         let skill = Skill::new(
             self.id_generator.generate_skill_id(),
             namespace,
@@ -64,6 +90,7 @@ where
             AuditFields::new(now, now, false),
         )
         .map_err(ApplicationError::from_skill_domain_error)?;
+        claim_untracked_name(&self.storage, &skill.name)?;
 
         let staging = self
             .storage
@@ -90,7 +117,7 @@ where
             .map_err(ApplicationError::from_skill_storage_error)?;
 
         Ok(CreateSkillResponse {
-            skill: map_skill(created),
+            skill: map_skill(created, SkillAvailability::Available),
         })
     }
 }
@@ -125,14 +152,15 @@ where
             .ok_or_else(|| ApplicationError::SkillNotFound {
                 skill_id: skill_id.to_string(),
             })?;
-
         let manifest = self
             .storage
             .read_manifest(&skill.name)
-            .map_err(ApplicationError::from_skill_storage_error)?
-            .ok_or_else(|| ApplicationError::SkillStorageInconsistent {
-                name: skill.name.clone(),
-            })?;
+            .map_err(ApplicationError::from_skill_storage_error)?;
+        let Some(manifest) = manifest else {
+            return Ok(GetSkillResponse {
+                skill: map_skill_details(skill, String::new(), SkillAvailability::Unavailable),
+            });
+        };
         let text = String::from_utf8(manifest).map_err(|_| {
             ApplicationError::from_manifest_error(ora_skill_package::ManifestError::YamlInvalid)
         })?;
@@ -140,27 +168,32 @@ where
             ApplicationError::from_manifest_error(ora_skill_package::ManifestError::YamlInvalid)
         })?;
         Ok(GetSkillResponse {
-            skill: map_skill_details(skill, parsed.content),
+            skill: map_skill_details(skill, parsed.content, SkillAvailability::Available),
         })
     }
 }
 
 /// Handles listing reusable skill definitions.
-pub struct ListSkillsHandler<Repository> {
+pub struct ListSkillsHandler<Repository, Storage> {
     repository: Repository,
+    storage: Storage,
 }
 
-impl<Repository> ListSkillsHandler<Repository> {
-    pub fn new(repository: Repository) -> Self {
-        Self { repository }
+impl<Repository, Storage> ListSkillsHandler<Repository, Storage> {
+    pub fn new(repository: Repository, storage: Storage) -> Self {
+        Self {
+            repository,
+            storage,
+        }
     }
 }
 
-impl<Repository> ListSkillsHandler<Repository>
+impl<Repository, Storage> ListSkillsHandler<Repository, Storage>
 where
     Repository: SkillRepository,
+    Storage: SkillStorage,
 {
-    /// Lists every visible skill in the repository's deterministic order.
+    /// Lists every visible skill and reports whether its formal package is still present.
     pub fn handle(
         &self,
         _request: ListSkillsRequest,
@@ -169,9 +202,12 @@ where
             .repository
             .list_skills()
             .map_err(ApplicationError::from_skill_repository_error)?;
-        Ok(ListSkillsResponse {
-            skills: skills.into_iter().map(map_skill).collect(),
-        })
+        let mut mapped = Vec::new();
+        for skill in skills {
+            let availability = package_availability(&self.storage, &skill.name)?;
+            mapped.push(map_skill(skill, availability));
+        }
+        Ok(ListSkillsResponse { skills: mapped })
     }
 }
 
@@ -215,6 +251,20 @@ where
 
         let name = request.name.trim().to_string();
         reject_conflicting_name(&self.repository, &existing.namespace, &name, &existing.id)?;
+        if !has_usable_package(&self.storage, &existing.name)? {
+            let restored = restore_unavailable_skill(
+                &self.repository,
+                &self.storage,
+                existing,
+                name,
+                request.description,
+                request.content.as_deref(),
+                self.clock.now_timestamp_millis(),
+            )?;
+            return Ok(UpdateSkillResponse {
+                skill: map_skill(restored, SkillAvailability::Available),
+            });
+        }
 
         let skill = Skill::new(
             skill_id,
@@ -271,7 +321,7 @@ where
             .map_err(ApplicationError::from_skill_storage_error)?;
 
         Ok(UpdateSkillResponse {
-            skill: map_skill(updated),
+            skill: map_skill(updated, SkillAvailability::Available),
         })
     }
 }
@@ -313,48 +363,41 @@ where
                 skill_id: skill_id.to_string(),
             })?;
 
-        let handle = self
-            .storage
-            .commit_delete(&existing.name)
-            .map_err(ApplicationError::from_skill_storage_error)?;
+        let handle = match self.storage.commit_delete(&existing.name) {
+            Ok(handle) => Some(handle),
+            Err(SkillStorageError::FormalDirectoryMissing { .. }) => None,
+            Err(error) => return Err(ApplicationError::from_skill_storage_error(error)),
+        };
         let deleted = self
             .repository
             .soft_delete_skill(&skill_id, self.clock.now_timestamp_millis())
             .map_err(|error| {
-                let _ = self.storage.rollback_delete(&handle);
+                if let Some(handle) = &handle {
+                    let _ = self.storage.rollback_delete(handle);
+                }
                 ApplicationError::from_skill_repository_error(error)
             })?;
         if !deleted {
-            let _ = self.storage.rollback_delete(&handle);
+            if let Some(handle) = &handle {
+                let _ = self.storage.rollback_delete(handle);
+            }
             return Err(ApplicationError::SkillNotFound {
                 skill_id: skill_id.to_string(),
             });
         }
-        self.storage
-            .finish_delete(&handle)
-            .map_err(ApplicationError::from_skill_storage_error)?;
+        if let Some(handle) = handle {
+            self.storage
+                .finish_delete(&handle)
+                .map_err(ApplicationError::from_skill_storage_error)?;
+        } else {
+            // The catalog row is gone; free the name so a later import is not blocked
+            // by a leftover that `exists()` missed when the package was already absent.
+            claim_untracked_name(&self.storage, &existing.name)?;
+        }
 
         Ok(DeleteSkillResponse {
             skill_id: skill_id.to_string(),
         })
-    }
-}
-
-/// Rejects a create whose name collides with any visible skill, case-insensitively.
-fn reject_existing_name<Repository: SkillRepository>(
-    repository: &Repository,
-    namespace: &Namespace,
-    name: &str,
-) -> Result<(), ApplicationError> {
-    match repository
-        .find_skill_by_name(namespace, name)
-        .map_err(ApplicationError::from_skill_repository_error)?
-    {
-        Some(_) => Err(ApplicationError::SkillNameConflict {
-            namespace: namespace.to_string(),
-            name: name.to_string(),
-        }),
-        None => Ok(()),
     }
 }
 
@@ -375,4 +418,56 @@ fn reject_conflicting_name<Repository: SkillRepository>(
         }),
         _ => Ok(()),
     }
+}
+
+/// Writes a new formal package onto an unavailable catalog row, preserving its identity.
+fn restore_unavailable_skill<Repository, Storage>(
+    repository: &Repository,
+    storage: &Storage,
+    existing: Skill,
+    name: String,
+    description: String,
+    content: Option<&str>,
+    now: i64,
+) -> Result<Skill, ApplicationError>
+where
+    Repository: SkillRepository,
+    Storage: SkillStorage,
+{
+    let skill = Skill::new(
+        existing.id.clone(),
+        existing.namespace.clone(),
+        name,
+        description,
+        AuditFields::new(existing.audit_fields.created_at, now, false),
+    )
+    .map_err(ApplicationError::from_skill_domain_error)?;
+    clear_incomplete_package(storage, &existing.name)?;
+    if skill.name != existing.name {
+        if has_usable_package(storage, &skill.name)? {
+            return Err(ApplicationError::SkillNameConflict {
+                namespace: skill.namespace.to_string(),
+                name: skill.name,
+            });
+        }
+        clear_incomplete_package(storage, &skill.name)?;
+    }
+    let staging = storage
+        .create_staging()
+        .map_err(ApplicationError::from_skill_storage_error)?;
+    let manifest = render_manifest(&skill.name, &skill.description, content.unwrap_or(""));
+    storage
+        .write_manifest(&staging, manifest.as_bytes())
+        .map_err(ApplicationError::from_skill_storage_error)?;
+    let handle = storage
+        .commit_create(&skill.name, &staging)
+        .map_err(ApplicationError::from_skill_storage_error)?;
+    let updated = repository.update_skill(skill).map_err(|error| {
+        let _ = storage.rollback_create(&handle);
+        ApplicationError::from_skill_repository_error(error)
+    })?;
+    storage
+        .finish_create(&handle)
+        .map_err(ApplicationError::from_skill_storage_error)?;
+    Ok(updated)
 }

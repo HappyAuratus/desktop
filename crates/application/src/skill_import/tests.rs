@@ -2,12 +2,14 @@ use super::{
     NoopSkillImportProgressPublisher, SkillImportConfig, SkillImportError, SkillImportIdGenerator,
     SkillImportService,
 };
-use crate::skill::{BACKUP_DIR_NAME, FilesystemSkillStorage, JOURNAL_DIR_NAME, STAGING_DIR_NAME};
+use crate::skill::{
+    BACKUP_DIR_NAME, DeleteSkillHandler, FilesystemSkillStorage, JOURNAL_DIR_NAME, STAGING_DIR_NAME,
+};
 use crate::{Clock, RepositoryError, SkillRepository};
 use ora_contracts::{
-    CommitSkillImportRequest, GetSkillImportSessionRequest, PrepareSkillImportRequest,
-    SkillImportConflictDecision, SkillImportDecision, SkillImportSession, SkillImportSessionStatus,
-    SkillImportSource,
+    CommitSkillImportRequest, DeleteSkillRequest, GetSkillImportSessionRequest,
+    PrepareSkillImportRequest, SkillImportConflictDecision, SkillImportDecision,
+    SkillImportSession, SkillImportSessionStatus, SkillImportSource,
 };
 use ora_domain::{AuditFields, Namespace, Skill, SkillId};
 use pretty_assertions::assert_eq;
@@ -335,6 +337,7 @@ fn previews_conflicts_with_existing_skills() {
     let temp = TempDir::new().unwrap();
     let repository = FakeSkillRepository::new();
     repository.push_skill("skill-1", "review", "Existing review", 100, 100);
+    seed_formal_skill(&temp, "review", "Existing review");
 
     let source = temp.path().join("source");
     write_manifest(&source, "SKILL.md", "review", "New review");
@@ -634,6 +637,7 @@ fn reports_missing_decisions_before_commit() {
     let temp = TempDir::new().unwrap();
     let repository = FakeSkillRepository::new();
     repository.push_skill("skill-1", "review", "Existing", 100, 100);
+    seed_formal_skill(&temp, "review", "Existing");
 
     let source = temp.path().join("source");
     write_manifest(&source, "SKILL.md", "review", "New review");
@@ -754,6 +758,102 @@ fn continues_after_individual_candidate_failure() {
             .join("skills")
             .join("alpha")
             .exists()
+    );
+}
+
+#[test]
+fn imports_over_an_untracked_package_when_the_name_is_unclaimed() {
+    let temp = TempDir::new().unwrap();
+    let repository = FakeSkillRepository::new();
+    seed_formal_skill(&temp, "review", "Untracked review");
+
+    let source = temp.path().join("source");
+    write_manifest(&source, "SKILL.md", "review", "Imported review");
+    let (service, _) = test_service(repository.clone(), &temp, Duration::from_secs(30));
+    let session = prepare_folder(&service, &source);
+    assert_eq!(
+        session.candidates[0].status,
+        ora_contracts::SkillImportCandidateStatus::Ready
+    );
+
+    service
+        .commit(CommitSkillImportRequest {
+            session_id: session.session_id.clone(),
+            decisions: vec![],
+        })
+        .unwrap();
+    let completed = wait_for_completion(&service, &session.session_id);
+    let result = &completed.progress.results[0];
+    assert_eq!(
+        result.status,
+        ora_contracts::SkillImportResultStatus::Imported
+    );
+    assert_eq!(repository.snapshot().len(), 1);
+    assert!(
+        fs::read_to_string(
+            temp.path()
+                .join("atoms")
+                .join("skills")
+                .join("review")
+                .join("SKILL.md")
+        )
+        .unwrap()
+        .contains("Imported review")
+    );
+}
+
+#[test]
+fn imports_the_same_name_after_deleting_an_unavailable_skill() {
+    let temp = TempDir::new().unwrap();
+    let repository = FakeSkillRepository::new();
+    repository.push_skill("skill-1", "review", "Reviews", 100, 100);
+    let leftover = temp.path().join("atoms").join("skills").join("review");
+    fs::create_dir_all(&leftover).unwrap();
+    fs::write(leftover.join("notes.md"), "stale leftover").unwrap();
+
+    DeleteSkillHandler::new(
+        repository.clone(),
+        FilesystemSkillStorage::new(temp.path().join("atoms").join("skills")),
+        TestClock::new(200),
+    )
+    .handle(DeleteSkillRequest {
+        skill_id: "skill-1".to_string(),
+    })
+    .unwrap();
+    assert!(repository.snapshot().is_empty());
+
+    let source = temp.path().join("source");
+    write_manifest(&source, "SKILL.md", "review", "Imported review");
+    let (service, _) = test_service(repository.clone(), &temp, Duration::from_secs(30));
+    let session = prepare_folder(&service, &source);
+    assert_eq!(
+        session.candidates[0].status,
+        ora_contracts::SkillImportCandidateStatus::Ready
+    );
+
+    service
+        .commit(CommitSkillImportRequest {
+            session_id: session.session_id.clone(),
+            decisions: vec![],
+        })
+        .unwrap();
+    let completed = wait_for_completion(&service, &session.session_id);
+    assert_eq!(
+        completed.progress.results[0].status,
+        ora_contracts::SkillImportResultStatus::Imported
+    );
+    assert_eq!(repository.snapshot().len(), 1);
+    assert_ne!(repository.snapshot()[0].id.to_string(), "skill-1");
+    assert!(
+        fs::read_to_string(
+            temp.path()
+                .join("atoms")
+                .join("skills")
+                .join("review")
+                .join("SKILL.md")
+        )
+        .unwrap()
+        .contains("Imported review")
     );
 }
 

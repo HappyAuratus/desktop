@@ -140,21 +140,30 @@ fn resolve_skill_catalog_name(
     skill_id: &str,
 ) -> Result<String, StartPrerequisitesError> {
     let candidate = skill_id.rsplit(':').next().unwrap_or(skill_id);
-    if storage.formal_exists(candidate) {
+    if skill_package_usable(storage, candidate) {
         return Ok(candidate.to_string());
     }
     if let Some(repository) = skill_repository {
-        return repository
+        let Some(skill) = repository
             .find_skill(&SkillId::new(candidate))
             .map_err(StartPrerequisitesError::Repository)?
-            .map(|skill| skill.name)
-            .ok_or_else(|| StartPrerequisitesError::WorkflowSkillNotFound {
+        else {
+            return Err(StartPrerequisitesError::WorkflowSkillNotFound {
                 skill_id: skill_id.to_string(),
             });
+        };
+        if skill_package_usable(storage, &skill.name) {
+            return Ok(skill.name);
+        }
     }
     Err(StartPrerequisitesError::WorkflowSkillNotFound {
         skill_id: skill_id.to_string(),
     })
+}
+
+/// Returns whether the catalog still has a formal directory with a root `SKILL.md`.
+fn skill_package_usable(storage: &FilesystemSkillStorage, name: &str) -> bool {
+    storage.formal_exists(name) && storage.read_manifest(name).ok().flatten().is_some()
 }
 
 /// Resolves an enabled skill id to the executable `/name` the agent CLI uses to invoke it: the
@@ -208,6 +217,11 @@ mod tests {
         let temp = TempDir::new().unwrap();
         let skills_root = temp.path().join("skills");
         std::fs::create_dir_all(skills_root.join("sfmea_review")).unwrap();
+        std::fs::write(
+            skills_root.join("sfmea_review").join("SKILL.md"),
+            "---\nname: sfmea_review\ndescription: review\n---\n",
+        )
+        .unwrap();
         let storage = FilesystemSkillStorage::new(skills_root);
         assert_eq!(
             resolve_executable_skill_name(&storage, None, "cdase:sfmea_review").unwrap(),

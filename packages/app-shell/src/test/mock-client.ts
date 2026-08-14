@@ -385,6 +385,7 @@ export function createMockClient(state: MockClientState): ContractsClient {
           namespace: "local",
           name: req.name,
           description: req.description,
+          availability: "available",
         };
         state.skills.push(skill);
         return { skill };
@@ -392,11 +393,13 @@ export function createMockClient(state: MockClientState): ContractsClient {
       update: async (req) => {
         const idx = state.skills.findIndex((s) => s.id === req.skillId);
         if (idx < 0) throw new Error(`skill ${req.skillId} not found`);
+        const existing = state.skills[idx]!;
         const updated: Skill = {
           id: req.skillId,
-          namespace: state.skills[idx].namespace,
+          namespace: existing.namespace,
           name: req.name,
           description: req.description,
+          availability: existing.availability,
         };
         state.skills[idx] = updated;
         return { skill: updated };

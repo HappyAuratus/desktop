@@ -9,8 +9,11 @@ from one folder tree or one supported archive (`.zip`, `.skill`, `.tar.gz`, `.tg
   archive and path-safety constraints, discovers non-overlapping `SKILL.md` boundaries, parses
   each manifest, and queries the repository for existing names. It never mutates formal storage.
 - Preview exposes every candidate with its safe source-relative path, file count, size, and
-  `ready`/`conflict`/`invalid` status. `conflict` candidates carry the existing skill's identity
-  and description for the user's `skip`/`overwrite` decision.
+  `ready`/`conflict`/`invalid` status. An existing catalog row with a usable package is a
+  `conflict` and carries that skill's identity for the user's `skip`/`overwrite` decision.
+  An existing row whose package is missing is `ready`: importing the same name restores that
+  row instead of asking for a conflict decision. A leftover package with no catalog row is
+  replaced: the user is claiming that name.
 - Commit (`commit`) validates that every conflict candidate has a decision, freezes the decisions,
   and starts a detached background task that processes candidates in stable source-path order.
   Each skill is staged under the formal skills root and promoted atomically with its database

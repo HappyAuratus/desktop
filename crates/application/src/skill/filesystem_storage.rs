@@ -360,6 +360,14 @@ impl SkillStorage for FilesystemSkillStorage {
         fs::remove_dir_all(path).map_err(map_storage_error)
     }
 
+    fn remove_formal(&self, name: &str) -> Result<(), SkillStorageError> {
+        let path = self.formal_path(name);
+        if path.exists() {
+            fs::remove_dir_all(&path).map_err(map_storage_error)?;
+        }
+        Ok(())
+    }
+
     fn list_journals(&self) -> Result<Vec<TransactionJournal>, SkillStorageError> {
         let root = self.reserved_root(JOURNAL_DIR_NAME);
         let mut journals = Vec::new();

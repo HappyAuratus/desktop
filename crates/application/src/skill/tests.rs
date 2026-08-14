@@ -1,10 +1,12 @@
 use super::{
-    CreateSkillHandler, DeleteSkillHandler, GetSkillHandler, SkillIdGenerator, SkillRepository,
-    SkillStorage, SkillStorageError, UpdateSkillHandler,
+    CreateSkillHandler, DeleteSkillHandler, GetSkillHandler, ListSkillsHandler, SkillIdGenerator,
+    SkillRepository, SkillStorage, SkillStorageError, UpdateSkillHandler,
 };
 use crate::skill::storage::{CreateHandle, DeleteHandle, SwapHandle, TransactionJournal};
 use crate::{ApplicationError, Clock, RepositoryError};
-use ora_contracts::{CreateSkillRequest, DeleteSkillRequest, GetSkillRequest, UpdateSkillRequest};
+use ora_contracts::{
+    CreateSkillRequest, DeleteSkillRequest, GetSkillRequest, ListSkillsRequest, UpdateSkillRequest,
+};
 use ora_domain::{AuditFields, Namespace, Skill, SkillId};
 use ora_skill_package::manifest::{render_manifest, render_minimal_manifest};
 use ora_utils::path::StrictRelativePath;
@@ -164,7 +166,7 @@ fn rejects_non_slug_names_and_case_insensitive_conflicts() {
     let repository = Rc::new(FakeSkillRepository::with_skills(vec![skill(
         "skill-1", "review", "Reviews", 1, 1, false,
     )]));
-    let storage = Rc::new(FakeSkillStorage::default());
+    let storage = Rc::new(FakeSkillStorage::with_manifest("review", "Reviews"));
     let handler = CreateSkillHandler::new(
         repository.clone(),
         storage.clone(),
@@ -265,6 +267,139 @@ fn soft_delete_hides_a_skill_by_id() {
         })
     );
     assert!(!storage.formal_exists("review"));
+}
+
+#[test]
+fn recreates_a_deleted_unavailable_skill_under_the_same_name() {
+    let repository = Rc::new(FakeSkillRepository::with_skills(vec![skill(
+        "skill-1", "review", "Reviews", 1, 1, false,
+    )]));
+    let storage = Rc::new(FakeSkillStorage::default());
+    DeleteSkillHandler::new(repository.clone(), storage.clone(), FixedClock(2))
+        .handle(DeleteSkillRequest {
+            skill_id: "skill-1".to_string(),
+        })
+        .unwrap();
+
+    let created = CreateSkillHandler::new(
+        repository.clone(),
+        storage.clone(),
+        RecreatedSkillIdGenerator,
+        FixedClock(3),
+    )
+    .handle(CreateSkillRequest {
+        name: "review".to_string(),
+        description: "Reviews again".to_string(),
+        content: None,
+    })
+    .unwrap();
+
+    assert_eq!(created.skill.id, "skill-2");
+    assert_eq!(
+        created.skill.availability,
+        ora_contracts::SkillAvailability::Available
+    );
+    assert!(storage.formal_exists("review"));
+}
+
+#[test]
+fn reports_unavailable_skills_and_restores_them_by_same_name() {
+    let repository = Rc::new(FakeSkillRepository::with_skills(vec![
+        skill("skill-1", "review", "Reviews", 1, 1, false),
+        skill("skill-2", "kept", "Kept", 1, 1, false),
+    ]));
+    let storage = Rc::new(FakeSkillStorage::with_manifest("kept", "Kept"));
+
+    let listed = ListSkillsHandler::new(repository.clone(), storage.clone())
+        .handle(ListSkillsRequest {})
+        .unwrap();
+    assert_eq!(
+        listed
+            .skills
+            .iter()
+            .map(|skill| (skill.name.as_str(), skill.availability))
+            .collect::<Vec<_>>(),
+        vec![
+            ("review", ora_contracts::SkillAvailability::Unavailable),
+            ("kept", ora_contracts::SkillAvailability::Available),
+        ]
+    );
+
+    let details = GetSkillHandler::new(repository.clone(), storage.clone())
+        .handle(GetSkillRequest {
+            skill_id: "skill-1".to_string(),
+        })
+        .unwrap();
+    assert_eq!(
+        details.skill.availability,
+        ora_contracts::SkillAvailability::Unavailable
+    );
+    assert_eq!(details.skill.content, "");
+
+    let restored = CreateSkillHandler::new(
+        repository.clone(),
+        storage.clone(),
+        FixedSkillIdGenerator,
+        FixedClock(4),
+    )
+    .handle(CreateSkillRequest {
+        name: "review".to_string(),
+        description: "Restored".to_string(),
+        content: None,
+    })
+    .unwrap();
+    assert_eq!(restored.skill.id, "skill-1");
+    assert_eq!(
+        restored.skill.availability,
+        ora_contracts::SkillAvailability::Available
+    );
+    assert!(storage.formal_exists("review"));
+    assert_eq!(
+        repository
+            .find_skill(&ora_domain::SkillId::new("skill-1"))
+            .unwrap()
+            .unwrap()
+            .description,
+        "Restored"
+    );
+
+    DeleteSkillHandler::new(
+        Rc::new(FakeSkillRepository::with_skills(vec![skill(
+            "skill-3", "ghost", "Ghost", 1, 1, false,
+        )])),
+        Rc::new(FakeSkillStorage::default()),
+        FixedClock(5),
+    )
+    .handle(DeleteSkillRequest {
+        skill_id: "skill-3".to_string(),
+    })
+    .unwrap();
+}
+
+#[test]
+fn restore_does_not_replace_an_untracked_complete_package() {
+    let repository = Rc::new(FakeSkillRepository::with_skills(vec![skill(
+        "skill-1", "review", "Reviews", 1, 1, false,
+    )]));
+    let storage = Rc::new(FakeSkillStorage::with_manifest("stray", "Untracked"));
+    let original = storage.manifest("stray");
+
+    let error = UpdateSkillHandler::new(repository, storage.clone(), FixedClock(4))
+        .handle(UpdateSkillRequest {
+            skill_id: "skill-1".to_string(),
+            name: "stray".to_string(),
+            description: "Restored".to_string(),
+            content: None,
+        })
+        .unwrap_err();
+
+    assert_eq!(
+        error,
+        ApplicationError::SkillNameConflict {
+            name: "stray".to_string()
+        }
+    );
+    assert_eq!(storage.manifest("stray"), original);
 }
 
 #[test]
@@ -600,6 +735,10 @@ impl SkillStorage for Rc<FakeSkillStorage> {
     fn remove_dir(&self, _path: &Path) -> Result<(), SkillStorageError> {
         Ok(())
     }
+    fn remove_formal(&self, name: &str) -> Result<(), SkillStorageError> {
+        self.formal.borrow_mut().remove(name);
+        Ok(())
+    }
     fn list_journals(&self) -> Result<Vec<TransactionJournal>, SkillStorageError> {
         Ok(Vec::new())
     }
@@ -630,6 +769,12 @@ struct FixedSkillIdGenerator;
 impl SkillIdGenerator for FixedSkillIdGenerator {
     fn generate_skill_id(&self) -> SkillId {
         SkillId::new("skill-1")
+    }
+}
+struct RecreatedSkillIdGenerator;
+impl SkillIdGenerator for RecreatedSkillIdGenerator {
+    fn generate_skill_id(&self) -> SkillId {
+        SkillId::new("skill-2")
     }
 }
 struct FixedClock(i64);

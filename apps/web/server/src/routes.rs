@@ -1062,7 +1062,7 @@ mod tests {
         assert_eq!(skill_update.status(), StatusCode::OK);
         assert_eq!(
             response_json(skill_update).await,
-            json!({ "skill": { "id": skill_id, "namespace": "local", "name": "reviewer", "description": "Reviews changes" } })
+            json!({ "skill": { "id": skill_id, "namespace": "local", "name": "reviewer", "description": "Reviews changes", "availability": "available" } })
         );
         let preserved_skill = request_empty(&app, Method::GET, &skill_path).await;
         assert_eq!(

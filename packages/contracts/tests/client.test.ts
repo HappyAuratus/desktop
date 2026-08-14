@@ -233,6 +233,7 @@ test("uses a skill id in PUT paths while leaving editable fields in JSON", async
         id: "skill-1",
         name: "code-review",
         description: "Reviews code",
+        availability: "available",
       },
     }),
   );
