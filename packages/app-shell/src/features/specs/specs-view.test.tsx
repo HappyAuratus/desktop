@@ -1,7 +1,7 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { PlatformProvider } from "@ora/platform";
-import type { ResolveSpecSourceResponse, SpecCatalogResponse } from "@ora/contracts";
+import type { SpecCatalogResponse } from "@ora/contracts";
 import { TooltipProvider } from "@ora/ui";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { type ReactNode } from "react";
@@ -11,7 +11,6 @@ import { AppI18nProvider } from "../../i18n/i18n";
 import { queryKeys } from "../../state/hooks/query-keys";
 import { createMockClient, createMockClientState } from "../../test/mock-client";
 import { createStubPlatform } from "../../test/stub-platform";
-import { SpecSourceDialog } from "./spec-source-dialog";
 import { invalidateSpecQueries, resolveMarkdownLink } from "./spec-query-utils";
 import { SpecsContent } from "./specs-view";
 
@@ -53,13 +52,6 @@ describe("SpecsContent", () => {
     const user = userEvent.setup();
     const client = createMockClient(createMockClientState());
     client.spec.catalog = vi.fn(async () => ({
-      sources: [{
-        relativePath: "docs/specs",
-        workflow: { kind: "custom", name: "Architecture" },
-        origin: "default",
-        visibility: "enabled",
-        availability: "available",
-      }],
       documents: [
         {
           relativePath: "docs/specs/design.md",
@@ -94,7 +86,6 @@ describe("SpecsContent", () => {
     renderSpecSurface(
       <SpecsContent
         projectId="project-1"
-        projectRootPath="C:/repo"
       />,
       client,
     );
@@ -118,94 +109,6 @@ describe("SpecsContent", () => {
     });
     await waitFor(() => {
       expect(screen.queryByRole("button", { name: "plan.mdx" })).not.toBeInTheDocument();
-    });
-  });
-
-  it("uses the existing directory picker and locks workflow fields for non-manual sources", async () => {
-    const user = userEvent.setup();
-    const client = createMockClient(createMockClientState());
-    const update = vi.fn(client.spec.updateProjectSources);
-    client.spec.updateProjectSources = update;
-    client.spec.resolveSource = vi.fn(async () => ({
-      relativePath: "architecture",
-      workflow: { kind: "custom", name: "Custom" },
-    } satisfies ResolveSpecSourceResponse));
-    const selectPath = vi.fn(async () => "C:/repo/architecture");
-    const platform = { ...createStubPlatform(), selectPath };
-
-    renderSpecSurface(
-      <SpecSourceDialog
-        open
-        projectId="project-1"
-        target={{ kind: "project", projectId: "project-1" }}
-        initialPath="C:/repo"
-        sources={[
-          {
-            relativePath: "docs/specs",
-            workflow: { kind: "custom", name: "Custom" },
-            origin: "default",
-            visibility: "enabled",
-            availability: "available",
-          },
-          {
-            relativePath: "notes",
-            workflow: { kind: "custom", name: "Notes" },
-            origin: "manual",
-            visibility: "enabled",
-            availability: "available",
-          },
-        ]}
-        onOpenChange={() => undefined}
-      />,
-      client,
-      platform,
-    );
-
-    expect(screen.getByText(/^当前工作区$|^Current workspace$/)).toBeInTheDocument();
-    expect(screen.getByTitle("C:/repo")).toBeInTheDocument();
-    const workflowSelectors = screen.getAllByRole("combobox");
-    expect(workflowSelectors[0]).toBeDisabled();
-    expect(workflowSelectors[1]).toBeEnabled();
-    await user.click(screen.getByRole("button", { name: /添加目录|Add directory/ }));
-    expect(selectPath).toHaveBeenCalledWith({ kind: "directory", initialPath: "C:/repo" });
-    expect(await screen.findByText("architecture")).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: /保存|Save/ }));
-    expect(update).toHaveBeenCalledWith(
-      expect.objectContaining({
-        projectId: "project-1",
-        sources: expect.arrayContaining([
-          expect.objectContaining({ relativePath: "architecture", visibility: "enabled" }),
-        ]),
-      }),
-    );
-  });
-
-  it("resolves a task workspace before opening its directory picker", async () => {
-    const user = userEvent.setup();
-    const client = createMockClient(createMockClientState());
-    client.task.getWorkspace = vi.fn(async () => ({
-      workspace: { rootPath: "C:/repo/.ora-worktrees/task-1", branchName: "ora/task-1" },
-    }));
-    const selectPath = vi.fn(async () => null);
-
-    renderSpecSurface(
-      <SpecsContent
-        projectId="project-1"
-        projectRootPath="C:/repo"
-        taskId="task-1"
-      />,
-      client,
-      { ...createStubPlatform(), selectPath },
-    );
-
-    await waitFor(() => expect(client.task.getWorkspace).toHaveBeenCalledWith({ taskId: "task-1" }));
-    await user.click(screen.getByRole("button", { name: /管理来源|Manage sources/ }));
-    const addDirectory = screen.getByRole("button", { name: /添加目录|Add directory/ });
-    await waitFor(() => expect(addDirectory).toBeEnabled());
-    await user.click(addDirectory);
-    expect(selectPath).toHaveBeenCalledWith({
-      kind: "directory",
-      initialPath: "C:/repo/.ora-worktrees/task-1",
     });
   });
 

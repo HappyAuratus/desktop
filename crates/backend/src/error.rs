@@ -368,11 +368,6 @@ impl From<ApplicationError> for BackendError {
                 PublicError::ProjectNotFound(EmptyErrorParams {}),
                 "project not found",
             ),
-            ApplicationError::SpecSourceInvalid => (
-                ErrorClassification::InvalidRequest,
-                PublicError::SpecSourceInvalid(EmptyErrorParams {}),
-                "specification source configuration is invalid",
-            ),
             ApplicationError::ProjectBranchListing { .. } => (
                 ErrorClassification::Internal,
                 PublicError::InternalError(EmptyErrorParams {}),
@@ -449,7 +444,6 @@ impl From<ApplicationError> for BackendError {
             | ApplicationError::SkillStorage { .. }
             | ApplicationError::AgentDefinitionRepository { .. }
             | ApplicationError::ProjectRepository { .. }
-            | ApplicationError::SpecSourceRepository { .. }
             | ApplicationError::TaskRepository { .. }
             | ApplicationError::TaskWorktreeIdExhausted { .. }
             | ApplicationError::TaskWorktreeRootUnavailable

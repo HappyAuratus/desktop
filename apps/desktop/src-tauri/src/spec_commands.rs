@@ -57,34 +57,6 @@ pub async fn read_spec(
         .map_err(|error| CommandError::from_backend_with_lifecycle(error, &lifecycle))
 }
 
-/// Validates one platform-selected specification source directory.
-#[tauri::command]
-pub async fn resolve_spec_source(
-    state: State<'_, DesktopState>,
-    request: ResolveSpecSourceRequest,
-) -> Result<ResolveSpecSourceResponse, CommandError> {
-    run_blocking(
-        "resolve_spec_source",
-        state.backend.clone(),
-        move |backend| backend.resolve_spec_source(request),
-    )
-    .await
-}
-
-/// Atomically replaces one project's specification source overrides.
-#[tauri::command]
-pub async fn update_project_spec_sources(
-    state: State<'_, DesktopState>,
-    request: UpdateProjectSpecSourcesRequest,
-) -> Result<UpdateProjectSpecSourcesResponse, CommandError> {
-    run_blocking(
-        "update_project_spec_sources",
-        state.backend.clone(),
-        move |backend| backend.update_project_spec_sources(request),
-    )
-    .await
-}
-
 /// Starts a specification watcher inside the existing exactly-once stream lifecycle.
 pub(crate) async fn start_watch(
     state: State<'_, DesktopState>,

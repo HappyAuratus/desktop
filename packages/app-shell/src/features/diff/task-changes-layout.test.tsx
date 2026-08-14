@@ -58,7 +58,6 @@ const taskContext = {
   kind: "task" as const,
   taskId: "task-1",
   projectId: "project-1",
-  projectRootPath: "C:/project",
 };
 
 describe("responsiveReviewWidth", () => {
@@ -149,7 +148,7 @@ describe("WorkspaceReviewLayout", () => {
     render(
       <PlatformProvider adapter={createStubPlatform()}>
         <AppI18nProvider>
-          <WorkspaceReviewLayout context={{ kind: "project", projectId: "project-1", projectRootPath: "C:/project" }}>
+          <WorkspaceReviewLayout context={{ kind: "project", projectId: "project-1" }}>
             <main>Project</main>
           </WorkspaceReviewLayout>
         </AppI18nProvider>
@@ -167,7 +166,7 @@ describe("WorkspaceReviewLayout", () => {
     const { rerender } = render(
       <PlatformProvider adapter={createStubPlatform()}>
         <AppI18nProvider>
-          <WorkspaceReviewLayout context={{ kind: "project", projectId: "project-1", projectRootPath: "C:/project" }}>
+          <WorkspaceReviewLayout context={{ kind: "project", projectId: "project-1" }}>
             <main>Project</main>
           </WorkspaceReviewLayout>
         </AppI18nProvider>
@@ -205,7 +204,7 @@ describe("WorkspaceReviewLayout", () => {
     rerender(
       <PlatformProvider adapter={createStubPlatform()}>
         <AppI18nProvider>
-          <WorkspaceReviewLayout context={{ kind: "project", projectId: "project-1", projectRootPath: "C:/project" }}>
+          <WorkspaceReviewLayout context={{ kind: "project", projectId: "project-1" }}>
             <main>Project</main>
           </WorkspaceReviewLayout>
         </AppI18nProvider>

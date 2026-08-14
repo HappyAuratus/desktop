@@ -2,7 +2,7 @@ use crate::search::{
     MAX_SEARCH_OUTPUT_BYTES, MAX_SEARCH_RESULTS, SEARCH_TIMEOUT, collect_process_output,
     normalize_ripgrep_path,
 };
-use crate::workspace::{canonical_root, map_containment_error, relative_string, resolve_existing};
+use crate::workspace::{canonical_root, relative_string, resolve_existing};
 use crate::{CanonicalPathRoot, ReadFile, WorkspaceFileSystem, WorkspaceFileSystemError};
 use ora_process::{ManagedProcess, ProcessSpawner, ProcessSpec, ProcessStdio};
 use std::collections::BTreeMap;
@@ -57,22 +57,6 @@ where
             });
         }
         self.read_file(root, relative_path)
-    }
-
-    /// Resolves a platform-selected absolute directory into Ora's relative slash representation.
-    pub fn resolve_spec_source(
-        &self,
-        root: &Path,
-        absolute_path: &Path,
-    ) -> Result<String, WorkspaceFileSystemError> {
-        let root = canonical_root(root)?;
-        let resolved = root
-            .resolve_existing_absolute(absolute_path)
-            .map_err(map_containment_error)?;
-        if !resolved.is_dir() {
-            return Err(WorkspaceFileSystemError::NotDirectory { path: resolved });
-        }
-        relative_string(&root, &resolved)
     }
 
     /// Runs the shared ripgrep process with spec-specific globs and bounded output collection.

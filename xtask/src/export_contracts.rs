@@ -463,10 +463,6 @@ fn contract_module_for_type(type_name: &str) -> &'static str {
         | "SpecCatalogResponse"
         | "ReadSpecRequest"
         | "ReadSpecResponse"
-        | "ResolveSpecSourceRequest"
-        | "ResolveSpecSourceResponse"
-        | "UpdateProjectSpecSourcesRequest"
-        | "UpdateProjectSpecSourcesResponse"
         | "WatchSpecsRequest" => "spec",
         // gitIdentity
         "GetGitIdentityRequest" | "GitIdentityResponse" => "git",

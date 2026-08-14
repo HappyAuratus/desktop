@@ -144,12 +144,6 @@ impl SqliteCascadeRepository {
                 params![project_id.as_ref(), deleted_at],
             )?;
             transaction.execute(
-                "UPDATE project_spec_source_overrides
-                 SET updated_at = ?2, is_deleted = 1
-                 WHERE project_id = ?1 AND is_deleted = 0",
-                params![project_id.as_ref(), deleted_at],
-            )?;
-            transaction.execute(
                 "UPDATE projects SET updated_at = ?2, is_deleted = 1 WHERE id = ?1 AND is_deleted = 0",
                 params![project_id.as_ref(), deleted_at],
             )?;

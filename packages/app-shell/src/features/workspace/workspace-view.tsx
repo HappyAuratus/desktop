@@ -178,9 +178,9 @@ export function WorkspaceView({ userName }: WorkspaceViewProps) {
   // reported before that first send reach the screen.
   const conversationSessionId = selection.sessionId ?? warmSessionId;
   const reviewContext: WorkspaceReviewContext = task !== undefined && project !== undefined
-    ? { kind: "task", taskId: task.id, projectId: project.id, projectRootPath: project.rootPath }
+    ? { kind: "task", taskId: task.id, projectId: project.id }
     : project !== undefined
-      ? { kind: "project", projectId: project.id, projectRootPath: project.rootPath }
+      ? { kind: "project", projectId: project.id }
       : { kind: "none" };
   const conversation = useStore(chatStore, (state) =>
     conversationSessionId === null

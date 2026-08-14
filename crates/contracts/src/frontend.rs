@@ -2,10 +2,7 @@
 
 mod spec;
 
-pub use spec::{
-    PROJECT_SPEC_SOURCES_PATH, SPEC_CATALOG_PATH, SPEC_READ_PATH, SPEC_RESOLVE_SOURCE_PATH,
-    SPEC_WATCH_PATH,
-};
+pub use spec::{SPEC_CATALOG_PATH, SPEC_READ_PATH, SPEC_WATCH_PATH};
 
 pub const PROJECTS_PATH: &str = "/api/projects";
 pub const PROJECT_PATH: &str = "/api/projects/{projectId}";

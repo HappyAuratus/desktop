@@ -18,10 +18,10 @@ pub use location::DatabaseLocation;
 pub use migration::{AppliedMigration, Migration, MigrationCatalog, default_migration_catalog};
 pub use repository::{
     CascadeDeleteOutcome, RepositoryPool, SqliteAgentDefinitionRepository, SqliteCascadeRepository,
-    SqliteGitCleanupJobRepository, SqliteProjectRepository,
-    SqliteProjectSpecSourceOverrideRepository, SqliteSessionRepository, SqliteSkillRepository,
-    SqliteTaskDiffCommentRepository, SqliteTaskRepository, SqliteTaskWorkspaceRepository,
-    SqliteWorkflowRepository, SqliteWorkflowRunEngineRepository, SqliteWorkflowRunRepository,
-    SqliteWorktreeProvisioningLeaseRepository, SqliteWorktreeRepository,
+    SqliteGitCleanupJobRepository, SqliteProjectRepository, SqliteSessionRepository,
+    SqliteSkillRepository, SqliteTaskDiffCommentRepository, SqliteTaskRepository,
+    SqliteTaskWorkspaceRepository, SqliteWorkflowRepository, SqliteWorkflowRunEngineRepository,
+    SqliteWorkflowRunRepository, SqliteWorktreeProvisioningLeaseRepository,
+    SqliteWorktreeRepository,
 };
 pub use time::{SystemTimestampSource, TimestampSource};

@@ -68,7 +68,6 @@ The handler set is intentionally narrower than full CRUD per entity, because som
 | `task_diff` | read diff, create/list/reply/update comments, commit, push |
 | `workflow` | create, get, list, update, delete, getDraft, updateDraft, publish, rollback, activate, listVersions, getVersion, deleteSnapshot |
 | `workflow_run` | create, get, list, listNodeRuns, delete |
-| `spec` | list and atomically replace project source overrides |
 | `worktree` | none — ports only |
 
 Notable consequences:

@@ -7,7 +7,6 @@ mod project;
 mod session;
 mod session_title;
 mod skill;
-mod spec;
 mod task;
 mod task_diff_comment;
 mod workflow;
@@ -25,9 +24,9 @@ pub use git_cleanup::{
     truncate_cleanup_error,
 };
 pub use ids::{
-    AgentDefinitionId, GitCleanupJobId, ProjectId, ProjectSpecSourceOverrideId, SessionId, SkillId,
-    TaskDiffCommentId, TaskId, WorkflowId, WorkflowNodeRunId, WorkflowRunId, WorkflowSnapshotId,
-    WorktreeId, WorktreeProvisioningLeaseId,
+    AgentDefinitionId, GitCleanupJobId, ProjectId, SessionId, SkillId, TaskDiffCommentId, TaskId,
+    WorkflowId, WorkflowNodeRunId, WorkflowRunId, WorkflowSnapshotId, WorktreeId,
+    WorktreeProvisioningLeaseId,
 };
 pub use project::Project;
 pub use session::{AgentCli, HistoryState, Session, SessionStatus};
@@ -35,7 +34,6 @@ pub use session_title::{MAX_SESSION_TITLE_CHARS, SessionTitle, SessionTitleError
 pub use skill::{
     Skill, SkillDescriptionError, SkillNameError, validate_skill_description, validate_skill_name,
 };
-pub use spec::{ProjectSpecSourceOverride, SpecSourceVisibility, SpecWorkflow};
 pub use task::{Task, TaskStatus, TaskType};
 pub use task_diff_comment::{
     TaskDiffAnchor, TaskDiffComment, TaskDiffCommentKind, TaskDiffSide, TaskDiffThreadStatus,

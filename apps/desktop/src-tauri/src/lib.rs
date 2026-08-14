@@ -67,8 +67,6 @@ pub fn run() {
             commands::search_workspace,
             spec_commands::get_spec_catalog,
             spec_commands::read_spec,
-            spec_commands::resolve_spec_source,
-            spec_commands::update_project_spec_sources,
             // =============================================================================
             // session
             // =============================================================================

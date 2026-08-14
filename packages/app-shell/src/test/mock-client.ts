@@ -373,17 +373,12 @@ export function createMockClient(state: MockClientState): ContractsClient {
       })(),
     },
     spec: {
-      catalog: async () => ({ sources: [], documents: [], truncated: false }),
+      catalog: async () => ({ documents: [], truncated: false }),
       read: async (request) => ({
         relativePath: request.relativePath,
         content: "",
         byteSize: 0,
       }),
-      resolveSource: async () => ({
-        relativePath: "docs/specs",
-        workflow: { kind: "custom", name: "Custom" },
-      }),
-      updateProjectSources: async (request) => ({ sources: request.sources }),
       watch: () => (async function* () {
         yield* [];
       })(),

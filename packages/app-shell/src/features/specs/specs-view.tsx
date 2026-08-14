@@ -21,12 +21,10 @@ import type { Components } from "react-markdown";
 import { useContractsClient } from "../../contracts-client-context";
 import { localizeContractError } from "../../i18n/contract-error";
 import { queryKeys } from "../../state/hooks/query-keys";
-import { useTaskWorkspace } from "../../state/hooks/use-task-workspace";
 import { MarkdownDocument } from "../chat/markdown-message";
 import { WorkspaceFileViewer } from "../files/workspace-file-viewer";
 import { watchWorkspaceContinuously } from "../files/workspace-watch";
 import { invalidateSpecQueries, resolveMarkdownLink } from "./spec-query-utils";
-import { SpecSourceDialog } from "./spec-source-dialog";
 import { SpecTree } from "./spec-tree";
 
 export interface SpecsContentHandle {
@@ -37,20 +35,18 @@ export interface SpecsContentHandle {
 
 interface SpecsContentProps {
   projectId: string;
-  projectRootPath: string;
   taskId?: string;
   onRefreshingChange?: (refreshing: boolean) => void;
 }
 
 /** Presents project/worktree specification documents as a read-only review surface. */
 export const SpecsContent = forwardRef<SpecsContentHandle, SpecsContentProps>(function SpecsContent(
-  { projectId, projectRootPath, taskId, onRefreshingChange },
+  { projectId, taskId, onRefreshingChange },
   ref,
 ) {
   const { t } = useTranslation();
   const client = useContractsClient();
   const queryClient = useQueryClient();
-  const [settingsOpen, setSettingsOpen] = useState(false);
   const target = useMemo<SpecTarget>(
     () => taskId === undefined
       ? { kind: "project", projectId }
@@ -58,7 +54,6 @@ export const SpecsContent = forwardRef<SpecsContentHandle, SpecsContentProps>(fu
     [projectId, taskId],
   );
   const targetKey = taskId === undefined ? `project:${projectId}` : `task:${taskId}`;
-  const workspaceQuery = useTaskWorkspace(taskId);
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
   const [mode, setMode] = useState<"preview" | "source">("preview");
   const [filter, setFilter] = useState("");
@@ -169,11 +164,8 @@ export const SpecsContent = forwardRef<SpecsContentHandle, SpecsContentProps>(fu
     clearSelection: () => setSelectedPath(null),
   }));
 
-  const workspaceRootPath = taskId === undefined ? projectRootPath : workspaceQuery.data?.rootPath;
-
   return (
-    <>
-      <ResizablePanelGroup orientation="horizontal" className="min-h-0 flex-1">
+    <ResizablePanelGroup orientation="horizontal" className="min-h-0 flex-1">
         <ResizablePanel id="spec-content" minSize={280}>
           <div className="flex h-full min-w-0 flex-col">
             {activeSelectedPath !== null && (
@@ -204,9 +196,6 @@ export const SpecsContent = forwardRef<SpecsContentHandle, SpecsContentProps>(fu
                 <IconSearch className="pointer-events-none absolute left-3 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
                 <Input className="h-8 pl-8 text-xs" value={filter} placeholder={t("specs.filter")} onChange={(event) => setFilter(event.target.value)} />
               </div>
-              <Button type="button" size="sm" variant="outline" className="shrink-0" onClick={() => setSettingsOpen(true)}>
-                {t("specs.manageSources")}
-              </Button>
             </div>
             <div className="min-h-0 flex-1">
               {catalogQuery.isLoading ? <Status text={t("specs.loading")} />
@@ -214,9 +203,6 @@ export const SpecsContent = forwardRef<SpecsContentHandle, SpecsContentProps>(fu
                 : documents.length === 0 ? (
                   <div className="flex h-full flex-col items-center justify-center gap-3 p-6 text-center">
                     <p className="text-sm text-muted-foreground">{t("specs.empty")}</p>
-                    <Button type="button" size="sm" variant="outline" onClick={() => setSettingsOpen(true)}>
-                      {t("specs.manageSources")}
-                    </Button>
                   </div>
                 )
                   : <SpecTree documents={documents} selectedPath={activeSelectedPath} onSelect={setSelectedPath} />}
@@ -224,16 +210,7 @@ export const SpecsContent = forwardRef<SpecsContentHandle, SpecsContentProps>(fu
             {catalogQuery.data?.truncated && <p className="border-t border-border px-3 py-2 text-[11px] text-amber-700">{t("specs.truncated")}</p>}
           </div>
         </ResizablePanel>
-      </ResizablePanelGroup>
-      <SpecSourceDialog
-        open={settingsOpen}
-        projectId={projectId}
-        target={target}
-        initialPath={workspaceRootPath}
-        sources={catalogQuery.data?.sources ?? []}
-        onOpenChange={setSettingsOpen}
-      />
-    </>
+    </ResizablePanelGroup>
   );
 });
 

@@ -6,13 +6,13 @@
 
 - It boots shared structured logging through `ora-logging` and registers the Gitlancer command-logging bridge.
 - It exposes health endpoints for process liveness and runtime readiness.
-- It serves persisted HTTP operations for Project, Task, Spec sources, Session, Skill, Agent, and Git identity through the shared `ora-backend` composition.
+- It serves persisted HTTP operations for Project, Task, Session, Skill, Agent, and Git identity through the shared `ora-backend` composition.
 - It provisions task-owned linked worktrees during creation and leaves Git untouched during deletion.
 - It streams ACP load replay and prompt updates as bounded NDJSON responses.
 - It exposes the best-effort `watchAppEvents` NDJSON stream used to gate the App Shell and invalidate persisted session queries.
 - It provides read-only server filesystem listings for the Web platform path picker.
 - It provides a task-scoped, read-only workspace explorer with bounded file reads, ripgrep search, and native refresh events.
-- It exposes the shared project/task Spec catalog, safe Markdown reads, project-wide source configuration, and mounted-only refresh streams.
+- It exposes the shared project/task Spec catalog, safe Markdown reads, and mounted-only refresh streams.
 
 ## Data root configuration
 
@@ -147,13 +147,11 @@ Every task workspace route resolves the active task workspace through `ora-backe
 
 ### specs
 
-- `POST /api/specs/catalog` returns effective sources, bounded Markdown/MDX documents, and truncation state for a tagged Project or Task target.
-- `POST /api/specs/read` reads one document only after revalidating that it still belongs to an enabled source.
-- `POST /api/specs/resolve-source` converts a directory selected by the platform picker into a safe target-relative source.
-- `PUT /api/projects/{projectId}/spec-sources` atomically replaces the project's source overrides.
+- `POST /api/specs/catalog` returns bounded automatically discovered Markdown/MDX documents and truncation state for a tagged Project or Task target.
+- `POST /api/specs/read` reads one document only after revalidating that it still belongs to an automatically detected source.
 - `POST /api/specs/watch` streams workspace file-event batches for the tagged target.
 
-Spec catalog and read responses never expose an absolute workspace root. Discovery and source configuration are composed by the shared backend, so Web and Desktop retain identical source inference, path containment, persistence, and error semantics. See [Spec Management](spec-management.md).
+Spec catalog and read responses never expose an absolute workspace root. Discovery is composed by the shared backend, so Web and Desktop retain identical source inference, path containment, and error semantics. See [Spec Management](spec-management.md).
 
 ### gitIdentity
 

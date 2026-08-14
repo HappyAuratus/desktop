@@ -10,12 +10,12 @@ use axum::routing::{get, post};
 use ora_contracts::{
     AGENT_IMPORT_COMMIT_PATH, AGENT_IMPORT_PREPARE_PATH, AGENT_PATH, AGENT_RUNTIME_STATUS_PATH,
     AGENTS_PATH, APP_EVENT_WATCH_PATH, FILE_SYSTEM_DIRECTORY_PATH, GIT_IDENTITY_PATH,
-    INSTALLED_PLUGINS_PATH, PROJECT_BRANCHES_PATH, PROJECT_PATH, PROJECT_SPEC_SOURCES_PATH,
-    PROJECTS_PATH, SESSION_ATTACH_PATH, SESSION_CONFIG_PATH, SESSION_LOAD_PATH, SESSION_PATH,
+    INSTALLED_PLUGINS_PATH, PROJECT_BRANCHES_PATH, PROJECT_PATH, PROJECTS_PATH,
+    SESSION_ATTACH_PATH, SESSION_CONFIG_PATH, SESSION_LOAD_PATH, SESSION_PATH,
     SESSION_PERMISSION_RESPONSE_PATH, SESSION_PROMPT_PATH, SESSION_RESUME_HISTORY_PATH,
     SESSION_STOP_PATH, SESSION_SWITCH_AGENT_PATH, SESSION_WARM_PATH, SESSIONS_PATH,
     SKILL_IMPORT_COMMIT_PATH, SKILL_IMPORT_PATH, SKILL_IMPORTS_PATH, SKILL_PATH, SKILLS_PATH,
-    SPEC_CATALOG_PATH, SPEC_READ_PATH, SPEC_RESOLVE_SOURCE_PATH, SPEC_WATCH_PATH, TASK_COMMIT_PATH,
+    SPEC_CATALOG_PATH, SPEC_READ_PATH, SPEC_WATCH_PATH, TASK_COMMIT_PATH,
     TASK_DIFF_COMMENT_REPLIES_PATH, TASK_DIFF_COMMENT_STATUS_PATH, TASK_DIFF_COMMENTS_PATH,
     TASK_DIFF_PATH, TASK_PATH, TASK_PUSH_PATH, TASK_WORKSPACE_PATH, TASKS_PATH,
     WORKFLOW_ACTIVATE_PATH, WORKFLOW_DRAFT_PATH, WORKFLOW_PATH, WORKFLOW_PUBLISH_PATH,
@@ -66,11 +66,6 @@ pub fn build_router(app_state: AppState) -> Router {
         // =============================================================================
         .route(SPEC_CATALOG_PATH, post(specs::catalog))
         .route(SPEC_READ_PATH, post(specs::read))
-        .route(SPEC_RESOLVE_SOURCE_PATH, post(specs::resolve_source))
-        .route(
-            PROJECT_SPEC_SOURCES_PATH,
-            axum::routing::put(specs::update_project_sources),
-        )
         .route(SPEC_WATCH_PATH, post(specs::watch))
         // =============================================================================
         // taskDiff
@@ -851,7 +846,7 @@ mod tests {
         );
     }
 
-    /// Verifies Spec catalog, guarded reads, source resolution, and project-wide overrides share one HTTP contract.
+    /// Verifies Spec catalog and guarded reads share one HTTP contract.
     #[tokio::test]
     async fn serves_spec_management_routes() {
         let (temp_dir, _database_path, app) = test_router();
@@ -960,87 +955,6 @@ mod tests {
         assert_contract_error(
             &response_json(unauthorized_read).await,
             "spec_document_not_found",
-        );
-
-        let resolved = request_json(
-            &app,
-            Method::POST,
-            "/api/specs/resolve-source",
-            json!({
-                "target": target.clone(),
-                "absolutePath": source_root,
-            }),
-        )
-        .await;
-        assert_eq!(resolved.status(), StatusCode::OK);
-        assert_eq!(
-            response_json(resolved).await,
-            json!({
-                "relativePath": "docs/specs",
-                "workflow": { "kind": "custom", "name": "Custom" },
-            })
-        );
-
-        let root_source = request_json(
-            &app,
-            Method::POST,
-            "/api/specs/resolve-source",
-            json!({
-                "target": target.clone(),
-                "absolutePath": project_root,
-            }),
-        )
-        .await;
-        assert_eq!(root_source.status(), StatusCode::BAD_REQUEST);
-        assert_contract_error(
-            &response_json(root_source).await,
-            "spec_source_workspace_root",
-        );
-
-        let update = request_json(
-            &app,
-            Method::PUT,
-            &format!("/api/projects/{project_id}/spec-sources"),
-            json!({
-                "sources": [{
-                    "relativePath": "docs/specs",
-                    "workflow": { "kind": "custom", "name": "Custom" },
-                    "visibility": "disabled",
-                }, {
-                    "relativePath": "architecture/missing",
-                    "workflow": { "kind": "custom", "name": " Architecture " },
-                    "visibility": "enabled",
-                }],
-            }),
-        )
-        .await;
-        assert_eq!(update.status(), StatusCode::OK);
-        assert_eq!(
-            response_json(update).await["sources"][0]["visibility"],
-            "disabled"
-        );
-
-        let disabled_catalog = request_json(
-            &app,
-            Method::POST,
-            "/api/specs/catalog",
-            json!({ "target": target }),
-        )
-        .await;
-        assert_eq!(disabled_catalog.status(), StatusCode::OK);
-        let disabled_catalog = response_json(disabled_catalog).await;
-        assert_eq!(disabled_catalog["documents"], json!([]));
-        assert!(
-            disabled_catalog["sources"]
-                .as_array()
-                .is_some_and(|sources| {
-                    sources.iter().any(|source| {
-                        source["relativePath"] == "architecture/missing"
-                            && source["workflow"]
-                                == json!({ "kind": "custom", "name": "Architecture" })
-                            && source["availability"] == "missing"
-                    })
-                })
         );
     }
 

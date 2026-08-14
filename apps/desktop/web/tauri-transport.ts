@@ -71,8 +71,6 @@ const tauriCommands = {
   // =============================================================================
   getSpecCatalog: "get_spec_catalog",
   readSpec: "read_spec",
-  resolveSpecSource: "resolve_spec_source",
-  updateProjectSpecSources: "update_project_spec_sources",
 
   // =============================================================================
   // session

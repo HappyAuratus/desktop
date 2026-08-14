@@ -138,9 +138,6 @@ pub enum PublicError {
     FileSystemPathNotDirectory(EmptyErrorParams),
     FileSystemPathNotFound(EmptyErrorParams),
     FileSystemPathPermissionDenied(EmptyErrorParams),
-    SpecSourceInvalid(EmptyErrorParams),
-    SpecSourceOutsideWorkspace(EmptyErrorParams),
-    SpecSourceWorkspaceRoot(EmptyErrorParams),
     SpecDocumentNotFound(EmptyErrorParams),
     WorktreeRootNotAbsolute(EmptyErrorParams),
     WorktreeRootNotDirectory(EmptyErrorParams),
@@ -249,9 +246,6 @@ impl PublicError {
             Self::FileSystemPathNotDirectory(_) => "file_system_path_not_directory",
             Self::FileSystemPathNotFound(_) => "file_system_path_not_found",
             Self::FileSystemPathPermissionDenied(_) => "file_system_path_permission_denied",
-            Self::SpecSourceInvalid(_) => "spec_source_invalid",
-            Self::SpecSourceOutsideWorkspace(_) => "spec_source_outside_workspace",
-            Self::SpecSourceWorkspaceRoot(_) => "spec_source_workspace_root",
             Self::SpecDocumentNotFound(_) => "spec_document_not_found",
             Self::WorktreeRootNotAbsolute(_) => "worktree_root_not_absolute",
             Self::WorktreeRootNotDirectory(_) => "worktree_root_not_directory",
@@ -441,9 +435,6 @@ mod tests {
             PublicError::FileSystemPathNotDirectory(empty),
             PublicError::FileSystemPathNotFound(empty),
             PublicError::FileSystemPathPermissionDenied(empty),
-            PublicError::SpecSourceInvalid(empty),
-            PublicError::SpecSourceOutsideWorkspace(empty),
-            PublicError::SpecSourceWorkspaceRoot(empty),
             PublicError::SpecDocumentNotFound(empty),
             PublicError::WorktreeRootNotAbsolute(empty),
             PublicError::WorktreeRootNotDirectory(empty),
@@ -551,9 +542,6 @@ mod tests {
                 | PublicError::FileSystemPathNotDirectory(_)
                 | PublicError::FileSystemPathNotFound(_)
                 | PublicError::FileSystemPathPermissionDenied(_)
-                | PublicError::SpecSourceInvalid(_)
-                | PublicError::SpecSourceOutsideWorkspace(_)
-                | PublicError::SpecSourceWorkspaceRoot(_)
                 | PublicError::SpecDocumentNotFound(_)
                 | PublicError::WorktreeRootNotAbsolute(_)
                 | PublicError::WorktreeRootNotDirectory(_)
@@ -622,7 +610,7 @@ mod tests {
     #[test]
     fn public_error_codes_match_serde_tags_for_every_variant() {
         let samples = public_error_samples();
-        assert_eq!(samples.len(), 98);
+        assert_eq!(samples.len(), 95);
 
         for error in samples {
             let serialized = serde_json::to_value(&error).unwrap();

@@ -35,8 +35,8 @@ const REVIEW_PANEL_COLLAPSE_THRESHOLD = MIN_REVIEW_WIDTH / 2;
 
 export type WorkspaceReviewContext =
   | { kind: "none" }
-  | { kind: "project"; projectId: string; projectRootPath: string }
-  | { kind: "task"; taskId: string; projectId: string; projectRootPath: string };
+  | { kind: "project"; projectId: string }
+  | { kind: "task"; taskId: string; projectId: string };
 
 interface WorkspaceReviewLayoutProps {
   context: WorkspaceReviewContext;
@@ -272,7 +272,6 @@ export function WorkspaceReviewLayout({
     <WorkspaceReviewFilesPanel
       key={contextKey}
       projectId={context.projectId}
-      projectRootPath={context.projectRootPath}
       taskId={context.kind === "task" ? context.taskId : undefined}
       toolbar={controls}
     />

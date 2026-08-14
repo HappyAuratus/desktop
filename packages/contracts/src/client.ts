@@ -162,10 +162,6 @@ export function createContractsClient(
         executeOperation("getSpecCatalog", request, transport, options),
       read: (request, options) =>
         executeOperation("readSpec", request, transport, options),
-      resolveSource: (request, options) =>
-        executeOperation("resolveSpecSource", request, transport, options),
-      updateProjectSources: (request, options) =>
-        executeOperation("updateProjectSpecSources", request, transport, options),
       watch: (request, options) =>
         executeStreamOperation("watchSpecs", request, transport, options),
     },

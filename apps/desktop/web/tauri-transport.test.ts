@@ -103,7 +103,7 @@ describe("createTauriTransport", () => {
   it("maps task workspaces and spec operations to their Desktop commands", async () => {
     const invoke = vi.fn()
       .mockResolvedValueOnce({ rootPath: "C:/repo/.ora-worktrees/task-1", branchName: "ora/task-1" })
-      .mockResolvedValueOnce({ sources: [], documents: [], truncated: false });
+      .mockResolvedValueOnce({ documents: [], truncated: false });
     const transport = createTauriTransport(invoke);
 
     await expect(transport.send({
@@ -121,7 +121,7 @@ describe("createTauriTransport", () => {
       path: "/api/specs/catalog",
       body: { target: { kind: "task", taskId: "task-1" } },
       headers: { "content-type": "application/json" },
-    })).resolves.toEqual({ sources: [], documents: [], truncated: false });
+    })).resolves.toEqual({ documents: [], truncated: false });
     expect(invoke).toHaveBeenNthCalledWith(1, "get_task_workspace", {
       request: { taskId: "task-1" },
     });

@@ -461,22 +461,6 @@ impl Backend {
         self.spec.read(request).await
     }
 
-    /// Validates one platform-selected source directory.
-    pub fn resolve_spec_source(
-        &self,
-        request: ResolveSpecSourceRequest,
-    ) -> Result<ResolveSpecSourceResponse, BackendError> {
-        self.spec.resolve_source(request)
-    }
-
-    /// Atomically replaces project-wide specification source overrides.
-    pub fn update_project_spec_sources(
-        &self,
-        request: UpdateProjectSpecSourcesRequest,
-    ) -> Result<UpdateProjectSpecSourcesResponse, BackendError> {
-        self.spec.update_project_sources(request)
-    }
-
     /// Resolves a specification watch request to its authoritative workspace root.
     pub fn resolve_spec_watch_root(
         &self,

@@ -300,7 +300,6 @@ export function WorkflowRunWorkspace({ runId }: WorkflowRunWorkspaceProps) {
       kind: "task",
       taskId: runTaskId,
       projectId,
-      projectRootPath: project.rootPath,
     }
     : { kind: "none" };
 

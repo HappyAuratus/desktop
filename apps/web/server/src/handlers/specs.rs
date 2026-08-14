@@ -3,30 +3,16 @@ use crate::error::WebApiError;
 use crate::handlers::workspace_files::{stream_response, to_contract_change};
 use axum::Json;
 use axum::body::Body;
-use axum::extract::{Path, State};
+use axum::extract::State;
 use axum::http::Response;
 use ora_contracts::{
-    GetSpecCatalogRequest, ProjectSpecSourceOverride, ReadSpecRequest, ResolveSpecSourceRequest,
-    SpecCatalogResponse, UpdateProjectSpecSourcesRequest, UpdateProjectSpecSourcesResponse,
-    WatchSpecsRequest, WorkspaceFileEventBatch,
+    GetSpecCatalogRequest, ReadSpecRequest, SpecCatalogResponse, WatchSpecsRequest,
+    WorkspaceFileEventBatch,
 };
-use serde::Deserialize;
 use std::sync::Arc;
 use std::time::Duration;
 
 const WATCH_DEBOUNCE: Duration = Duration::from_millis(100);
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ProjectPath {
-    project_id: String,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct UpdateSourcesBody {
-    sources: Vec<ProjectSpecSourceOverride>,
-}
 
 /// Returns the effective bounded catalog from the shared Backend composition.
 pub async fn catalog(
@@ -50,34 +36,6 @@ pub async fn read(
         .backend()
         .read_spec(request)
         .await
-        .map(Json)
-        .map_err(WebApiError::from)
-}
-
-/// Validates one directory returned by the existing platform path picker.
-pub async fn resolve_source(
-    State(app_state): State<AppState>,
-    Json(request): Json<ResolveSpecSourceRequest>,
-) -> Result<Json<ora_contracts::ResolveSpecSourceResponse>, WebApiError> {
-    app_state
-        .backend()
-        .resolve_spec_source(request)
-        .map(Json)
-        .map_err(WebApiError::from)
-}
-
-/// Atomically replaces project-wide source overrides after applying the route-owned project id.
-pub async fn update_project_sources(
-    State(app_state): State<AppState>,
-    Path(path): Path<ProjectPath>,
-    Json(body): Json<UpdateSourcesBody>,
-) -> Result<Json<UpdateProjectSpecSourcesResponse>, WebApiError> {
-    app_state
-        .backend()
-        .update_project_spec_sources(UpdateProjectSpecSourcesRequest {
-            project_id: path.project_id,
-            sources: body.sources,
-        })
         .map(Json)
         .map_err(WebApiError::from)
 }

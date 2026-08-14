@@ -16,7 +16,6 @@ export type FilesSurface = "explorer" | "search" | "specs";
 
 interface WorkspaceReviewFilesPanelProps {
   projectId: string;
-  projectRootPath: string;
   taskId?: string;
   toolbar?: ReactNode;
 }
@@ -24,7 +23,6 @@ interface WorkspaceReviewFilesPanelProps {
 /** Hosts task file browsing and the read-only Spec catalog inside one review panel. */
 export function WorkspaceReviewFilesPanel({
   projectId,
-  projectRootPath,
   taskId,
   toolbar,
 }: WorkspaceReviewFilesPanelProps) {
@@ -105,7 +103,6 @@ export function WorkspaceReviewFilesPanel({
           <SpecsContent
             ref={specsRef}
             projectId={projectId}
-            projectRootPath={projectRootPath}
             taskId={taskId}
             onRefreshingChange={setSpecsRefreshing}
           />
