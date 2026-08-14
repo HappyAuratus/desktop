@@ -2,6 +2,7 @@ use super::storage::{
     BACKUP_DIR_NAME, CreateHandle, DeleteHandle, JOURNAL_DIR_NAME, JournalOp, JournalPhase,
     STAGING_DIR_NAME, SkillStorage, SkillStorageError, SwapHandle, TransactionJournal,
 };
+use ora_domain::SkillId;
 use ora_utils::path::StrictRelativePath;
 use std::fs;
 use std::io;
@@ -70,6 +71,7 @@ impl FilesystemSkillStorage {
     fn new_journal(
         &self,
         op: JournalOp,
+        skill_id: &SkillId,
         name: &str,
         from_name: &str,
         staging: Option<&Path>,
@@ -83,6 +85,7 @@ impl FilesystemSkillStorage {
             });
         TransactionJournal {
             op,
+            skill_id: skill_id.to_string(),
             name: name.to_string(),
             from_name: from_name.to_string(),
             staging: staging.map_or_else(String::new, |path| path.to_string_lossy().into_owned()),
@@ -164,14 +167,20 @@ impl SkillStorage for FilesystemSkillStorage {
         fs::write(staging.join("SKILL.md"), content).map_err(map_storage_error)
     }
 
-    fn commit_create(&self, name: &str, staging: &Path) -> Result<CreateHandle, SkillStorageError> {
+    fn commit_create(
+        &self,
+        name: &str,
+        skill_id: &SkillId,
+        staging: &Path,
+    ) -> Result<CreateHandle, SkillStorageError> {
         let formal = self.formal_path(name);
         if formal.exists() {
             return Err(SkillStorageError::FormalDirectoryExists {
                 name: name.to_string(),
             });
         }
-        let mut journal = self.new_journal(JournalOp::Create, name, name, Some(staging), None);
+        let mut journal =
+            self.new_journal(JournalOp::Create, skill_id, name, name, Some(staging), None);
         self.write_journal(&journal)?;
         if let Err(error) = fs::rename(staging, &formal) {
             let _ = fs::remove_file(&journal.file);
@@ -205,6 +214,8 @@ impl SkillStorage for FilesystemSkillStorage {
         &self,
         name: &str,
         from_name: &str,
+        skill_id: &SkillId,
+        previous_updated_at: Option<i64>,
         staging: &Path,
     ) -> Result<SwapHandle, SkillStorageError> {
         let target_formal = self.formal_path(name);
@@ -223,7 +234,10 @@ impl SkillStorage for FilesystemSkillStorage {
             .reserved_root(BACKUP_DIR_NAME)
             .join(new_transaction_id());
         let mut journal = self.new_journal(
-            JournalOp::Swap,
+            JournalOp::Swap {
+                previous_updated_at,
+            },
+            skill_id,
             name,
             from_name,
             Some(staging),
@@ -274,7 +288,11 @@ impl SkillStorage for FilesystemSkillStorage {
         Ok(())
     }
 
-    fn commit_delete(&self, name: &str) -> Result<DeleteHandle, SkillStorageError> {
+    fn commit_delete(
+        &self,
+        name: &str,
+        skill_id: &SkillId,
+    ) -> Result<DeleteHandle, SkillStorageError> {
         let formal = self.formal_path(name);
         if !formal.exists() {
             return Err(SkillStorageError::FormalDirectoryMissing {
@@ -284,7 +302,8 @@ impl SkillStorage for FilesystemSkillStorage {
         let backup = self
             .reserved_root(BACKUP_DIR_NAME)
             .join(new_transaction_id());
-        let mut journal = self.new_journal(JournalOp::Delete, name, name, None, Some(&backup));
+        let mut journal =
+            self.new_journal(JournalOp::Delete, skill_id, name, name, None, Some(&backup));
         self.write_journal(&journal)?;
         if let Some(parent) = backup.parent() {
             fs::create_dir_all(parent).map_err(map_storage_error)?;
@@ -481,6 +500,7 @@ fn map_promote_error(error: io::Error, name: &str) -> SkillStorageError {
 mod tests {
     use super::{FilesystemSkillStorage, map_promote_error};
     use crate::skill::{SkillStorage, SkillStorageError};
+    use ora_domain::SkillId;
     use pretty_assertions::assert_eq;
     use std::fs;
     use std::io;
@@ -497,7 +517,9 @@ mod tests {
         fs::write(staging.join("SKILL.md"), "incoming").unwrap();
 
         assert_eq!(
-            storage.commit_create("grilling", &staging).unwrap_err(),
+            storage
+                .commit_create("grilling", &SkillId::new("skill-1"), &staging)
+                .unwrap_err(),
             SkillStorageError::FormalDirectoryExists {
                 name: "grilling".to_string(),
             }
