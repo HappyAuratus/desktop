@@ -163,7 +163,85 @@ describe("EntityDialog submit loading", () => {
       }],
     });
 
-    expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
+    const submitButton = screen.getByRole("button", { name: "Save" });
+    expect(submitButton).toBeDisabled();
+    expect(submitButton).toHaveAttribute("aria-busy", "true");
+    expect(submitButton.querySelector("[data-slot=spinner]")).not.toBeNull();
     expect(screen.getByRole("combobox", { name: "Base branch" })).toHaveAttribute("aria-busy", "true");
+  });
+
+  it("still shows required-field feedback when a non-loading field is empty", () => {
+    const onSubmit = vi.fn(async () => {});
+    renderSubmitDialog({
+      onSubmit,
+      fields: [
+        { kind: "text", name: "title", label: "Title", value: "" },
+        {
+          kind: "select",
+          name: "baseBranch",
+          label: "Base branch",
+          value: "",
+          options: [],
+          loading: true,
+        },
+      ],
+    });
+
+    const form = screen.getByRole("dialog").querySelector("form");
+    expect(form).not.toBeNull();
+    fireEvent.submit(form!);
+
+    expect(onSubmit).not.toHaveBeenCalled();
+    expect(screen.getByRole("alert")).toHaveTextContent(/Complete all required fields|请填写所有必填字段/);
+  });
+
+  it("explains a blocked Enter submit when a required select is still loading", () => {
+    const onSubmit = vi.fn(async () => {});
+    renderSubmitDialog({
+      onSubmit,
+      fields: [
+        { kind: "text", name: "title", label: "Title", value: "Task" },
+        {
+          kind: "select",
+          name: "baseBranch",
+          label: "Base branch",
+          value: "",
+          options: [],
+          loading: true,
+        },
+      ],
+    });
+
+    const form = screen.getByRole("dialog").querySelector("form");
+    expect(form).not.toBeNull();
+    fireEvent.submit(form!);
+
+    expect(onSubmit).not.toHaveBeenCalled();
+    expect(screen.getByRole("alert")).toHaveTextContent(/Options are still loading|选项仍在加载/);
+  });
+
+  it("explains a blocked Enter submit when required values are present but options are still loading", () => {
+    const onSubmit = vi.fn(async () => {});
+    renderSubmitDialog({
+      onSubmit,
+      fields: [
+        { kind: "text", name: "title", label: "Title", value: "Task" },
+        {
+          kind: "select",
+          name: "baseBranch",
+          label: "Base branch",
+          value: "main",
+          options: [{ label: "main", value: "main" }],
+          loading: true,
+        },
+      ],
+    });
+
+    const form = screen.getByRole("dialog").querySelector("form");
+    expect(form).not.toBeNull();
+    fireEvent.submit(form!);
+
+    expect(onSubmit).not.toHaveBeenCalled();
+    expect(screen.getByRole("alert")).toHaveTextContent(/Options are still loading|选项仍在加载/);
   });
 });
