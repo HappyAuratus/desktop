@@ -7,6 +7,9 @@ This module owns Ora's linear, reversible SQLite schema history and reconciles a
 - `MigrationCatalog` requires unique, strictly increasing versions.
 - The active target must be a prefix of the complete catalog. This makes controlled rollback deterministic and rejects branch-shaped histories.
 - Every migration contains ordered up and down statements. The default catalog includes every shipped schema migration.
+- Skills, configurable agents, and workflows use `(namespace, name)` as their case-insensitive
+  visible identity. Soft-deleted rows do not reserve that identity, and local resources use the
+  `local` namespace.
 - Applied versions are recorded in the `migrations` table with an injected execution timestamp.
 
 ## Reconciliation

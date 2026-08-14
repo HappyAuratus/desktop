@@ -4,6 +4,7 @@ const UP_STATEMENTS: &[&str] = &[
     r#"
 CREATE TABLE IF NOT EXISTS workflows (
     id TEXT PRIMARY KEY,
+    namespace TEXT NOT NULL DEFAULT 'local',
     name TEXT NOT NULL,
     published_snapshot_id TEXT,
     created_at INTEGER NOT NULL,
@@ -11,6 +12,10 @@ CREATE TABLE IF NOT EXISTS workflows (
     is_deleted INTEGER NOT NULL DEFAULT 0
         CHECK (is_deleted IN (0, 1))
 );
+
+CREATE UNIQUE INDEX workflows_active_namespace_name_unique
+    ON workflows(namespace COLLATE NOCASE, name COLLATE NOCASE)
+    WHERE is_deleted = 0;
 
 CREATE TABLE IF NOT EXISTS workflow_snapshots (
     id TEXT PRIMARY KEY,

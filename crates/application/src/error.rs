@@ -23,8 +23,8 @@ pub enum ApplicationError {
     SkillDescriptionBlank,
     #[error("skill description exceeds 4096 bytes")]
     SkillDescriptionTooLarge,
-    #[error("skill name already exists: {name}")]
-    SkillNameConflict { name: String },
+    #[error("skill name already exists: {namespace}/{name}")]
+    SkillNameConflict { namespace: String, name: String },
     #[error("skill not found: {skill_id}")]
     SkillNotFound { skill_id: String },
     #[error("skill repository operation failed")]
@@ -66,8 +66,8 @@ pub enum ApplicationError {
     SkillImport(#[source] SkillImportError),
     #[error("agent definition name must not be blank")]
     AgentDefinitionNameBlank,
-    #[error("agent definition name already exists: {name}")]
-    AgentDefinitionNameConflict { name: String },
+    #[error("agent definition name already exists: {namespace}/{name}")]
+    AgentDefinitionNameConflict { namespace: String, name: String },
     #[error("agent import Markdown is invalid")]
     AgentImportInvalid,
     #[error("agent import conflict decision is missing")]
@@ -162,6 +162,8 @@ pub enum ApplicationError {
     },
     #[error("workflow name must not be blank")]
     WorkflowNameBlank,
+    #[error("workflow name already exists: {namespace}/{name}")]
+    WorkflowNameConflict { namespace: String, name: String },
     #[error("workflow not found: {workflow_id}")]
     WorkflowNotFound { workflow_id: String },
     #[error("workflow snapshot not found: {workflow_id}/{version}")]
@@ -463,10 +465,17 @@ impl PartialEq for ApplicationError {
             (SkillFolderConflict { name: left }, SkillFolderConflict { name: right }) => {
                 left == right
             }
-            (SkillNameInvalid { name: left }, SkillNameInvalid { name: right })
-            | (SkillNameConflict { name: left }, SkillNameConflict { name: right }) => {
-                left == right
-            }
+            (SkillNameInvalid { name: left }, SkillNameInvalid { name: right }) => left == right,
+            (
+                SkillNameConflict {
+                    namespace: left_namespace,
+                    name: left_name,
+                },
+                SkillNameConflict {
+                    namespace: right_namespace,
+                    name: right_name,
+                },
+            ) => left_namespace == right_namespace && left_name == right_name,
             (SkillNameTooLong, SkillNameTooLong)
             | (SkillDescriptionBlank, SkillDescriptionBlank)
             | (SkillDescriptionTooLarge, SkillDescriptionTooLarge) => true,
@@ -474,9 +483,25 @@ impl PartialEq for ApplicationError {
                 left == right
             }
             (
-                AgentDefinitionNameConflict { name: left },
-                AgentDefinitionNameConflict { name: right },
-            ) => left == right,
+                AgentDefinitionNameConflict {
+                    namespace: left_namespace,
+                    name: left_name,
+                },
+                AgentDefinitionNameConflict {
+                    namespace: right_namespace,
+                    name: right_name,
+                },
+            ) => left_namespace == right_namespace && left_name == right_name,
+            (
+                WorkflowNameConflict {
+                    namespace: left_namespace,
+                    name: left_name,
+                },
+                WorkflowNameConflict {
+                    namespace: right_namespace,
+                    name: right_name,
+                },
+            ) => left_namespace == right_namespace && left_name == right_name,
             (
                 AgentDefinitionNotFound { agent_id: left },
                 AgentDefinitionNotFound { agent_id: right },

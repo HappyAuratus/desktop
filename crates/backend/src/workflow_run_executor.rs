@@ -27,8 +27,8 @@ use ora_db::{
     SqliteWorkflowRunEngineRepository,
 };
 use ora_domain::{
-    AgentDefinitionId, SessionId, WorkflowNodeRun, WorkflowNodeRunId, WorkflowNodeStatus,
-    WorkflowRunId,
+    AgentDefinitionId, Namespace, SessionId, WorkflowNodeRun, WorkflowNodeRunId,
+    WorkflowNodeStatus, WorkflowRunId,
 };
 use serde::{Deserialize, Serialize};
 use similar::{ChangeTag, TextDiff};
@@ -287,7 +287,8 @@ async fn drive_agent_node(
     // system-instructions block is sent. Name is preferred; the id is a legacy fallback.
     let role_content = match &config.role_id {
         Some(role_id) if !role_id.trim().is_empty() => {
-            let by_name = agent_repository.find_agent_definition_by_name(role_id)?;
+            let by_name =
+                agent_repository.find_agent_definition_by_name(&Namespace::local(), role_id)?;
             let definition = if by_name.is_some() {
                 by_name
             } else {

@@ -9,7 +9,7 @@ use ora_contracts::{
     SkillImportConflictDecision, SkillImportDecision, SkillImportSession, SkillImportSessionStatus,
     SkillImportSource,
 };
-use ora_domain::{AuditFields, Skill, SkillId};
+use ora_domain::{AuditFields, Namespace, Skill, SkillId};
 use pretty_assertions::assert_eq;
 use std::fs;
 use std::io::Write;
@@ -417,7 +417,10 @@ fn commits_ready_skip_and_overwrite_candidates() {
     // The database now reflects all three skills, with the overwrite keeping its id.
     let skills = repository.snapshot();
     assert_eq!(skills.len(), 3);
-    let review = repository.find_skill_by_name("review").unwrap().unwrap();
+    let review = repository
+        .find_skill_by_name(&Namespace::local(), "review")
+        .unwrap()
+        .unwrap();
     assert_eq!(review.id.to_string(), "skill-1");
     assert_eq!(review.description, "New review");
     assert_eq!(review.audit_fields.created_at, 100);
@@ -472,7 +475,7 @@ fn skips_conflict_candidates_on_skip_decision() {
     // The existing skill is untouched.
     assert_eq!(
         repository
-            .find_skill_by_name("review")
+            .find_skill_by_name(&Namespace::local(), "review")
             .unwrap()
             .unwrap()
             .description,
@@ -610,7 +613,10 @@ fn marks_stale_conflict_when_target_changes_before_commit() {
 
     // The target's updated_at changes between preview and commit.
     repository.push_skill("skill-2", "fresh", "Fresh skill", 200, 200);
-    let existing = repository.find_skill_by_name("review").unwrap().unwrap();
+    let existing = repository
+        .find_skill_by_name(&Namespace::local(), "review")
+        .unwrap()
+        .unwrap();
     repository.replace(existing.id, "review", "Changed before commit", 300);
 
     let decisions = vec![SkillImportConflictDecision {
@@ -632,7 +638,7 @@ fn marks_stale_conflict_when_target_changes_before_commit() {
     // The stale candidate must not have modified the target.
     assert_eq!(
         repository
-            .find_skill_by_name("review")
+            .find_skill_by_name(&Namespace::local(), "review")
             .unwrap()
             .unwrap()
             .description,
@@ -847,6 +853,7 @@ impl FakeSkillRepository {
     fn push_skill(&self, id: &str, name: &str, description: &str, created: i64, updated: i64) {
         let skill = Skill::new(
             SkillId::new(id),
+            Namespace::local(),
             name,
             description,
             AuditFields::new(created, updated, false),
@@ -898,13 +905,21 @@ impl SkillRepository for Arc<FakeSkillRepository> {
             .find(|skill| skill.id == *skill_id && !skill.audit_fields.is_deleted)
             .cloned())
     }
-    fn find_skill_by_name(&self, name: &str) -> Result<Option<Skill>, RepositoryError> {
+    fn find_skill_by_name(
+        &self,
+        namespace: &Namespace,
+        name: &str,
+    ) -> Result<Option<Skill>, RepositoryError> {
         Ok(self
             .skills
             .lock()
             .unwrap()
             .iter()
-            .find(|skill| !skill.audit_fields.is_deleted && skill.name.eq_ignore_ascii_case(name))
+            .find(|skill| {
+                skill.namespace == *namespace
+                    && !skill.audit_fields.is_deleted
+                    && skill.name.eq_ignore_ascii_case(name)
+            })
             .cloned())
     }
     fn list_skills(&self) -> Result<Vec<Skill>, RepositoryError> {

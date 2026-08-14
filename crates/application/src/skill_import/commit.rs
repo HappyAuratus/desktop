@@ -4,7 +4,7 @@ use super::ports::{
 };
 use crate::skill::SkillStorage;
 use crate::{Clock, SkillRepository};
-use ora_domain::{AuditFields, Skill, SkillId};
+use ora_domain::{AuditFields, Namespace, Skill, SkillId};
 use std::collections::HashMap;
 use std::path::Path;
 use std::sync::{Arc, Mutex};
@@ -169,7 +169,7 @@ where
     ClockSource: Clock,
 {
     // A `ready` name must still be free at commit time (optimistic concurrency).
-    match repository.find_skill_by_name(&candidate.name) {
+    match repository.find_skill_by_name(&Namespace::local(), &candidate.name) {
         Ok(Some(_)) => return CandidateOutcome::StaleConflict,
         Err(_) => {
             return CandidateOutcome::Failed {
@@ -182,6 +182,7 @@ where
     let now = clock.now_timestamp_millis();
     let skill = match Skill::new(
         SkillId::new(id_generator.generate_import_id()),
+        Namespace::local(),
         candidate.name.clone(),
         candidate.description.clone(),
         AuditFields::new(now, now, false),
@@ -251,6 +252,7 @@ where
     let now = clock.now_timestamp_millis();
     let skill = match Skill::new(
         frozen.id.clone(),
+        frozen.namespace.clone(),
         candidate.name.clone(),
         candidate.description.clone(),
         AuditFields::new(frozen.created_at, now, false),
@@ -309,13 +311,14 @@ where
         return None;
     }
     // The name must not have been claimed by a different visible skill since preview.
-    if let Ok(Some(other)) = repository.find_skill_by_name(&candidate.name)
+    if let Ok(Some(other)) = repository.find_skill_by_name(&current.namespace, &candidate.name)
         && other.id != existing.skill_id
     {
         return None;
     }
     Some(SkillSnapshot {
         id: current.id,
+        namespace: current.namespace,
         created_at: current.audit_fields.created_at,
     })
 }
@@ -323,6 +326,7 @@ where
 /// The revalidated identity snapshot needed to overwrite one skill.
 struct SkillSnapshot {
     id: SkillId,
+    namespace: Namespace,
     created_at: i64,
 }
 

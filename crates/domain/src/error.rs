@@ -5,6 +5,8 @@ use crate::SessionTitleError;
 /// Enumerates domain-model conversion failures that adapters must handle explicitly.
 #[derive(Debug, Error, PartialEq, Eq)]
 pub enum DomainModelError {
+    #[error("namespace must not be blank")]
+    EmptyNamespace,
     #[error("worktree baseline commit must not be empty")]
     EmptyWorktreeBaseline,
     #[error("invalid task status value: {0}")]

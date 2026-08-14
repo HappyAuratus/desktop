@@ -263,7 +263,7 @@ describe("Composer", () => {
       <Composer
         onSend={() => {}}
         isResponding={false}
-        skills={[{ id: "skill-1", name: "code-review", description: "Review the current diff" }]}
+        skills={[{ id: "skill-1", namespace: "local", name: "code-review", description: "Review the current diff" }]}
         availableCommands={[{ name: "test", description: "Run tests" }]}
       />,
     );

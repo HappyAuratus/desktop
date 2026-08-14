@@ -209,6 +209,7 @@ describe("useRealWorkflowRun", () => {
     state.workflows = [{
       workflow: {
         id: "workflow-a",
+        namespace: "local",
         name: "审查流程",
         publishedSnapshotId: "snap-1",
         createdAt: 1n,

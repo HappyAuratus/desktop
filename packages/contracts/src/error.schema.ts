@@ -270,6 +270,9 @@ export const contractErrorSchema = z.object({
         "code": z.literal("workflow_name_blank"),
         "params": emptyErrorParamsSchema
     }), z.object({
+        "code": z.literal("workflow_name_conflict"),
+        "params": emptyErrorParamsSchema
+    }), z.object({
         "code": z.literal("workflow_not_found"),
         "params": emptyErrorParamsSchema
     }), z.object({
@@ -576,6 +579,9 @@ export const publicErrorSchema = z.union([z.object({
         "params": emptyErrorParamsSchema
     }), z.object({
         "code": z.literal("workflow_name_blank"),
+        "params": emptyErrorParamsSchema
+    }), z.object({
+        "code": z.literal("workflow_name_conflict"),
         "params": emptyErrorParamsSchema
     }), z.object({
         "code": z.literal("workflow_not_found"),

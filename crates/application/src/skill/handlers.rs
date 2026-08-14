@@ -8,7 +8,7 @@ use ora_contracts::{
     GetSkillRequest, GetSkillResponse, ListSkillsRequest, ListSkillsResponse, UpdateSkillRequest,
     UpdateSkillResponse,
 };
-use ora_domain::{AuditFields, Skill, SkillId};
+use ora_domain::{AuditFields, Namespace, Skill, SkillId};
 use ora_skill_package::manifest::{render_manifest, rewrite_manifest, rewrite_manifest_body};
 use serde_json::Value;
 
@@ -52,11 +52,13 @@ where
         request: CreateSkillRequest,
     ) -> Result<CreateSkillResponse, ApplicationError> {
         let name = request.name.trim().to_string();
-        reject_existing_name(&self.repository, &name)?;
+        let namespace = Namespace::local();
+        reject_existing_name(&self.repository, &namespace, &name)?;
 
         let now = self.clock.now_timestamp_millis();
         let skill = Skill::new(
             self.id_generator.generate_skill_id(),
+            namespace,
             name,
             request.description,
             AuditFields::new(now, now, false),
@@ -212,10 +214,11 @@ where
             })?;
 
         let name = request.name.trim().to_string();
-        reject_conflicting_name(&self.repository, &name, &existing.id)?;
+        reject_conflicting_name(&self.repository, &existing.namespace, &name, &existing.id)?;
 
         let skill = Skill::new(
             skill_id,
+            existing.namespace,
             name,
             request.description,
             AuditFields::new(
@@ -340,13 +343,15 @@ where
 /// Rejects a create whose name collides with any visible skill, case-insensitively.
 fn reject_existing_name<Repository: SkillRepository>(
     repository: &Repository,
+    namespace: &Namespace,
     name: &str,
 ) -> Result<(), ApplicationError> {
     match repository
-        .find_skill_by_name(name)
+        .find_skill_by_name(namespace, name)
         .map_err(ApplicationError::from_skill_repository_error)?
     {
         Some(_) => Err(ApplicationError::SkillNameConflict {
+            namespace: namespace.to_string(),
             name: name.to_string(),
         }),
         None => Ok(()),
@@ -356,14 +361,16 @@ fn reject_existing_name<Repository: SkillRepository>(
 /// Rejects a rename that would collide with a different visible skill.
 fn reject_conflicting_name<Repository: SkillRepository>(
     repository: &Repository,
+    namespace: &Namespace,
     name: &str,
     own_id: &SkillId,
 ) -> Result<(), ApplicationError> {
     match repository
-        .find_skill_by_name(name)
+        .find_skill_by_name(namespace, name)
         .map_err(ApplicationError::from_skill_repository_error)?
     {
         Some(other) if &other.id != own_id => Err(ApplicationError::SkillNameConflict {
+            namespace: namespace.to_string(),
             name: name.to_string(),
         }),
         _ => Ok(()),

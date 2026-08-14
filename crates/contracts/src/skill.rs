@@ -7,6 +7,7 @@ use ts_rs::TS;
 #[ts(export_to = "skill.ts")]
 pub struct Skill {
     pub id: String,
+    pub namespace: String,
     pub name: String,
     pub description: String,
 }
@@ -17,6 +18,7 @@ pub struct Skill {
 #[ts(export_to = "skill.ts")]
 pub struct SkillDetails {
     pub id: String,
+    pub namespace: String,
     pub name: String,
     pub description: String,
     pub content: String,
@@ -141,6 +143,7 @@ mod tests {
     fn serializes_skill_contract_without_audit_fields() {
         let skill = Skill {
             id: "skill-1".to_string(),
+            namespace: "local".to_string(),
             name: "review".to_string(),
             description: "Reviews implementation changes".to_string(),
         };
@@ -149,6 +152,7 @@ mod tests {
             serde_json::to_value(skill).unwrap(),
             json!({
                 "id": "skill-1",
+                "namespace": "local",
                 "name": "review",
                 "description": "Reviews implementation changes",
             })
@@ -160,6 +164,7 @@ mod tests {
     fn serializes_skill_crud_contracts() {
         let skill = Skill {
             id: "skill-1".to_string(),
+            namespace: "local".to_string(),
             name: "review".to_string(),
             description: "Reviews implementation changes".to_string(),
         };
@@ -176,7 +181,7 @@ mod tests {
             &CreateSkillResponse {
                 skill: skill.clone(),
             },
-            json!({ "skill": { "id": "skill-1", "name": "review", "description": "Reviews implementation changes" } }),
+            json!({ "skill": { "id": "skill-1", "namespace": "local", "name": "review", "description": "Reviews implementation changes" } }),
         );
         assert_serialized_json(
             &GetSkillRequest {
@@ -188,19 +193,20 @@ mod tests {
             &GetSkillResponse {
                 skill: super::SkillDetails {
                     id: skill.id.clone(),
+                    namespace: skill.namespace.clone(),
                     name: skill.name.clone(),
                     description: skill.description.clone(),
                     content: "# Instructions".to_string(),
                 },
             },
-            json!({ "skill": { "id": "skill-1", "name": "review", "description": "Reviews implementation changes", "content": "# Instructions" } }),
+            json!({ "skill": { "id": "skill-1", "namespace": "local", "name": "review", "description": "Reviews implementation changes", "content": "# Instructions" } }),
         );
         assert_serialized_json(&ListSkillsRequest {}, json!({}));
         assert_serialized_json(
             &ListSkillsResponse {
                 skills: vec![skill.clone()],
             },
-            json!({ "skills": [{ "id": "skill-1", "name": "review", "description": "Reviews implementation changes" }] }),
+            json!({ "skills": [{ "id": "skill-1", "namespace": "local", "name": "review", "description": "Reviews implementation changes" }] }),
         );
         assert_serialized_json(
             &UpdateSkillRequest {
@@ -228,11 +234,12 @@ mod tests {
             &UpdateSkillResponse {
                 skill: Skill {
                     id: "skill-1".to_string(),
+                    namespace: "local".to_string(),
                     name: "code-review".to_string(),
                     description: "Reviews code changes".to_string(),
                 },
             },
-            json!({ "skill": { "id": "skill-1", "name": "code-review", "description": "Reviews code changes" } }),
+            json!({ "skill": { "id": "skill-1", "namespace": "local", "name": "code-review", "description": "Reviews code changes" } }),
         );
         assert_serialized_json(
             &DeleteSkillRequest {

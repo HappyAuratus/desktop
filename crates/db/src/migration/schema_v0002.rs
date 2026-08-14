@@ -3,6 +3,7 @@ use super::Migration;
 const UP_STATEMENTS: &[&str] = &[r#"
 CREATE TABLE IF NOT EXISTS skills (
     id TEXT PRIMARY KEY,
+    namespace TEXT NOT NULL DEFAULT 'local',
     name TEXT NOT NULL,
     description TEXT NOT NULL,
     created_at INTEGER NOT NULL,
@@ -10,8 +11,13 @@ CREATE TABLE IF NOT EXISTS skills (
     is_deleted INTEGER NOT NULL DEFAULT 0
 );
 
+CREATE UNIQUE INDEX skills_active_namespace_name_unique
+    ON skills(namespace COLLATE NOCASE, name COLLATE NOCASE)
+    WHERE is_deleted = 0;
+
 CREATE TABLE IF NOT EXISTS agents (
     id TEXT PRIMARY KEY,
+    namespace TEXT NOT NULL DEFAULT 'local',
     name TEXT NOT NULL,
     description TEXT NOT NULL,
     content TEXT NOT NULL DEFAULT '',
@@ -19,6 +25,10 @@ CREATE TABLE IF NOT EXISTS agents (
     updated_at INTEGER NOT NULL,
     is_deleted INTEGER NOT NULL DEFAULT 0
 );
+
+CREATE UNIQUE INDEX agents_active_namespace_name_unique
+    ON agents(namespace COLLATE NOCASE, name COLLATE NOCASE)
+    WHERE is_deleted = 0;
 "#];
 
 const DOWN_STATEMENTS: &[&str] = &[r#"

@@ -32,16 +32,18 @@ const AGENT_DATA: WorkflowNodeData = {
 function renderInspector() {
   const state = createMockClientState();
   state.agents = [
-    { id: "ag-researcher", name: "研究员", description: "只读探索项目现状和影响范围" },
+    { id: "ag-researcher", namespace: "local", name: "研究员", description: "只读探索项目现状和影响范围" },
   ];
   state.skills = [
     {
       id: "sk-explore",
+      namespace: "local",
       name: "openspec-explore",
       description: "探索仓库结构与约束",
     },
     {
       id: "sk-disabled",
+      namespace: "local",
       name: "hidden-skill",
       description: "Should not appear",
     },

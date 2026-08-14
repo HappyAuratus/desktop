@@ -15,8 +15,8 @@ import { renderHookWithClient } from "../../test/hook-harness";
 import { queryKeys } from "./query-keys";
 import type { Agent, Skill } from "@ora/contracts";
 
-const AGENT_A: Agent = { id: "a1", name: "Codex", description: "Code agent" };
-const SKILL_X: Skill = { id: "sk1", name: "Refactor", description: "Refactoring skill" };
+const AGENT_A: Agent = { id: "a1", namespace: "local", name: "Codex", description: "Code agent" };
+const SKILL_X: Skill = { id: "sk1", namespace: "local", name: "Refactor", description: "Refactoring skill" };
 
 describe("useAgents", () => {
   it("returns the agent list from the client", async () => {
@@ -70,7 +70,7 @@ describe("useUpdateAgent", () => {
     mutation.result.current.mutate({ agent: AGENT_A, name: "Renamed", description: "new desc", content: "# Updated agent" });
     await waitFor(() => expect(mutation.result.current.isSuccess).toBe(true));
 
-    expect(state.agents[0]).toEqual({ id: "a1", name: "Renamed", description: "new desc" });
+    expect(state.agents[0]).toEqual({ id: "a1", namespace: "local", name: "Renamed", description: "new desc" });
   });
 });
 
@@ -120,7 +120,7 @@ describe("useUpdateSkill", () => {
     mutation.result.current.mutate({ skill: SKILL_X, name: "Renamed", description: "new desc", content: "# Updated skill" });
     await waitFor(() => expect(mutation.result.current.isSuccess).toBe(true));
 
-    expect(state.skills[0]).toEqual({ id: "sk1", name: "Renamed", description: "new desc" });
+    expect(state.skills[0]).toEqual({ id: "sk1", namespace: "local", name: "Renamed", description: "new desc" });
   });
 });
 

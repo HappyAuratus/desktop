@@ -5,6 +5,7 @@ use ora_domain::Skill as DomainSkill;
 pub(crate) fn map_skill(skill: DomainSkill) -> ContractSkill {
     ContractSkill {
         id: skill.id.to_string(),
+        namespace: skill.namespace.to_string(),
         name: skill.name,
         description: skill.description,
     }
@@ -14,6 +15,7 @@ pub(crate) fn map_skill(skill: DomainSkill) -> ContractSkill {
 pub(crate) fn map_skill_details(skill: DomainSkill, content: String) -> SkillDetails {
     SkillDetails {
         id: skill.id.to_string(),
+        namespace: skill.namespace.to_string(),
         name: skill.name,
         description: skill.description,
         content,

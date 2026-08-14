@@ -1042,6 +1042,7 @@ mod tests {
             .unwrap_or_else(|| panic!("response did not include a skill id"))
             .to_string();
         assert_eq!(skill["skill"]["name"], "review-guide");
+        assert_eq!(skill["skill"]["namespace"], "local");
         let skill_path = format!("/api/skills/{skill_id}");
         let skill_get = request_empty(&app, Method::GET, &skill_path).await;
         assert_eq!(skill_get.status(), StatusCode::OK);
@@ -1061,7 +1062,7 @@ mod tests {
         assert_eq!(skill_update.status(), StatusCode::OK);
         assert_eq!(
             response_json(skill_update).await,
-            json!({ "skill": { "id": skill_id, "name": "reviewer", "description": "Reviews changes" } })
+            json!({ "skill": { "id": skill_id, "namespace": "local", "name": "reviewer", "description": "Reviews changes" } })
         );
         let preserved_skill = request_empty(&app, Method::GET, &skill_path).await;
         assert_eq!(
@@ -1129,6 +1130,7 @@ mod tests {
             .as_str()
             .unwrap_or_else(|| panic!("response did not include an agent id"))
             .to_string();
+        assert_eq!(agent["agent"]["namespace"], "local");
         let agent_path = format!("/api/agents/{agent_id}");
         assert_eq!(
             request_empty(&app, Method::GET, "/api/agents")

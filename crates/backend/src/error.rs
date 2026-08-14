@@ -464,6 +464,11 @@ impl From<ApplicationError> for BackendError {
                 PublicError::WorkflowNameBlank(EmptyErrorParams {}),
                 "workflow name must not be blank",
             ),
+            ApplicationError::WorkflowNameConflict { .. } => (
+                ErrorClassification::Conflict,
+                PublicError::WorkflowNameConflict(EmptyErrorParams {}),
+                "workflow name already exists",
+            ),
             ApplicationError::WorkflowNotFound { .. } => (
                 ErrorClassification::NotFound,
                 PublicError::WorkflowNotFound(EmptyErrorParams {}),
@@ -665,6 +670,7 @@ mod tests {
     #[test]
     fn maps_agent_name_conflicts_to_the_public_contract() {
         let error = BackendError::from(ApplicationError::AgentDefinitionNameConflict {
+            namespace: "local".to_string(),
             name: "reviewer".to_string(),
         });
 
@@ -720,6 +726,14 @@ mod tests {
                 ApplicationError::WorkflowNameBlank,
                 ErrorClassification::InvalidRequest,
                 PublicError::WorkflowNameBlank(EmptyErrorParams {}),
+            ),
+            (
+                ApplicationError::WorkflowNameConflict {
+                    namespace: "local".to_string(),
+                    name: "review".to_string(),
+                },
+                ErrorClassification::Conflict,
+                PublicError::WorkflowNameConflict(EmptyErrorParams {}),
             ),
             (
                 ApplicationError::WorkflowNotFound {

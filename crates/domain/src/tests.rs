@@ -1,6 +1,6 @@
 use crate::{
     AgentCli, AgentDefinition, AgentDefinitionId, AuditFields, DomainModelError, HistoryState,
-    Project, ProjectId, Session, SessionId, SessionStatus, Skill, SkillId, Task, TaskId,
+    Namespace, Project, ProjectId, Session, SessionId, SessionStatus, Skill, SkillId, Task, TaskId,
     TaskStatus, TaskType, Worktree, WorktreeActivity, WorktreeBaseline, WorktreeId,
 };
 use pretty_assertions::assert_eq;
@@ -42,6 +42,7 @@ fn constructs_schema_backed_entities() {
     );
     let skill = Skill::new(
         SkillId::new("skill-1"),
+        Namespace::local(),
         "review",
         "Reviews implementation changes",
         audit_fields.clone(),
@@ -49,6 +50,7 @@ fn constructs_schema_backed_entities() {
     .unwrap();
     let agent_definition = AgentDefinition::new(
         AgentDefinitionId::new("agent-definition-1"),
+        Namespace::local(),
         "opencode",
         "OpenCode agent configuration",
         "",
@@ -107,6 +109,7 @@ fn constructs_schema_backed_entities() {
         skill,
         Skill {
             id: SkillId::new("skill-1"),
+            namespace: Namespace::local(),
             name: "review".to_string(),
             description: "Reviews implementation changes".to_string(),
             audit_fields: audit_fields.clone(),
@@ -116,6 +119,7 @@ fn constructs_schema_backed_entities() {
         agent_definition,
         AgentDefinition {
             id: AgentDefinitionId::new("agent-definition-1"),
+            namespace: Namespace::local(),
             name: "opencode".to_string(),
             description: "OpenCode agent configuration".to_string(),
             content: String::new(),
@@ -130,12 +134,19 @@ fn rejects_blank_skill_and_agent_definition_names() {
     let audit_fields = AuditFields::new(1, 1, false);
 
     assert_eq!(
-        Skill::new(SkillId::new("skill-1"), "  ", "", audit_fields.clone()),
+        Skill::new(
+            SkillId::new("skill-1"),
+            Namespace::local(),
+            "  ",
+            "",
+            audit_fields.clone(),
+        ),
         Err(DomainModelError::EmptySkillName)
     );
     assert_eq!(
         AgentDefinition::new(
             AgentDefinitionId::new("agent-definition-1"),
+            Namespace::local(),
             "\t",
             "",
             "",
@@ -143,6 +154,23 @@ fn rejects_blank_skill_and_agent_definition_names() {
         ),
         Err(DomainModelError::EmptyAgentDefinitionName)
     );
+}
+
+/// Verifies namespace identity is non-empty and canonical across trusted resource owners.
+#[test]
+fn normalizes_and_validates_namespaces() {
+    let deserialized = serde_json::from_str::<Namespace>(r#"" Ora.Plugin ""#).unwrap();
+
+    assert_eq!(
+        Namespace::new(" Ora.Plugin ").unwrap(),
+        Namespace::new("ora.plugin").unwrap()
+    );
+    assert_eq!(deserialized, Namespace::new("ora.plugin").unwrap());
+    assert_eq!(
+        Namespace::new(" \t "),
+        Err(DomainModelError::EmptyNamespace)
+    );
+    assert!(serde_json::from_str::<Namespace>(r#""  ""#).is_err());
 }
 
 /// Verifies CLI identities use the reviewed namespaced database representation.

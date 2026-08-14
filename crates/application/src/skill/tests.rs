@@ -5,7 +5,7 @@ use super::{
 use crate::skill::storage::{CreateHandle, DeleteHandle, SwapHandle, TransactionJournal};
 use crate::{ApplicationError, Clock, RepositoryError};
 use ora_contracts::{CreateSkillRequest, DeleteSkillRequest, GetSkillRequest, UpdateSkillRequest};
-use ora_domain::{AuditFields, Skill, SkillId};
+use ora_domain::{AuditFields, Namespace, Skill, SkillId};
 use ora_skill_package::manifest::{render_manifest, render_minimal_manifest};
 use ora_skill_package::path::RelativePath;
 use pretty_assertions::assert_eq;
@@ -193,6 +193,7 @@ fn rejects_non_slug_names_and_case_insensitive_conflicts() {
             })
             .unwrap_err(),
         ApplicationError::SkillNameConflict {
+            namespace: "local".to_string(),
             name: "REVIEW".to_string()
         }
     );
@@ -205,6 +206,7 @@ fn rejects_non_slug_names_and_case_insensitive_conflicts() {
             })
             .unwrap_err(),
         ApplicationError::SkillNameConflict {
+            namespace: "local".to_string(),
             name: "review".to_string()
         }
     );
@@ -348,13 +350,21 @@ impl SkillRepository for Rc<FakeSkillRepository> {
             .find(|skill| skill.id == *skill_id && !skill.audit_fields.is_deleted)
             .cloned())
     }
-    fn find_skill_by_name(&self, name: &str) -> Result<Option<Skill>, RepositoryError> {
+    fn find_skill_by_name(
+        &self,
+        namespace: &Namespace,
+        name: &str,
+    ) -> Result<Option<Skill>, RepositoryError> {
         self.take_error()?;
         Ok(self
             .skills
             .borrow()
             .iter()
-            .find(|skill| !skill.audit_fields.is_deleted && skill.name.eq_ignore_ascii_case(name))
+            .find(|skill| {
+                skill.namespace == *namespace
+                    && !skill.audit_fields.is_deleted
+                    && skill.name.eq_ignore_ascii_case(name)
+            })
             .cloned())
     }
     fn list_skills(&self) -> Result<Vec<Skill>, RepositoryError> {
@@ -608,6 +618,7 @@ fn skill(
 ) -> Skill {
     Skill::new(
         SkillId::new(id),
+        Namespace::local(),
         name,
         description,
         AuditFields::new(created_at, updated_at, is_deleted),

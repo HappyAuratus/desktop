@@ -3,7 +3,7 @@ use ora_application::{
     SkillStorage, StartPrerequisitesError, WorkflowGraph, WorkflowRunWorktreeInitializer,
 };
 use ora_db::{RepositoryPool, SqliteAgentDefinitionRepository, SqliteSkillRepository};
-use ora_domain::{AgentDefinitionId, SkillId};
+use ora_domain::{AgentDefinitionId, Namespace, SkillId};
 use ora_skill_package::{parse_manifest, rewrite_manifest};
 use std::path::{Path, PathBuf};
 
@@ -68,7 +68,7 @@ fn resolve_role(
     agent_repository: &SqliteAgentDefinitionRepository,
     role_id: &str,
 ) -> Result<Option<ora_domain::AgentDefinition>, RepositoryError> {
-    let by_name = agent_repository.find_agent_definition_by_name(role_id)?;
+    let by_name = agent_repository.find_agent_definition_by_name(&Namespace::local(), role_id)?;
     if by_name.is_some() {
         return Ok(by_name);
     }

@@ -47,13 +47,19 @@ export type ListSkillsResponse = { skills: Array<Skill> };
 /**
  * Describes a public skill payload without persistence audit metadata.
  */
-export type Skill = { id: string; name: string; description: string };
+export type Skill = {
+  id: string;
+  namespace: string;
+  name: string;
+  description: string;
+};
 
 /**
  * Describes one skill together with the Markdown body from its SKILL.md.
  */
 export type SkillDetails = {
   id: string;
+  namespace: string;
   name: string;
   description: string;
   content: string;

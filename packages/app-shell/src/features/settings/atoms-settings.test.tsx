@@ -14,9 +14,9 @@ import { RolesSettings, SkillsSettings } from "./atoms-settings";
 function renderSettings(kind: "agent" | "skill", configure?: (client: ReturnType<typeof createMockClient>) => void) {
   const state = createMockClientState();
   if (kind === "agent") {
-    state.agents = [{ id: "agent-1", name: "review-agent", description: "Reviews changes" }];
+    state.agents = [{ id: "agent-1", namespace: "local", name: "review-agent", description: "Reviews changes" }];
   } else {
-    state.skills = [{ id: "skill-1", name: "review-skill", description: "Reviews changes" }];
+    state.skills = [{ id: "skill-1", namespace: "local", name: "review-skill", description: "Reviews changes" }];
   }
   const client = createMockClient(state);
   client.agent.get = async ({ agentId }) => ({
@@ -51,7 +51,7 @@ describe("atom settings content", () => {
   it("loads and updates editable Agent content", async () => {
     const user = userEvent.setup();
     const update = vi.fn(async () => ({
-      agent: { id: "agent-1", name: "review-agent", description: "Reviews changes" },
+      agent: { id: "agent-1", namespace: "local", name: "review-agent", description: "Reviews changes" },
     }));
     renderSettings("agent", (client) => {
       client.agent.update = update;
@@ -77,7 +77,7 @@ describe("atom settings content", () => {
   it("loads and clears editable Skill content", async () => {
     const user = userEvent.setup();
     const update = vi.fn(async () => ({
-      skill: { id: "skill-1", name: "review-skill", description: "Reviews changes" },
+      skill: { id: "skill-1", namespace: "local", name: "review-skill", description: "Reviews changes" },
     }));
     renderSettings("skill", (client) => {
       client.skill.update = update;
@@ -111,10 +111,10 @@ describe("atom settings content", () => {
   ] as const)("creates %s content from the shared editor", async (kind, buttonName, nameLabel, name, description, content) => {
     const user = userEvent.setup();
     const createAgent = vi.fn(async (request: { name: string; description: string; content?: string }) => ({
-      agent: { id: "agent-new", name: request.name, description: request.description },
+      agent: { id: "agent-new", namespace: "local", name: request.name, description: request.description },
     }));
     const createSkill = vi.fn(async (request: { name: string; description: string; content?: string }) => ({
-      skill: { id: "skill-new", name: request.name, description: request.description },
+      skill: { id: "skill-new", namespace: "local", name: request.name, description: request.description },
     }));
     const create = kind === "agent" ? createAgent : createSkill;
     renderSettings(kind, (client) => {
@@ -187,7 +187,7 @@ describe("atom settings content", () => {
     }));
     const commit = vi.fn(async () => ({
       status: "overwritten" as const,
-      agent: { id: "agent-1", name: "review-agent", description: "Imported review agent" },
+      agent: { id: "agent-1", namespace: "local", name: "review-agent", description: "Imported review agent" },
     }));
     renderSettings("agent", (client) => {
       client.agentImport.prepare = prepare;

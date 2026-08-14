@@ -70,6 +70,49 @@ fn bootstraps_empty_database_with_default_catalog() {
     );
 }
 
+/// Verifies every namespaced catalog table assigns local ownership when callers omit it.
+#[test]
+fn catalog_namespaces_default_to_local() {
+    let catalog = default_migration_catalog().unwrap();
+    let database = with_trace_logging(|| {
+        DatabaseBootstrapper::new(FixedTimestampSource { now: 1 })
+            .bootstrap(&DatabaseLocation::in_memory(), &catalog)
+            .unwrap()
+    });
+    let connection = database.connection();
+
+    for table_name in ["skills", "agents", "workflows"] {
+        let description_column = if table_name == "workflows" {
+            String::new()
+        } else {
+            ", description".to_string()
+        };
+        let description_value = if table_name == "workflows" {
+            String::new()
+        } else {
+            ", 'description'".to_string()
+        };
+        connection
+            .execute(
+                &format!(
+                    "INSERT INTO {table_name} (id, name{description_column}, created_at, updated_at, is_deleted) VALUES ('id', 'name'{description_value}, 1, 1, 0)"
+                ),
+                [],
+            )
+            .unwrap();
+        assert_eq!(
+            connection
+                .query_row(
+                    &format!("SELECT namespace FROM {table_name} WHERE id = 'id'"),
+                    [],
+                    |row| row.get::<_, String>(0),
+                )
+                .unwrap(),
+            "local"
+        );
+    }
+}
+
 /// Verifies session lifecycle and display-title columns are part of the compressed base schema.
 #[test]
 fn includes_session_columns_in_base_schema() {
@@ -116,6 +159,7 @@ fn manages_skill_and_agent_definition_schema_lifecycle() {
     for table_name in ["skills", "agents"] {
         let expected_columns = vec![
             "id".to_string(),
+            "namespace".to_string(),
             "name".to_string(),
             "description".to_string(),
         ];
@@ -149,16 +193,37 @@ fn manages_skill_and_agent_definition_schema_lifecycle() {
         connection
             .execute(
                 &format!(
-                    "INSERT INTO {table_name} (id, name, description, created_at, updated_at, is_deleted)\n                     VALUES (?1, ?2, ?3, ?4, ?5, 0)"
+                    "INSERT INTO {table_name} (id, namespace, name, description, created_at, updated_at, is_deleted)\n                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, 0)"
                 ),
-                params!["second", "opencode", "OpenCode duplicate", 2_i64, 2_i64],
+                params![
+                    "second",
+                    "ora.plugin",
+                    "opencode",
+                    "OpenCode duplicate",
+                    2_i64,
+                    2_i64
+                ],
             )
             .unwrap();
+        let duplicate_name = connection.execute(
+            &format!(
+                "INSERT INTO {table_name} (id, name, description, created_at, updated_at, is_deleted)\n                 VALUES (?1, ?2, ?3, ?4, ?5, 0)"
+            ),
+            params!["duplicate-name", "OPENCODE", "Duplicate name", 3_i64, 3_i64],
+        );
+        assert_eq!(
+            matches!(
+                duplicate_name,
+                Err(rusqlite::Error::SqliteFailure(error, _))
+                    if error.code == ErrorCode::ConstraintViolation
+            ),
+            true
+        );
         let duplicate_id = connection.execute(
             &format!(
                 "INSERT INTO {table_name} (id, name, description, created_at, updated_at, is_deleted)\n                 VALUES (?1, ?2, ?3, ?4, ?5, 0)"
             ),
-            params!["first", "different-name", "Duplicate ID", 3_i64, 3_i64],
+            params!["first", "different-name", "Duplicate ID", 4_i64, 4_i64],
         );
 
         assert_eq!(

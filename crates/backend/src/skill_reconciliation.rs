@@ -3,6 +3,7 @@ use ora_application::{
     SkillRepository, SkillStorage, TransactionJournal,
 };
 use ora_db::{RepositoryPool, SqliteSkillRepository};
+use ora_domain::Namespace;
 use std::collections::BTreeSet;
 use std::fs;
 use std::path::Path;
@@ -82,7 +83,7 @@ fn recover_journal(
     let backup = Path::new(&journal.backup).to_path_buf();
     let formal_path = |name: &str| skills_root.join(name);
     let target_visible = repository
-        .find_skill_by_name(&journal.name)
+        .find_skill_by_name(&Namespace::local(), &journal.name)
         .map_err(operation_failed)?
         .is_some();
 
@@ -123,7 +124,7 @@ fn recover_journal(
             }
             JournalPhase::Swapped => {
                 let from_visible = repository
-                    .find_skill_by_name(&journal.from_name)
+                    .find_skill_by_name(&Namespace::local(), &journal.from_name)
                     .map_err(operation_failed)?
                     .is_some();
                 if target_visible {
@@ -259,7 +260,7 @@ mod tests {
         DatabaseBootstrapper, DatabaseLocation, RepositoryPool, SqliteSkillRepository,
         default_migration_catalog,
     };
-    use ora_domain::{AuditFields, Skill, SkillId};
+    use ora_domain::{AuditFields, Namespace, Skill, SkillId};
     use pretty_assertions::assert_eq;
     use std::fs;
     use std::path::Path;
@@ -324,6 +325,7 @@ mod tests {
             .create_skill(
                 Skill::new(
                     SkillId::new("skill-1"),
+                    Namespace::local(),
                     "review",
                     "Reviews",
                     AuditFields::new(100, 100, false),
@@ -365,6 +367,7 @@ mod tests {
             .create_skill(
                 Skill::new(
                     SkillId::new("skill-1"),
+                    Namespace::local(),
                     "missing-dir",
                     "Reviews",
                     AuditFields::new(100, 100, false),
@@ -390,6 +393,7 @@ mod tests {
             .create_skill(
                 Skill::new(
                     SkillId::new("skill-1"),
+                    Namespace::local(),
                     "gone",
                     "Reviews",
                     AuditFields::new(100, 100, false),

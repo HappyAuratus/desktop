@@ -3,6 +3,7 @@ mod audit_fields;
 mod error;
 mod git_cleanup;
 mod ids;
+mod namespace;
 mod project;
 mod session;
 mod session_title;
@@ -28,6 +29,7 @@ pub use ids::{
     WorkflowId, WorkflowNodeRunId, WorkflowRunId, WorkflowSnapshotId, WorktreeId,
     WorktreeProvisioningLeaseId,
 };
+pub use namespace::Namespace;
 pub use project::Project;
 pub use session::{AgentCli, HistoryState, Session, SessionStatus};
 pub use session_title::{MAX_SESSION_TITLE_CHARS, SessionTitle, SessionTitleError};

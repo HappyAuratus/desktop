@@ -101,6 +101,7 @@ export type ContractError =
     | { "code": "import_session_already_committed"; "params": EmptyErrorParams }
     | { "code": "skill_storage_inconsistent"; "params": EmptyErrorParams }
     | { "code": "workflow_name_blank"; "params": EmptyErrorParams }
+    | { "code": "workflow_name_conflict"; "params": EmptyErrorParams }
     | { "code": "workflow_not_found"; "params": EmptyErrorParams }
     | { "code": "workflow_snapshot_not_found"; "params": EmptyErrorParams }
     | { "code": "workflow_version_already_exists"; "params": EmptyErrorParams }
@@ -239,6 +240,7 @@ export type PublicError =
   | { "code": "import_session_already_committed"; "params": EmptyErrorParams }
   | { "code": "skill_storage_inconsistent"; "params": EmptyErrorParams }
   | { "code": "workflow_name_blank"; "params": EmptyErrorParams }
+  | { "code": "workflow_name_conflict"; "params": EmptyErrorParams }
   | { "code": "workflow_not_found"; "params": EmptyErrorParams }
   | { "code": "workflow_snapshot_not_found"; "params": EmptyErrorParams }
   | { "code": "workflow_version_already_exists"; "params": EmptyErrorParams }

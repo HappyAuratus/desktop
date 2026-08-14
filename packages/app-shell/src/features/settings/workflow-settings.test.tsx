@@ -27,6 +27,7 @@ function seedDemoWorkflows(state: MockClientState): void {
     const record = {
       workflow: {
         id: workflow.id,
+        namespace: "local",
         name: workflow.name,
         publishedSnapshotId: null as string | null,
         createdAt: now,
@@ -80,20 +81,20 @@ function renderSettings(
   state.projects = [{ id: "p1", name: "Demo", rootPath: "/demo" }];
   // Live Agent/Skill catalogs consumed by the workflow inspector's selectors.
   state.agents = [
-    { id: "ag-architect", name: "Architect", description: "role" },
-    { id: "ag-planner", name: "Planner", description: "role" },
-    { id: "ag-researcher", name: "Researcher", description: "role" },
-    { id: "ag-implementer", name: "Implementer", description: "role" },
-    { id: "ag-reviewer", name: "Reviewer", description: "role" },
-    { id: "ag-tester", name: "Tester", description: "role" },
-    { id: "ag-debugger", name: "Debugger", description: "role" },
-    { id: "ag-documentation", name: "Documentation Agent", description: "role" },
+    { id: "ag-architect", namespace: "local", name: "Architect", description: "role" },
+    { id: "ag-planner", namespace: "local", name: "Planner", description: "role" },
+    { id: "ag-researcher", namespace: "local", name: "Researcher", description: "role" },
+    { id: "ag-implementer", namespace: "local", name: "Implementer", description: "role" },
+    { id: "ag-reviewer", namespace: "local", name: "Reviewer", description: "role" },
+    { id: "ag-tester", namespace: "local", name: "Tester", description: "role" },
+    { id: "ag-debugger", namespace: "local", name: "Debugger", description: "role" },
+    { id: "ag-documentation", namespace: "local", name: "Documentation Agent", description: "role" },
   ];
   state.skills = [
-    { id: "openspec-verify-change", name: "openspec-verify-change", description: "skill" },
-    { id: "openspec-archive-change", name: "openspec-archive-change", description: "skill" },
-    { id: "openspec-explore", name: "openspec-explore", description: "skill" },
-    { id: "cdase:sfmea_review", name: "cdase:sfmea_review", description: "skill" },
+    { id: "openspec-verify-change", namespace: "local", name: "openspec-verify-change", description: "skill" },
+    { id: "openspec-archive-change", namespace: "local", name: "openspec-archive-change", description: "skill" },
+    { id: "openspec-explore", namespace: "local", name: "openspec-explore", description: "skill" },
+    { id: "cdase:sfmea_review", namespace: "local", name: "cdase:sfmea_review", description: "skill" },
   ];
   // Warm-session model catalog consumed by the workflow inspector's model selector.
   state.configOptions = [
@@ -690,17 +691,17 @@ describe("WorkflowSettings", () => {
     const user = userEvent.setup();
     const state = createMockClientState();
     state.agents = [
-      { id: "Architect", name: "架构师", description: "role" },
-      { id: "Planner", name: "规划师", description: "role" },
-      { id: "Researcher", name: "研究员", description: "role" },
-      { id: "Implementer", name: "实施者", description: "role" },
-      { id: "Reviewer", name: "审查员", description: "role" },
-      { id: "Tester", name: "测试员", description: "role" },
-      { id: "Debugger", name: "调试员", description: "role" },
-      { id: "Documentation Agent", name: "文档专员", description: "role" },
+      { id: "Architect", namespace: "local", name: "架构师", description: "role" },
+      { id: "Planner", namespace: "local", name: "规划师", description: "role" },
+      { id: "Researcher", namespace: "local", name: "研究员", description: "role" },
+      { id: "Implementer", namespace: "local", name: "实施者", description: "role" },
+      { id: "Reviewer", namespace: "local", name: "审查员", description: "role" },
+      { id: "Tester", namespace: "local", name: "测试员", description: "role" },
+      { id: "Debugger", namespace: "local", name: "调试员", description: "role" },
+      { id: "Documentation Agent", namespace: "local", name: "文档专员", description: "role" },
     ];
     state.skills = [
-      { id: "openspec-verify-change", name: "openspec-verify-change", description: "skill" },
+      { id: "openspec-verify-change", namespace: "local", name: "openspec-verify-change", description: "skill" },
     ];
     // NGA exists as a CLI but its warm session reports no model catalog, so
     // picking it must keep the node on NGA instead of snapping back to the

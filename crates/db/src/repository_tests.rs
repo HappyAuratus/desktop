@@ -18,11 +18,12 @@ use ora_application::{
 };
 use ora_contracts::{StartWorkflowRunRequest, WorkflowRunStatus as ContractRunStatus};
 use ora_domain::{
-    AgentCli, AgentDefinition, AgentDefinitionId, AuditFields, HistoryState, Project, ProjectId,
-    Session, SessionId, SessionStatus, SessionTitle, Skill, SkillId, Task, TaskId, TaskStatus,
-    Workflow, WorkflowId, WorkflowNodeRunId, WorkflowNodeStatus, WorkflowRun, WorkflowRunDetail,
-    WorkflowRunId, WorkflowRunStatus, WorkflowRunSummary, WorkflowSnapshot, WorkflowSnapshotId,
-    Worktree, WorktreeActivity, WorktreeBaseline, WorktreeId, WorktreeProvisioningLeaseId,
+    AgentCli, AgentDefinition, AgentDefinitionId, AuditFields, HistoryState, Namespace, Project,
+    ProjectId, Session, SessionId, SessionStatus, SessionTitle, Skill, SkillId, Task, TaskId,
+    TaskStatus, Workflow, WorkflowId, WorkflowNodeRunId, WorkflowNodeStatus, WorkflowRun,
+    WorkflowRunDetail, WorkflowRunId, WorkflowRunStatus, WorkflowRunSummary, WorkflowSnapshot,
+    WorkflowSnapshotId, Worktree, WorktreeActivity, WorktreeBaseline, WorktreeId,
+    WorktreeProvisioningLeaseId,
 };
 use ora_logging::with_trace_logging;
 use pretty_assertions::assert_eq;
@@ -36,9 +37,9 @@ use crate::{
     TimestampSource, default_migration_catalog,
 };
 
-/// Verifies catalog repositories use stable identifiers and hide soft-deleted rows.
+/// Verifies catalog repositories scope duplicate names by namespace and hide soft-deleted rows.
 #[test]
-fn catalog_repositories_support_id_based_crud_and_allow_duplicate_names() {
+fn catalog_repositories_support_id_based_crud_and_namespaced_names() {
     let (_temp_dir, pool) = bootstrapped_repository_pool();
     let skill_repository = SqliteSkillRepository::new(pool.clone());
     let agent_repository = SqliteAgentDefinitionRepository::new(pool);
@@ -57,8 +58,10 @@ fn catalog_repositories_support_id_based_crud_and_allow_duplicate_names() {
             .unwrap(),
         created_agent.clone()
     );
-    let earlier_skill = skill("skill-0", "review", "Builds", 0, 0, false);
-    let earlier_agent = agent("agent-0", "opencode", "Assists", 0, 0, false);
+    let mut earlier_skill = skill("skill-0", "review", "Builds", 0, 0, false);
+    earlier_skill.namespace = Namespace::new("ora.plugin").unwrap();
+    let mut earlier_agent = agent("agent-0", "opencode", "Assists", 0, 0, false);
+    earlier_agent.namespace = Namespace::new("ora.plugin").unwrap();
     skill_repository
         .create_skill(earlier_skill.clone())
         .unwrap();
@@ -72,6 +75,18 @@ fn catalog_repositories_support_id_based_crud_and_allow_duplicate_names() {
     assert_eq!(
         agent_repository.list_agent_definitions().unwrap(),
         vec![earlier_agent.clone(), created_agent.clone()]
+    );
+    assert_eq!(
+        skill_repository
+            .find_skill_by_name(&Namespace::local(), "REVIEW")
+            .unwrap(),
+        Some(created_skill.clone())
+    );
+    assert_eq!(
+        skill_repository
+            .find_skill_by_name(&earlier_skill.namespace, "REVIEW")
+            .unwrap(),
+        Some(earlier_skill.clone())
     );
     let renamed_skill = skill("skill-1", "reviewer", "Reviews code", 1, 2, false);
     let renamed_agent = agent("agent-1", "reviewer-agent", "Reviews code", 1, 2, false);
@@ -125,6 +140,49 @@ fn catalog_repositories_support_id_based_crud_and_allow_duplicate_names() {
     );
 }
 
+/// Verifies workflow names are unique case-insensitively within each visible namespace.
+#[test]
+fn workflow_repository_scopes_visible_name_uniqueness_by_namespace() {
+    let (_temp_dir, pool) = bootstrapped_repository_pool();
+    let repository = SqliteWorkflowRepository::new(pool);
+    let (mut local, local_draft) = workflow_with_draft("local-workflow", "{}", 1);
+    local.name = "Review".to_string();
+    repository
+        .create_workflow(local.clone(), local_draft)
+        .unwrap();
+
+    let (mut duplicate, duplicate_draft) = workflow_with_draft("duplicate", "{}", 2);
+    duplicate.name = "REVIEW".to_string();
+    assert!(
+        repository
+            .create_workflow(duplicate, duplicate_draft)
+            .is_err()
+    );
+
+    let (mut plugin, plugin_draft) = workflow_with_draft("plugin-workflow", "{}", 3);
+    plugin.namespace = Namespace::new("ora.plugin").unwrap();
+    plugin.name = "review".to_string();
+    repository
+        .create_workflow(plugin.clone(), plugin_draft)
+        .unwrap();
+    assert_eq!(
+        repository
+            .find_workflow_by_name(&plugin.namespace, "REVIEW")
+            .unwrap(),
+        Some(plugin)
+    );
+
+    assert_eq!(
+        repository.soft_delete_workflow(&local.id, 4).unwrap(),
+        DeleteWorkflowResult::Deleted
+    );
+    let (mut replacement, replacement_draft) = workflow_with_draft("replacement", "{}", 5);
+    replacement.name = "review".to_string();
+    repository
+        .create_workflow(replacement, replacement_draft)
+        .unwrap();
+}
+
 /// Verifies lifecycle commands cannot use another workflow's snapshot as their source.
 #[test]
 fn workflow_repository_rejects_cross_workflow_lifecycle_targets() {
@@ -172,6 +230,7 @@ fn workflow_repository_rejects_cross_workflow_lifecycle_targets() {
             .expect("workflow B remains visible"),
         Workflow::new(
             workflow_b.id.clone(),
+            Namespace::local(),
             "Workflow workflow-b",
             Some(snapshot_b.id.clone()),
             AuditFields::new(20, 40, /*is_deleted*/ false),
@@ -2130,6 +2189,7 @@ fn workflow_with_draft(id: &str, graph: &str, created_at: i64) -> (Workflow, Wor
     let workflow_id = WorkflowId::new(id);
     let workflow = Workflow::new(
         workflow_id.clone(),
+        Namespace::local(),
         format!("Workflow {id}"),
         /*published_snapshot_id*/ None,
         AuditFields::new(created_at, created_at, /*is_deleted*/ false),
@@ -2177,6 +2237,7 @@ fn skill(
 ) -> Skill {
     Skill::new(
         SkillId::new(id),
+        Namespace::local(),
         name,
         description,
         AuditFields::new(created_at, updated_at, is_deleted),
@@ -2194,6 +2255,7 @@ fn agent(
 ) -> AgentDefinition {
     AgentDefinition::new(
         AgentDefinitionId::new(id),
+        Namespace::local(),
         name,
         description,
         "",

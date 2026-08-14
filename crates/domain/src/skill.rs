@@ -1,10 +1,11 @@
-use crate::{AuditFields, DomainModelError, SkillId};
+use crate::{AuditFields, DomainModelError, Namespace, SkillId};
 use serde::{Deserialize, Serialize};
 
 /// Represents one reusable skill definition available to configurable agents.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Skill {
     pub id: SkillId,
+    pub namespace: Namespace,
     pub name: String,
     pub description: String,
     pub audit_fields: AuditFields,
@@ -14,6 +15,7 @@ impl Skill {
     /// Creates a skill while normalizing and validating its user-facing fields.
     pub fn new(
         id: SkillId,
+        namespace: Namespace,
         name: impl Into<String>,
         description: impl Into<String>,
         audit_fields: AuditFields,
@@ -33,6 +35,7 @@ impl Skill {
 
         Ok(Self {
             id,
+            namespace,
             name,
             description,
             audit_fields,

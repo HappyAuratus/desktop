@@ -12,6 +12,7 @@ use ora_contracts::{
     CommitSkillImportResponse, GetSkillImportSessionRequest, GetSkillImportSessionResponse,
     PrepareSkillImportRequest, PrepareSkillImportResponse, SkillImportSource,
 };
+use ora_domain::Namespace;
 use ora_skill_package::manifest::{ManifestError, parse_manifest};
 use ora_skill_package::{ArchiveFormat, copy_folder_to, extract_archive, scan_skill_boundaries};
 use std::collections::{HashMap, HashSet};
@@ -490,7 +491,7 @@ where
     match parse_manifest(&manifest_bytes, limits.max_manifest_bytes) {
         Ok(manifest) => {
             let existing = repository
-                .find_skill_by_name(&manifest.name)
+                .find_skill_by_name(&Namespace::local(), &manifest.name)
                 .map_err(|error| SkillImportError::Repository {
                     message: error.to_string(),
                 })?;

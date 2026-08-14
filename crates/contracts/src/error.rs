@@ -174,6 +174,7 @@ pub enum PublicError {
     ImportSessionAlreadyCommitted(EmptyErrorParams),
     SkillStorageInconsistent(EmptyErrorParams),
     WorkflowNameBlank(EmptyErrorParams),
+    WorkflowNameConflict(EmptyErrorParams),
     WorkflowNotFound(EmptyErrorParams),
     WorkflowSnapshotNotFound(EmptyErrorParams),
     WorkflowVersionAlreadyExists(EmptyErrorParams),
@@ -282,6 +283,7 @@ impl PublicError {
             Self::ImportSessionAlreadyCommitted(_) => "import_session_already_committed",
             Self::SkillStorageInconsistent(_) => "skill_storage_inconsistent",
             Self::WorkflowNameBlank(_) => "workflow_name_blank",
+            Self::WorkflowNameConflict(_) => "workflow_name_conflict",
             Self::WorkflowNotFound(_) => "workflow_not_found",
             Self::WorkflowSnapshotNotFound(_) => "workflow_snapshot_not_found",
             Self::WorkflowVersionAlreadyExists(_) => "workflow_version_already_exists",
@@ -479,6 +481,7 @@ mod tests {
             PublicError::ImportSessionAlreadyCommitted(empty),
             PublicError::SkillStorageInconsistent(empty),
             PublicError::WorkflowNameBlank(empty),
+            PublicError::WorkflowNameConflict(empty),
             PublicError::WorkflowNotFound(empty),
             PublicError::WorkflowSnapshotNotFound(empty),
             PublicError::WorkflowVersionAlreadyExists(empty),
@@ -578,6 +581,7 @@ mod tests {
                 | PublicError::ImportSessionAlreadyCommitted(_)
                 | PublicError::SkillStorageInconsistent(_)
                 | PublicError::WorkflowNameBlank(_)
+                | PublicError::WorkflowNameConflict(_)
                 | PublicError::WorkflowNotFound(_)
                 | PublicError::WorkflowSnapshotNotFound(_)
                 | PublicError::WorkflowVersionAlreadyExists(_)
@@ -610,7 +614,7 @@ mod tests {
     #[test]
     fn public_error_codes_match_serde_tags_for_every_variant() {
         let samples = public_error_samples();
-        assert_eq!(samples.len(), 95);
+        assert_eq!(samples.len(), 96);
 
         for error in samples {
             let serialized = serde_json::to_value(&error).unwrap();

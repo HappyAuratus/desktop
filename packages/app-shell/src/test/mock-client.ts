@@ -296,14 +296,14 @@ export function createMockClient(state: MockClientState): ContractsClient {
       list: async () => ({ agents: [...state.agents] }),
       get: async (req) => ({ agent: { ...state.agents.find((a) => a.id === req.agentId)!, content: "" } }),
       create: async (req) => {
-        const agent: Agent = { id: nextId("a", state.agents.length), name: req.name, description: req.description };
+        const agent: Agent = { id: nextId("a", state.agents.length), namespace: "local", name: req.name, description: req.description };
         state.agents.push(agent);
         return { agent };
       },
       update: async (req) => {
         const idx = state.agents.findIndex((a) => a.id === req.agentId);
         if (idx < 0) throw new Error(`agent ${req.agentId} not found`);
-        const updated: Agent = { id: req.agentId, name: req.name, description: req.description };
+        const updated: Agent = { id: req.agentId, namespace: state.agents[idx].namespace, name: req.name, description: req.description };
         state.agents[idx] = updated;
         return { agent: updated };
       },
@@ -321,14 +321,14 @@ export function createMockClient(state: MockClientState): ContractsClient {
       list: async () => ({ skills: [...state.skills] }),
       get: async (req) => ({ skill: { ...state.skills.find((s) => s.id === req.skillId)!, content: "" } }),
       create: async (req) => {
-        const skill: Skill = { id: nextId("sk", state.skills.length), name: req.name, description: req.description };
+        const skill: Skill = { id: nextId("sk", state.skills.length), namespace: "local", name: req.name, description: req.description };
         state.skills.push(skill);
         return { skill };
       },
       update: async (req) => {
         const idx = state.skills.findIndex((s) => s.id === req.skillId);
         if (idx < 0) throw new Error(`skill ${req.skillId} not found`);
-        const updated: Skill = { id: req.skillId, name: req.name, description: req.description };
+        const updated: Skill = { id: req.skillId, namespace: state.skills[idx].namespace, name: req.name, description: req.description };
         state.skills[idx] = updated;
         return { skill: updated };
       },
@@ -392,6 +392,7 @@ export function createMockClient(state: MockClientState): ContractsClient {
         const id = nextId("wf", state.workflows.length);
         const workflow: Workflow = {
           id,
+          namespace: "local",
           name: req.name,
           publishedSnapshotId: null,
           createdAt: now,
@@ -422,6 +423,7 @@ export function createMockClient(state: MockClientState): ContractsClient {
       list: async () => ({
         workflows: state.workflows.map((record): WorkflowSummary => ({
           id: record.workflow.id,
+          namespace: record.workflow.namespace,
           name: record.workflow.name,
           publishedVersion: record.workflow.publishedSnapshotId == null
             ? null
