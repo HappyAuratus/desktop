@@ -238,8 +238,11 @@ impl ApplicationError {
     /// Converts formal-storage failures into the stable application contract.
     pub(crate) fn from_skill_storage_error(error: SkillStorageError) -> Self {
         match error {
-            SkillStorageError::FormalDirectoryMissing { name }
-            | SkillStorageError::FormalDirectoryExists { name } => {
+            // Destination occupancy is a client-visible conflict whether the handler
+            // observed it before staging or only at promotion; missing directories are
+            // the inconsistent half of the same package invariant.
+            SkillStorageError::FormalDirectoryExists { name } => Self::SkillFolderConflict { name },
+            SkillStorageError::FormalDirectoryMissing { name } => {
                 Self::SkillStorageInconsistent { name }
             }
             source @ SkillStorageError::OperationFailed { .. } => Self::SkillStorage { source },
