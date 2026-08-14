@@ -80,10 +80,10 @@ export function EntityDialog({
   // Ref closes the window between the first submit and the disabled re-render.
   const submittingRef = useRef(false);
   const [validationError, setValidationError] = useState(false);
+  const [optionsLoadingError, setOptionsLoadingError] = useState(false);
   const [selectingField, setSelectingField] = useState<string | null>(null);
   const [pathSelectionError, setPathSelectionError] = useState<string | null>(null);
   const [submissionError, setSubmissionError] = useState<string | null>(null);
-  const optionsLoading = fields.some((field) => field.kind === "select" && field.loading === true);
   const inFlightLabel = pendingLabel ?? t("common.saving");
 
   const resolvedValues = useMemo(() => {
@@ -97,6 +97,14 @@ export function EntityDialog({
     }
     return next;
   }, [fields, values]);
+
+  const optionsLoading = fields.some((field) => field.kind === "select" && field.loading === true);
+  // A loading select is empty because options have not arrived, not because the
+  // user skipped it. Treat that as a wait state so Enter does not look like a
+  // required-field miss that then lingers after the default branch fills in.
+  const hasEmptyNonLoadingField = fields.some((field) =>
+    !(field.kind === "select" && field.loading === true) && !resolvedValues[field.name]?.trim(),
+  );
 
   const handlePathSelection = async (field: PathEntityField) => {
     setSelectingField(field.name);
@@ -120,14 +128,23 @@ export function EntityDialog({
 
   const handleSubmit = async (event: FormEvent) => {
     event.preventDefault();
-    if (submittingRef.current || optionsLoading) return;
-    if (fields.some((field) => !resolvedValues[field.name]?.trim())) {
+    if (submittingRef.current) return;
+    // Native Enter still submits a form whose submit button is disabled, so
+    // keep the same validation/feedback path the click path would have shown.
+    if (hasEmptyNonLoadingField) {
       setValidationError(true);
+      setOptionsLoadingError(false);
+      return;
+    }
+    if (optionsLoading) {
+      setOptionsLoadingError(true);
+      setValidationError(false);
       return;
     }
     submittingRef.current = true;
     setSubmitting(true);
     setSubmissionError(null);
+    setOptionsLoadingError(false);
     try {
       await onSubmit(resolvedValues);
       onOpenChange(false);
@@ -216,12 +233,13 @@ export function EntityDialog({
               </div>
             ))}
           </div>
-          {validationError && <p role="alert" className="text-xs text-destructive">{t("dialog.required")}</p>}
+          {validationError && hasEmptyNonLoadingField && <p role="alert" className="text-xs text-destructive">{t("dialog.required")}</p>}
+          {optionsLoadingError && optionsLoading && <p role="alert" className="text-xs text-destructive">{t("dialog.optionsLoading")}</p>}
           {submissionError && <p role="alert" data-selectable className="text-xs text-destructive">{submissionError}</p>}
           <DialogFooter>
             <Button type="button" variant="outline" disabled={submitting} onClick={() => onOpenChange(false)}>{t("common.cancel")}</Button>
-            <Button type="submit" disabled={submitting || optionsLoading} aria-busy={submitting}>
-              {submitting ? <Spinner className="size-3.5" aria-hidden="true" /> : null}
+            <Button type="submit" disabled={submitting || optionsLoading} aria-busy={submitting || optionsLoading}>
+              {submitting || optionsLoading ? <Spinner className="size-3.5" aria-hidden="true" /> : null}
               {submitting ? inFlightLabel : submitLabel}
             </Button>
           </DialogFooter>
