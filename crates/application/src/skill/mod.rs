@@ -10,6 +10,7 @@ mod storage;
 mod tests;
 
 pub use filesystem_storage::FilesystemSkillStorage;
+pub(crate) use handlers::next_updated_at;
 pub use handlers::{
     CreateSkillHandler, DeleteSkillHandler, GetSkillHandler, ListSkillsHandler, UpdateSkillHandler,
 };

@@ -27,7 +27,12 @@ on-disk packages.
 - `SkillStorage` isolates every filesystem mutation behind a statically dispatched port. The
   default `FilesystemSkillStorage` keeps staging, compensation backups, and journal markers under
   the reserved `<skills_root>/<.ora-staging|.ora-backup|.ora-journal>` directories so renames stay
-  on one filesystem and interrupted transactions can be recovered at startup.
+  on one filesystem and interrupted transactions can be recovered at startup. Each journal records
+  the immutable skill id so recovery attributes an in-flight directory to that identity rather
+  than to any visible row that happens to share the user-facing name. Swap journals for owned
+  packages also record the prior database version so a same-name update can distinguish an
+  uncommitted row write from
+  a fully committed or superseded update.
 - `SkillRepository` supplies case-insensitive name lookups used for global uniqueness and import
   conflict detection.
 - A destination claimed by another in-flight package transaction is a `SkillFolderConflict`,
