@@ -30,7 +30,7 @@ Adding an adapter never changes a port signature. Handlers keep depending on the
 - `busy_timeout = 5000` ms
 - `synchronous = NORMAL`
 
-Those PRAGMAs are applied in the connection manager rather than at call sites, so no repository can accidentally run with a different durability or concurrency profile. Pooling requires a file-backed `DatabaseLocation::Path`; `DatabaseLocation::InMemory` is for bootstrap and migration tests and returns `UnsupportedPooledLocation` if pooled.
+Those PRAGMAs are applied in the connection manager rather than at call sites, so no repository can accidentally run with a different durability or concurrency profile. `NORMAL` is crash-safe for process kills but may lose the last COMMIT on power loss. Skill package promotion flushes directory metadata _before_ that COMMIT, so a lost last transaction leaves an unowned package directory that startup reconciliation removes rather than a visible row without files. Pooling requires a file-backed `DatabaseLocation::Path`; `DatabaseLocation::InMemory` is for bootstrap and migration tests and returns `UnsupportedPooledLocation` if pooled.
 
 File-backed parent directories are not created here. The Desktop composition root prepares them before opening `ora-backend::Backend`.
 
