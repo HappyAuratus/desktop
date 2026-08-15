@@ -58,17 +58,26 @@ pub enum SkillDescriptionError {
     TooLarge,
 }
 
+/// Name of the reserved directory holding in-flight transaction staging.
+pub const STAGING_DIR_NAME: &str = ".ora-staging";
+/// Name of the reserved directory holding transaction compensation backups.
+pub const BACKUP_DIR_NAME: &str = ".ora-backup";
+/// Name of the reserved directory holding transaction journal markers.
+pub const JOURNAL_DIR_NAME: &str = ".ora-journal";
+
 /// Validates a trimmed skill name against the ASCII slug rules shared by every write path.
 ///
 /// The name must be a single filesystem-safe path segment composed only of `A-Z`, `a-z`,
-/// `0-9`, `.`, `_`, and `-`, and must not be the reserved `.` or `..` segments. The same
-/// byte and UTF-16 code-unit segment limits that protect archive paths also apply so the
-/// name can always back a directory entry.
+/// `0-9`, `.`, `_`, and `-`, and must not start with `.`. Rejecting every dot-prefixed name
+/// (rather than only the reserved transaction directories) keeps the skills root disjoint from
+/// hidden and reserved directories on any filesystem without needing a maintained allow/deny
+/// list. The same byte and UTF-16 code-unit segment limits that protect archive paths also apply
+/// so the name can always back a directory entry.
 pub fn validate_skill_name(name: &str) -> Result<(), SkillNameError> {
     if name.is_empty() {
         return Err(SkillNameError::Blank);
     }
-    if name == "." || name == ".." {
+    if name.starts_with('.') {
         return Err(SkillNameError::Invalid);
     }
     if !name

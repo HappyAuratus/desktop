@@ -40,5 +40,16 @@ recoverable inconsistency on disk rather than an impossible one, which is why ev
 write its journal marker before touching the formal tree and why startup blocks on
 reconciliation before serving requests.
 
+## Invariants
+
+- Committed skill directory names and reserved transaction directory names occupy disjoint
+  namespaces. Domain validation (`ora_domain::validate_skill_name`) refuses every dot-prefixed
+  name, and this module's reserved directories (`STAGING_DIR_NAME`, `BACKUP_DIR_NAME`, and
+  `JOURNAL_DIR_NAME`, re-exported from `ora-domain`) are all dot-prefixed. Otherwise a skill would
+  be promoted onto a transaction root and startup reconciliation would delete its package while
+  sweeping leftovers.
+- A new reserved directory therefore only needs a leading dot to become unclaimable by a skill
+  name — no separate allow/deny list to keep in sync.
+
 See the [ora-application overview](../../README.md) and the
 [skill_import module](../skill_import/README.md).

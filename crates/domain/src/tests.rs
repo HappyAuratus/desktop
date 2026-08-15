@@ -1,7 +1,8 @@
 use crate::{
-    AgentCli, AgentDefinition, AgentDefinitionId, AuditFields, DomainModelError, HistoryState,
-    Namespace, Project, ProjectId, Session, SessionId, SessionStatus, Skill, SkillId, Task, TaskId,
-    TaskStatus, TaskType, Worktree, WorktreeActivity, WorktreeBaseline, WorktreeId,
+    AgentCli, AgentDefinition, AgentDefinitionId, AuditFields, BACKUP_DIR_NAME, DomainModelError,
+    HistoryState, JOURNAL_DIR_NAME, Namespace, Project, ProjectId, STAGING_DIR_NAME, Session,
+    SessionId, SessionStatus, Skill, SkillId, Task, TaskId, TaskStatus, TaskType, Worktree,
+    WorktreeActivity, WorktreeBaseline, WorktreeId,
 };
 use pretty_assertions::assert_eq;
 
@@ -171,6 +172,50 @@ fn normalizes_and_validates_namespaces() {
         Err(DomainModelError::EmptyNamespace)
     );
     assert!(serde_json::from_str::<Namespace>(r#""  ""#).is_err());
+}
+
+/// Verifies skill names reject every dot-prefixed segment, including the storage layer's
+/// reserved transaction directories and path-traversal segments.
+#[test]
+fn rejects_dot_prefixed_skill_names() {
+    let audit_fields = AuditFields::new(1, 1, false);
+
+    for name in [
+        STAGING_DIR_NAME,
+        BACKUP_DIR_NAME,
+        JOURNAL_DIR_NAME,
+        ".",
+        "..",
+        ".hidden",
+        ".ORA-BACKUP",
+    ] {
+        assert_eq!(
+            Skill::new(
+                SkillId::new("skill-1"),
+                Namespace::local(),
+                name,
+                "Rejected",
+                audit_fields.clone()
+            ),
+            Err(DomainModelError::InvalidSkillName {
+                name: name.to_string()
+            })
+        );
+    }
+
+    for accepted in ["backup.tmp", "ora-backup", "v1.2.3"] {
+        assert_eq!(
+            Skill::new(
+                SkillId::new("skill-1"),
+                Namespace::local(),
+                accepted,
+                "Accepted",
+                audit_fields.clone()
+            )
+            .map(|skill| skill.name),
+            Ok(accepted.to_string())
+        );
+    }
 }
 
 /// Verifies CLI identities use the reviewed namespaced database representation.
