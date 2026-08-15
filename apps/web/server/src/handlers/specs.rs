@@ -1,6 +1,7 @@
 use crate::app_state::AppState;
 use crate::error::WebApiError;
-use crate::handlers::workspace_files::{stream_response, to_contract_change};
+use crate::handlers::ndjson_stream::stream_response;
+use crate::handlers::workspace_files::to_contract_change;
 use axum::Json;
 use axum::body::Body;
 use axum::extract::State;
@@ -40,7 +41,7 @@ pub async fn read(
         .map_err(WebApiError::from)
 }
 
-/// Streams the shared workspace event format for the target root resolved by Backend.
+/// Streams workspace file events until the HTTP consumer disconnects or the server shuts down.
 pub async fn watch(
     State(app_state): State<AppState>,
     Json(request): Json<WatchSpecsRequest>,
@@ -75,5 +76,5 @@ pub async fn watch(
             }
         }
     });
-    Ok(stream_response(receiver))
+    Ok(stream_response(receiver, app_state.shutdown_token()))
 }

@@ -1,19 +1,16 @@
 use crate::app_state::AppState;
-use crate::error::{DeferredCompletion, WebApiError, current_lifecycle};
+use crate::error::WebApiError;
+use crate::handlers::ndjson_stream::stream_response;
 use axum::Json;
-use axum::body::{Body, Bytes};
+use axum::body::Body;
 use axum::extract::{Path, State};
-use axum::http::{HeaderValue, Response, header};
-use futures_util::stream;
-use ora_backend::BackendError;
+use axum::http::Response;
 use ora_contracts::{
-    ContractError, EmptyErrorParams, ListWorkspaceDirectoryResponse, PublicError,
-    ReadWorkspaceFileResponse, SearchWorkspaceResponse, WorkspaceFileChange,
-    WorkspaceFileEventBatch, WorkspaceSearchKind,
+    ListWorkspaceDirectoryResponse, ReadWorkspaceFileResponse, SearchWorkspaceResponse,
+    WorkspaceFileChange, WorkspaceFileEventBatch, WorkspaceSearchKind,
 };
 use ora_fs::{WorkspaceChange, WorkspaceChangeKind};
-use serde::{Deserialize, Serialize};
-use std::convert::Infallible;
+use serde::Deserialize;
 use std::path::{Path as FilePath, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
@@ -47,14 +44,6 @@ pub struct ReadFileBody {
 pub struct SearchBody {
     query: String,
     kind: WorkspaceSearchKind,
-}
-
-#[derive(Serialize)]
-#[serde(tag = "type", rename_all = "snake_case")]
-enum StreamFrame<Event> {
-    Data { data: Event },
-    Error { error: ContractError },
-    End,
 }
 
 /// Lists one immediate directory in the task's active managed worktree.
@@ -104,7 +93,7 @@ pub async fn search(
         .map_err(WebApiError::from)
 }
 
-/// Streams debounced native filesystem events until the HTTP consumer disconnects.
+/// Streams debounced native filesystem events until the HTTP consumer disconnects or the server shuts down.
 pub async fn watch(
     State(app_state): State<AppState>,
     Path(path): Path<TaskPath>,
@@ -138,7 +127,7 @@ pub async fn watch(
             }
         }
     });
-    Ok(stream_response(receiver))
+    Ok(stream_response(receiver, app_state.shutdown_token()))
 }
 
 /// Resolves the task-owned worktree once so filesystem calls never accept a root from the client.
@@ -168,58 +157,4 @@ pub(crate) fn to_contract_change(change: WorkspaceChange) -> WorkspaceFileChange
         },
         WorkspaceChangeKind::RescanRequired => WorkspaceFileChange::RescanRequired,
     }
-}
-
-/// Converts watcher batches into the same private NDJSON framing used by session streams.
-pub(crate) fn stream_response(
-    receiver: tokio::sync::mpsc::Receiver<Result<WorkspaceFileEventBatch, BackendError>>,
-) -> Response<Body> {
-    let lifecycle = current_lifecycle();
-    let body_stream = stream::unfold(
-        (receiver, false, lifecycle),
-        |(mut receiver, ended, lifecycle)| async move {
-            if ended {
-                return None;
-            }
-            let (frame, next_ended) = match receiver.recv().await {
-                Some(Ok(event)) => (StreamFrame::Data { data: event }, false),
-                Some(Err(error)) => {
-                    lifecycle.complete_failure(&error);
-                    (
-                        StreamFrame::Error {
-                            error: error.contract_error(lifecycle.request_id()),
-                        },
-                        true,
-                    )
-                }
-                None => {
-                    lifecycle.complete_success();
-                    (StreamFrame::End, true)
-                }
-            };
-            let mut bytes = serde_json::to_vec(&frame).unwrap_or_else(|source| {
-                let error = BackendError::internal("failed to encode stream frame", source);
-                lifecycle.complete_failure(&error);
-                serde_json::to_vec(&StreamFrame::<WorkspaceFileEventBatch>::Error {
-                    error: ContractError {
-                        error: PublicError::InternalError(EmptyErrorParams {}),
-                        request_id: lifecycle.request_id(),
-                    },
-                })
-                .unwrap_or_default()
-            });
-            bytes.push(b'\n');
-            Some((
-                Ok::<Bytes, Infallible>(Bytes::from(bytes)),
-                (receiver, next_ended, lifecycle),
-            ))
-        },
-    );
-    let mut response = Response::new(Body::from_stream(body_stream));
-    response.extensions_mut().insert(DeferredCompletion);
-    response.headers_mut().insert(
-        header::CONTENT_TYPE,
-        HeaderValue::from_static("application/x-ndjson"),
-    );
-    response
 }

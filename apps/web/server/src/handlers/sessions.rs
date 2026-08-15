@@ -1,23 +1,20 @@
 use crate::app_state::AppState;
-use crate::error::{DeferredCompletion, WebApiError, current_lifecycle};
+use crate::error::WebApiError;
+use crate::handlers::ndjson_stream::stream_response;
 use axum::Json;
-use axum::body::{Body, Bytes};
+use axum::body::Body;
 use axum::extract::{Path, State};
-use axum::http::{HeaderValue, Response, header};
-use futures_util::stream;
-use ora_backend::{BackendError, SessionEventStream};
+use axum::http::Response;
 use ora_contracts::{
-    AgentCli, AttachSessionRequest, AttachSessionResponse, ContractError, DeleteSessionRequest,
-    DeleteSessionResponse, EmptyErrorParams, GetAgentRuntimeStatusRequest,
-    GetAgentRuntimeStatusResponse, GetSessionRequest, GetSessionResponse, ListSessionsRequest,
-    ListSessionsResponse, LoadSessionRequest, PromptSessionRequest, PublicError,
-    RespondToPermissionRequest, RespondToPermissionResponse, ResumeSessionHistoryRequest,
-    ResumeSessionHistoryResponse, SetSessionConfigRequest, SetSessionConfigResponse,
-    StopSessionRequest, StopSessionResponse, SwitchSessionAgentRequest, SwitchSessionAgentResponse,
-    WarmSessionRequest, WarmSessionResponse,
+    AgentCli, AttachSessionRequest, AttachSessionResponse, DeleteSessionRequest,
+    DeleteSessionResponse, GetAgentRuntimeStatusRequest, GetAgentRuntimeStatusResponse,
+    GetSessionRequest, GetSessionResponse, ListSessionsRequest, ListSessionsResponse,
+    LoadSessionRequest, PromptSessionRequest, RespondToPermissionRequest,
+    RespondToPermissionResponse, ResumeSessionHistoryRequest, ResumeSessionHistoryResponse,
+    SetSessionConfigRequest, SetSessionConfigResponse, StopSessionRequest, StopSessionResponse,
+    SwitchSessionAgentRequest, SwitchSessionAgentResponse, WarmSessionRequest, WarmSessionResponse,
 };
-use serde::{Deserialize, Serialize};
-use std::convert::Infallible;
+use serde::Deserialize;
 
 /// Carries the request path segment used by session identifier routes.
 #[derive(Debug, Deserialize)]
@@ -62,14 +59,6 @@ pub struct SetSessionConfigBody {
 #[serde(rename_all = "camelCase")]
 pub struct AttachSessionBody {
     task_id: String,
-}
-
-#[derive(Serialize)]
-#[serde(tag = "type", rename_all = "snake_case")]
-enum StreamFrame<Event> {
-    Data { data: Event },
-    Error { error: ContractError },
-    End,
 }
 
 /// Returns the warm provider session backing one chat surface.
@@ -158,7 +147,10 @@ pub async fn list_sessions(
 
 /// Watches application invalidations using the shared NDJSON contract stream.
 pub async fn watch_app_events(State(app_state): State<AppState>) -> Response<Body> {
-    stream_response(app_state.backend().watch_app_events())
+    stream_response(
+        app_state.backend().watch_app_events(),
+        app_state.shutdown_token(),
+    )
 }
 
 /// Streams ACP history replay as private NDJSON transport frames.
@@ -173,7 +165,7 @@ pub async fn load_session(
         })
         .await
         .map_err(WebApiError::from)?;
-    Ok(stream_response(events))
+    Ok(stream_response(events, app_state.shutdown_token()))
 }
 
 /// Streams one structured ACP prompt turn as private NDJSON transport frames.
@@ -190,7 +182,7 @@ pub async fn prompt_session(
         })
         .await
         .map_err(WebApiError::from)?;
-    Ok(stream_response(events))
+    Ok(stream_response(events, app_state.shutdown_token()))
 }
 
 /// Routes one permission selection to the actor that owns the pending request.
@@ -272,59 +264,4 @@ pub async fn delete_session(
         .await
         .map(Json)
         .map_err(WebApiError::from)
-}
-
-/// Converts one backend event receiver into ordered, atomic NDJSON transport frames.
-fn stream_response<Event>(events: SessionEventStream<Event>) -> Response<Body>
-where
-    Event: Serialize + Send + 'static,
-{
-    let lifecycle = current_lifecycle();
-    let body_stream = stream::unfold(
-        (events, false, lifecycle),
-        |(mut events, ended, lifecycle)| async move {
-            if ended {
-                return None;
-            }
-            let (frame, next_ended) = match events.recv().await {
-                Some(Ok(event)) => (StreamFrame::Data { data: event }, false),
-                Some(Err(error)) => {
-                    lifecycle.complete_failure(&error);
-                    (
-                        StreamFrame::Error {
-                            error: error.contract_error(lifecycle.request_id()),
-                        },
-                        true,
-                    )
-                }
-                None => {
-                    lifecycle.complete_success();
-                    (StreamFrame::End, true)
-                }
-            };
-            let mut bytes = serde_json::to_vec(&frame).unwrap_or_else(|source| {
-                let error = BackendError::internal("failed to encode stream frame", source);
-                lifecycle.complete_failure(&error);
-                serde_json::to_vec(&StreamFrame::<Event>::Error {
-                    error: ContractError {
-                        error: PublicError::InternalError(EmptyErrorParams {}),
-                        request_id: lifecycle.request_id(),
-                    },
-                })
-                .unwrap_or_default()
-            });
-            bytes.push(b'\n');
-            Some((
-                Ok::<Bytes, Infallible>(Bytes::from(bytes)),
-                (events, next_ended, lifecycle),
-            ))
-        },
-    );
-    let mut response = Response::new(Body::from_stream(body_stream));
-    response.extensions_mut().insert(DeferredCompletion);
-    response.headers_mut().insert(
-        header::CONTENT_TYPE,
-        HeaderValue::from_static("application/x-ndjson"),
-    );
-    response
 }
