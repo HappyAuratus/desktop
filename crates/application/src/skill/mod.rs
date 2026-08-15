@@ -1,3 +1,4 @@
+mod durability;
 mod filesystem_storage;
 mod handlers;
 mod id_generator;
