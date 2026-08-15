@@ -52,14 +52,18 @@ Ora is an IDE for AI Agent. In the crates folder where the rust code lives:
 long time, so prefer the smallest relevant task while iterating and run the full task
 before considering a repository-wide change complete.
 
+- All formatting tasks: `task format`
+- Frontend formatting: `task format:frontend`
+- Backend formatting: `task format:backend`
+- Desktop formatting: `task format:desktop`
 - Frontend lint: `task lint:frontend`
 - Frontend tests: `task test:frontend`
-- Backend lint and formatting: `task lint:backend`
+- Backend lint: `task lint:backend`
 - Backend tests: `task test:backend`
 - Desktop lint: `task lint:desktop`
 - Desktop tests: `task test:desktop`
 - All lint tasks: `task lint`
-- Full lint and test suite (long-running): `task test`
+- Full formatting, lint and test suite (long-running): `task test`
 
 ### Test assertions
 

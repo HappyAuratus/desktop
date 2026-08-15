@@ -84,7 +84,11 @@ function renderSubmitDialog(params: {
           title="Project"
           submitLabel="Save"
           pendingLabel={params.pendingLabel}
-          fields={params.fields ?? [{ kind: "text", name: "name", label: "Name", value: "Ora" }]}
+          fields={
+            params.fields ?? [
+              { kind: "text", name: "name", label: "Name", value: "Ora" },
+            ]
+          }
           onOpenChange={() => {}}
           onSubmit={params.onSubmit}
         />
@@ -139,7 +143,8 @@ describe("EntityDialog submit loading", () => {
 
   it("allows a retry after the in-flight submit fails", async () => {
     const user = userEvent.setup();
-    const onSubmit = vi.fn()
+    const onSubmit = vi
+      .fn()
       .mockRejectedValueOnce(new Error("unavailable"))
       .mockResolvedValueOnce(undefined);
     renderSubmitDialog({ onSubmit });
@@ -153,21 +158,25 @@ describe("EntityDialog submit loading", () => {
   it("disables submit while a select field is still loading", () => {
     renderSubmitDialog({
       onSubmit: async () => {},
-      fields: [{
-        kind: "select",
-        name: "baseBranch",
-        label: "Base branch",
-        value: "",
-        options: [],
-        loading: true,
-      }],
+      fields: [
+        {
+          kind: "select",
+          name: "baseBranch",
+          label: "Base branch",
+          value: "",
+          options: [],
+          loading: true,
+        },
+      ],
     });
 
     const submitButton = screen.getByRole("button", { name: "Save" });
     expect(submitButton).toBeDisabled();
     expect(submitButton).toHaveAttribute("aria-busy", "true");
     expect(submitButton.querySelector("[data-slot=spinner]")).not.toBeNull();
-    expect(screen.getByRole("combobox", { name: "Base branch" })).toHaveAttribute("aria-busy", "true");
+    expect(
+      screen.getByRole("combobox", { name: "Base branch" }),
+    ).toHaveAttribute("aria-busy", "true");
   });
 
   it("still shows required-field feedback when a non-loading field is empty", () => {
@@ -192,7 +201,9 @@ describe("EntityDialog submit loading", () => {
     fireEvent.submit(form!);
 
     expect(onSubmit).not.toHaveBeenCalled();
-    expect(screen.getByRole("alert")).toHaveTextContent(/Complete all required fields|请填写所有必填字段/);
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      /Complete all required fields|请填写所有必填字段/,
+    );
   });
 
   it("explains a blocked Enter submit when a required select is still loading", () => {
@@ -217,7 +228,9 @@ describe("EntityDialog submit loading", () => {
     fireEvent.submit(form!);
 
     expect(onSubmit).not.toHaveBeenCalled();
-    expect(screen.getByRole("alert")).toHaveTextContent(/Options are still loading|选项仍在加载/);
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      /Options are still loading|选项仍在加载/,
+    );
   });
 
   it("explains a blocked Enter submit when required values are present but options are still loading", () => {
@@ -242,6 +255,8 @@ describe("EntityDialog submit loading", () => {
     fireEvent.submit(form!);
 
     expect(onSubmit).not.toHaveBeenCalled();
-    expect(screen.getByRole("alert")).toHaveTextContent(/Options are still loading|选项仍在加载/);
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      /Options are still loading|选项仍在加载/,
+    );
   });
 });

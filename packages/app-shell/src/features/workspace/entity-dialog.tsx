@@ -82,7 +82,9 @@ export function EntityDialog({
   const [validationError, setValidationError] = useState(false);
   const [optionsLoadingError, setOptionsLoadingError] = useState(false);
   const [selectingField, setSelectingField] = useState<string | null>(null);
-  const [pathSelectionError, setPathSelectionError] = useState<string | null>(null);
+  const [pathSelectionError, setPathSelectionError] = useState<string | null>(
+    null,
+  );
   const [submissionError, setSubmissionError] = useState<string | null>(null);
   const inFlightLabel = pendingLabel ?? t("common.saving");
 
@@ -98,12 +100,16 @@ export function EntityDialog({
     return next;
   }, [fields, values]);
 
-  const optionsLoading = fields.some((field) => field.kind === "select" && field.loading === true);
+  const optionsLoading = fields.some(
+    (field) => field.kind === "select" && field.loading === true,
+  );
   // A loading select is empty because options have not arrived, not because the
   // user skipped it. Treat that as a wait state so Enter does not look like a
   // required-field miss that then lingers after the default branch fills in.
-  const hasEmptyNonLoadingField = fields.some((field) =>
-    !(field.kind === "select" && field.loading === true) && !resolvedValues[field.name]?.trim(),
+  const hasEmptyNonLoadingField = fields.some(
+    (field) =>
+      !(field.kind === "select" && field.loading === true) &&
+      !resolvedValues[field.name]?.trim(),
   );
 
   const handlePathSelection = async (field: PathEntityField) => {
@@ -157,12 +163,19 @@ export function EntityDialog({
   };
 
   return (
-    <Dialog open={open} onOpenChange={(nextOpen) => (!submitting || nextOpen) && onOpenChange(nextOpen)}>
+    <Dialog
+      open={open}
+      onOpenChange={(nextOpen) =>
+        (!submitting || nextOpen) && onOpenChange(nextOpen)
+      }
+    >
       <DialogContent>
         <form onSubmit={handleSubmit} className="contents">
           <DialogHeader>
             <DialogTitle>{title}</DialogTitle>
-            {description && <DialogDescription>{description}</DialogDescription>}
+            {description && (
+              <DialogDescription>{description}</DialogDescription>
+            )}
           </DialogHeader>
           <div className="grid gap-3">
             {fields.map((field) => (
@@ -172,16 +185,32 @@ export function EntityDialog({
                   <Select
                     value={resolvedValues[field.name] ?? ""}
                     disabled={submitting || field.loading === true}
-                    onValueChange={(value) => setValues((current) => ({ ...current, [field.name]: value ?? "" }))}
+                    onValueChange={(value) =>
+                      setValues((current) => ({
+                        ...current,
+                        [field.name]: value ?? "",
+                      }))
+                    }
                   >
-                    <SelectTrigger id={`entity-${field.name}`} className="w-full" aria-busy={field.loading === true}>
-                      {field.loading === true
-                        ? <Spinner className="size-3.5 text-muted-foreground" aria-hidden="true" />
-                        : <SelectValue />}
+                    <SelectTrigger
+                      id={`entity-${field.name}`}
+                      className="w-full"
+                      aria-busy={field.loading === true}
+                    >
+                      {field.loading === true ? (
+                        <Spinner
+                          className="size-3.5 text-muted-foreground"
+                          aria-hidden="true"
+                        />
+                      ) : (
+                        <SelectValue />
+                      )}
                     </SelectTrigger>
                     <SelectContent>
                       {field.options.map((option) => (
-                        <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>
+                        <SelectItem key={option.value} value={option.value}>
+                          {option.label}
+                        </SelectItem>
                       ))}
                     </SelectContent>
                   </Select>
@@ -193,9 +222,14 @@ export function EntityDialog({
                       value={values[field.name] ?? ""}
                       placeholder={field.placeholder}
                       disabled={submitting}
-                      aria-invalid={validationError && !resolvedValues[field.name]?.trim()}
+                      aria-invalid={
+                        validationError && !resolvedValues[field.name]?.trim()
+                      }
                       onChange={(event) => {
-                        setValues((current) => ({ ...current, [field.name]: event.target.value }));
+                        setValues((current) => ({
+                          ...current,
+                          [field.name]: event.target.value,
+                        }));
                         setValidationError(false);
                         setPathSelectionError(null);
                       }}
@@ -217,29 +251,67 @@ export function EntityDialog({
                     value={resolvedValues[field.name] ?? ""}
                     placeholder={field.placeholder}
                     disabled={submitting}
-                    aria-invalid={validationError && !resolvedValues[field.name]?.trim()}
+                    aria-invalid={
+                      validationError && !resolvedValues[field.name]?.trim()
+                    }
                     onChange={(event) => {
-                      setValues((current) => ({ ...current, [field.name]: event.target.value }));
+                      setValues((current) => ({
+                        ...current,
+                        [field.name]: event.target.value,
+                      }));
                       setValidationError(false);
                     }}
                     autoFocus={field === fields[0]}
                   />
                 )}
                 {pathSelectionError === field.name && (
-                  <p role="alert" data-selectable className="text-xs text-destructive">
+                  <p
+                    role="alert"
+                    data-selectable
+                    className="text-xs text-destructive"
+                  >
                     {t("dialog.pathSelectionError")}
                   </p>
                 )}
               </div>
             ))}
           </div>
-          {validationError && hasEmptyNonLoadingField && <p role="alert" className="text-xs text-destructive">{t("dialog.required")}</p>}
-          {optionsLoadingError && optionsLoading && <p role="alert" className="text-xs text-destructive">{t("dialog.optionsLoading")}</p>}
-          {submissionError && <p role="alert" data-selectable className="text-xs text-destructive">{submissionError}</p>}
+          {validationError && hasEmptyNonLoadingField && (
+            <p role="alert" className="text-xs text-destructive">
+              {t("dialog.required")}
+            </p>
+          )}
+          {optionsLoadingError && optionsLoading && (
+            <p role="alert" className="text-xs text-destructive">
+              {t("dialog.optionsLoading")}
+            </p>
+          )}
+          {submissionError && (
+            <p
+              role="alert"
+              data-selectable
+              className="text-xs text-destructive"
+            >
+              {submissionError}
+            </p>
+          )}
           <DialogFooter>
-            <Button type="button" variant="outline" disabled={submitting} onClick={() => onOpenChange(false)}>{t("common.cancel")}</Button>
-            <Button type="submit" disabled={submitting || optionsLoading} aria-busy={submitting || optionsLoading}>
-              {submitting || optionsLoading ? <Spinner className="size-3.5" aria-hidden="true" /> : null}
+            <Button
+              type="button"
+              variant="outline"
+              disabled={submitting}
+              onClick={() => onOpenChange(false)}
+            >
+              {t("common.cancel")}
+            </Button>
+            <Button
+              type="submit"
+              disabled={submitting || optionsLoading}
+              aria-busy={submitting || optionsLoading}
+            >
+              {submitting || optionsLoading ? (
+                <Spinner className="size-3.5" aria-hidden="true" />
+              ) : null}
               {submitting ? inFlightLabel : submitLabel}
             </Button>
           </DialogFooter>

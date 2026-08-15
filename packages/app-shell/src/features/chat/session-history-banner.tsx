@@ -25,9 +25,10 @@ export function SessionHistoryBanner({
 }) {
   const { t } = useTranslation();
   const resumeHistory = useResumeSessionHistory();
-  const degradedReason = session?.historyState.type === "degraded"
-    ? session.historyState.reason
-    : null;
+  const degradedReason =
+    session?.historyState.type === "degraded"
+      ? session.historyState.reason
+      : null;
 
   if (degradedReason === null && notices.length === 0) return null;
 
@@ -38,16 +39,26 @@ export function SessionHistoryBanner({
           role="alert"
           className="mx-3 mb-2 flex items-start gap-2 rounded-md border border-amber-500/30 bg-amber-500/5 px-3 py-2 text-xs sm:mx-4"
         >
-          <IconAlertTriangle className="mt-0.5 size-4 shrink-0 text-amber-600 dark:text-amber-400" aria-hidden="true" />
+          <IconAlertTriangle
+            className="mt-0.5 size-4 shrink-0 text-amber-600 dark:text-amber-400"
+            aria-hidden="true"
+          />
           <div className="min-w-0 flex-1">
             <p className="font-medium text-amber-700 dark:text-amber-300">
               {t("chat.historyNotice.title")}
             </p>
             {notices.map((notice, index) => (
-              <p key={`${notice.type}-${index}`} className="mt-0.5 break-words text-muted-foreground">
+              <p
+                key={`${notice.type}-${index}`}
+                className="mt-0.5 break-words text-muted-foreground"
+              >
                 {notice.type === "unreadable_records"
-                  ? t("chat.historyNotice.unreadableRecords", { count: notice.count })
-                  : t("chat.historyNotice.unrecordedContent", { reason: notice.reason })}
+                  ? t("chat.historyNotice.unreadableRecords", {
+                      count: notice.count,
+                    })
+                  : t("chat.historyNotice.unrecordedContent", {
+                      reason: notice.reason,
+                    })}
               </p>
             ))}
           </div>
@@ -58,9 +69,14 @@ export function SessionHistoryBanner({
           role="alert"
           className="mx-3 mb-2 flex items-start gap-2 rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-xs sm:mx-4"
         >
-          <IconAlertTriangle className="mt-0.5 size-4 shrink-0 text-destructive" aria-hidden="true" />
+          <IconAlertTriangle
+            className="mt-0.5 size-4 shrink-0 text-destructive"
+            aria-hidden="true"
+          />
           <div className="min-w-0 flex-1">
-            <p className="font-medium text-destructive">{t("chat.historyDegraded.title")}</p>
+            <p className="font-medium text-destructive">
+              {t("chat.historyDegraded.title")}
+            </p>
             {/* The backend's reason is the only description of what actually broke
                 — a full disk reads very differently from a missing file — so it is
                 shown verbatim rather than flattened into one generic sentence. */}
