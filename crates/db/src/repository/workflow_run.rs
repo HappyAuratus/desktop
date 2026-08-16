@@ -33,9 +33,9 @@ impl WorkflowRunRepository for SqliteWorkflowRunRepository {
         lease_id: &WorktreeProvisioningLeaseId,
     ) -> Result<WorkflowRunCreateOutcome, RepositoryError> {
         self.pool
-            .with_connection(|connection| {
+            .with_connection_mut(|connection| {
                 let transaction =
-                    Transaction::new_unchecked(connection, TransactionBehavior::Immediate)?;
+                    Transaction::new(connection, TransactionBehavior::Immediate)?;
                 // Same atomic-finish contract as ordinary task creation: a run
                 // must not become visible under a project a cascade already
                 // removed, and its provisioning lease dies with this commit.
@@ -268,9 +268,8 @@ impl WorkflowRunRepository for SqliteWorkflowRunRepository {
         deleted_at: i64,
     ) -> Result<DeleteWorkflowRunResult, RepositoryError> {
         self.pool
-            .with_connection(|connection| {
-                let transaction =
-                    Transaction::new_unchecked(connection, TransactionBehavior::Immediate)?;
+            .with_connection_mut(|connection| {
+                let transaction = Transaction::new(connection, TransactionBehavior::Immediate)?;
                 let run_exists = transaction
                     .query_row(
                         "SELECT 1 FROM workflow_runs WHERE id = ?1 AND is_deleted = 0",

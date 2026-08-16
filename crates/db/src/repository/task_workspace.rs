@@ -33,9 +33,8 @@ impl TaskWorkspaceCommit for SqliteTaskWorkspaceRepository {
         lease_id: &WorktreeProvisioningLeaseId,
     ) -> Result<WorkspaceCommitOutcome, RepositoryError> {
         self.pool
-            .with_connection(|connection| {
-                let transaction =
-                    Transaction::new_unchecked(connection, TransactionBehavior::Immediate)?;
+            .with_connection_mut(|connection| {
+                let transaction = Transaction::new(connection, TransactionBehavior::Immediate)?;
                 if !project_visible(&transaction, task.project_id.as_ref())? {
                     return Ok(WorkspaceCommitOutcome::ProjectNotVisible);
                 }
@@ -57,9 +56,8 @@ impl TaskWorkspaceCommit for SqliteTaskWorkspaceRepository {
         task: &Task,
     ) -> Result<WorkspaceCommitOutcome, RepositoryError> {
         self.pool
-            .with_connection(|connection| {
-                let transaction =
-                    Transaction::new_unchecked(connection, TransactionBehavior::Immediate)?;
+            .with_connection_mut(|connection| {
+                let transaction = Transaction::new(connection, TransactionBehavior::Immediate)?;
                 if !project_visible(&transaction, task.project_id.as_ref())? {
                     return Ok(WorkspaceCommitOutcome::ProjectNotVisible);
                 }

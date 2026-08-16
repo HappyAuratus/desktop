@@ -33,9 +33,9 @@ impl WorkflowRepository for SqliteWorkflowRepository {
         draft: WorkflowSnapshot,
     ) -> Result<CreatedWorkflow, RepositoryError> {
         self.pool
-            .with_connection(|connection| {
+            .with_connection_mut(|connection| {
                 let transaction =
-                    Transaction::new_unchecked(connection, TransactionBehavior::Immediate)?;
+                    Transaction::new(connection, TransactionBehavior::Immediate)?;
                 transaction.execute(
                     "INSERT INTO workflows (id, namespace, name, published_snapshot_id, created_at, updated_at, is_deleted) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
                     params![
@@ -202,9 +202,9 @@ impl WorkflowRepository for SqliteWorkflowRepository {
         deleted_at: i64,
     ) -> Result<DeleteWorkflowResult, RepositoryError> {
         self.pool
-            .with_connection(|connection| {
+            .with_connection_mut(|connection| {
                 let transaction =
-                    Transaction::new_unchecked(connection, TransactionBehavior::Immediate)?;
+                    Transaction::new(connection, TransactionBehavior::Immediate)?;
                 let exists = transaction
                     .query_row(
                         "SELECT 1 FROM workflows WHERE id = ?1 AND is_deleted = 0",
@@ -328,9 +328,9 @@ impl WorkflowRepository for SqliteWorkflowRepository {
         updated_at: i64,
     ) -> Result<UpdateDraftResult, RepositoryError> {
         self.pool
-            .with_connection(|connection| {
+            .with_connection_mut(|connection| {
                 let transaction =
-                    Transaction::new_unchecked(connection, TransactionBehavior::Immediate)?;
+                    Transaction::new(connection, TransactionBehavior::Immediate)?;
                 let workflow_exists = transaction
                     .query_row(
                         "SELECT 1 FROM workflows WHERE id = ?1 AND is_deleted = 0",
@@ -374,9 +374,9 @@ impl WorkflowRepository for SqliteWorkflowRepository {
         created_at: i64,
     ) -> Result<PublishSnapshotResult, RepositoryError> {
         self.pool
-            .with_connection(|connection| {
+            .with_connection_mut(|connection| {
                 let transaction =
-                    Transaction::new_unchecked(connection, TransactionBehavior::Immediate)?;
+                    Transaction::new(connection, TransactionBehavior::Immediate)?;
                 let workflow_exists = transaction
                     .query_row(
                         "SELECT 1 FROM workflows WHERE id = ?1 AND is_deleted = 0",
@@ -453,9 +453,9 @@ impl WorkflowRepository for SqliteWorkflowRepository {
         updated_at: i64,
     ) -> Result<RollbackDraftResult, RepositoryError> {
         self.pool
-            .with_connection(|connection| {
+            .with_connection_mut(|connection| {
                 let transaction =
-                    Transaction::new_unchecked(connection, TransactionBehavior::Immediate)?;
+                    Transaction::new(connection, TransactionBehavior::Immediate)?;
                 let workflow_exists = transaction
                     .query_row(
                         "SELECT 1 FROM workflows WHERE id = ?1 AND is_deleted = 0",
@@ -516,9 +516,9 @@ impl WorkflowRepository for SqliteWorkflowRepository {
         updated_at: i64,
     ) -> Result<ActivateVersionResult, RepositoryError> {
         self.pool
-            .with_connection(|connection| {
+            .with_connection_mut(|connection| {
                 let transaction =
-                    Transaction::new_unchecked(connection, TransactionBehavior::Immediate)?;
+                    Transaction::new(connection, TransactionBehavior::Immediate)?;
                 let workflow_exists = transaction
                     .query_row(
                         "SELECT 1 FROM workflows WHERE id = ?1 AND is_deleted = 0",
@@ -586,9 +586,9 @@ impl WorkflowRepository for SqliteWorkflowRepository {
         _deleted_at: i64,
     ) -> Result<DeleteSnapshotResult, RepositoryError> {
         self.pool
-            .with_connection(|connection| {
+            .with_connection_mut(|connection| {
                 let transaction =
-                    Transaction::new_unchecked(connection, TransactionBehavior::Immediate)?;
+                    Transaction::new(connection, TransactionBehavior::Immediate)?;
                 let workflow = {
                     let mut statement = transaction.prepare(
                         "SELECT id, namespace, name, published_snapshot_id, created_at, updated_at, is_deleted FROM workflows WHERE id = ?1 AND is_deleted = 0",
