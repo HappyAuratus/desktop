@@ -185,8 +185,13 @@ tasks:
 
   run:backend:
     desc: Run the web server backend in development mode
+    vars:
+      TARGET_TRIPLE:
+        sh: rustc --print host-tuple
     env:
       ORA_DATA_DIR: .data
+      ORA_RG_PATH: '{{.ROOT_DIR}}/apps/desktop/src-tauri/binaries/rg-{{.TARGET_TRIPLE}}{{if eq OS "windows"}}.exe{{end}}'
+      ORA_DENO_PATH: '{{.ROOT_DIR}}/apps/desktop/src-tauri/binaries/deno-{{.TARGET_TRIPLE}}{{if eq OS "windows"}}.exe{{end}}'
       ORA_LOG_LEVEL: '{{.LOG_LEVEL | default "debug"}}'
       ORA_LOG_MODE: '{{.LOG_MODE | default "file"}}'
     cmds:

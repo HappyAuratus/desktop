@@ -28,6 +28,18 @@ The remaining runtime paths are derived from `ORA_DATA_DIR`:
 - Log file: `<ORA_DATA_DIR>/logs/ora.log`
 - Session history root: `<ORA_DATA_DIR>/sessions`
 
+The Web runtime also requires explicit executable paths and never falls back to
+the process `PATH`:
+
+- `ORA_RG_PATH`: absolute path to the ripgrep executable passed to the shared
+  backend and `ora-fs`.
+- `ORA_DENO_PATH`: absolute path to the pinned Deno executable retained in
+  application state for Rust-owned Deno integrations.
+
+Both values must identify existing files or startup fails. `task run:backend`
+derives their target triple with `rustc --print host-tuple` and points them at
+the binaries prepared under `apps/desktop/src-tauri/binaries`.
+
 Two Ora processes must not share one data root. SQLite tolerates it, but session history files are written on a single-writer assumption that only holds within one process. See [ACP Agent Runtime](agent-runtime.md).
 
 Startup asks `ora-backend` to create the required directories, bootstrap the database, apply the active migration catalog, and construct the shared composition before the runtime is marked ready. A SQLite database that cannot be opened, migrated, or pooled fails startup with a typed bootstrap error rather than serving requests from a partially initialized runtime. The server retains direct composition only for the Web-only filesystem services.

@@ -153,6 +153,9 @@ jobs:
             libssl-dev \
             build-essential
       - run: pnpm install --frozen-lockfile
+        env:
+          DENO_VERSION: v2.9.5
+          RG_VERSION: 15.2.0
       - run: task test:desktop
 
   # Aggregate gate: the single check to mark as "required" in branch

@@ -1,3 +1,4 @@
+use crate::config::RuntimeBinaryPaths;
 use crate::service::{FileSystemApi, WorkspaceFileApi};
 use ora_backend::Backend;
 use ora_plugin_manager::PluginManager;
@@ -12,6 +13,7 @@ pub struct AppState {
     file_system_api: Arc<FileSystemApi>,
     workspace_file_api: Arc<WorkspaceFileApi>,
     plugin_manager: Arc<PluginManager>,
+    binary_paths: RuntimeBinaryPaths,
     ready: Arc<AtomicBool>,
     shutdown: CancellationToken,
 }
@@ -23,12 +25,14 @@ impl AppState {
         file_system_api: Arc<FileSystemApi>,
         workspace_file_api: Arc<WorkspaceFileApi>,
         plugin_manager: Arc<PluginManager>,
+        binary_paths: RuntimeBinaryPaths,
     ) -> Self {
         Self {
             backend,
             file_system_api,
             workspace_file_api,
             plugin_manager,
+            binary_paths,
             ready: Arc::new(AtomicBool::new(false)),
             shutdown: CancellationToken::new(),
         }
@@ -61,6 +65,11 @@ impl AppState {
     /// Returns the immutable installed-plugin snapshot captured during bootstrap.
     pub fn plugin_manager(&self) -> &Arc<PluginManager> {
         &self.plugin_manager
+    }
+
+    /// Returns the explicit executables shared by Rust-owned Web services.
+    pub fn binary_paths(&self) -> &RuntimeBinaryPaths {
+        &self.binary_paths
     }
 
     /// Marks the runtime as ready after bootstrap finishes successfully.

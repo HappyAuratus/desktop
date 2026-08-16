@@ -3178,6 +3178,7 @@ version = "0.0.0"
 dependencies = [
  "flate2",
  "ora-domain",
+ "ora-fs",
  "serde_yaml",
  "tar",
  "thiserror 2.0.18",

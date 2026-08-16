@@ -45,6 +45,20 @@ pub enum WebBootstrapError {
     InvalidDatabasePathEmpty,
     #[error("ORA_WORKTREE_DIR must not be empty")]
     InvalidWorktreePathEmpty,
+    #[error("{variable} is required")]
+    BinaryPathMissing { variable: &'static str },
+    #[error("{variable} must not be empty")]
+    BinaryPathEmpty { variable: &'static str },
+    #[error("{variable} must be absolute: {path:?}")]
+    BinaryPathNotAbsolute {
+        variable: &'static str,
+        path: std::path::PathBuf,
+    },
+    #[error("{variable} must point to an existing file: {path:?}")]
+    BinaryPathNotFile {
+        variable: &'static str,
+        path: std::path::PathBuf,
+    },
     #[error("ORA_WORKTREE_DIR must be absolute: {worktree_directory:?}")]
     WorktreeDirectoryNotAbsolute {
         worktree_directory: std::path::PathBuf,

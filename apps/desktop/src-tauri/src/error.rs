@@ -1,4 +1,5 @@
 use crate::config::DesktopConfigError;
+use crate::state::BinaryResolutionError;
 use ora_backend::{
     BackendBootstrapError, BackendError, ErrorClassification, RequestLifecycle,
     UuidRequestIdGenerator,
@@ -16,6 +17,8 @@ pub enum DesktopBootstrapError {
     Config(#[from] DesktopConfigError),
     #[error(transparent)]
     Logging(#[from] ora_logging::LoggingInitError),
+    #[error(transparent)]
+    Binaries(#[from] BinaryResolutionError),
     #[error(transparent)]
     Backend(#[from] BackendBootstrapError),
 }

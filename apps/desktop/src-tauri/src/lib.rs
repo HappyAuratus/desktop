@@ -10,11 +10,11 @@ mod workspace_files;
 
 use crate::config::DesktopConfigStore;
 use crate::error::DesktopBootstrapError;
-use crate::state::{DesktopRuntimeGuard, DesktopState};
+use crate::state::{BundledBinaryPaths, DesktopRuntimeGuard, DesktopState};
 use ora_backend::{Backend, BackendPaths};
 use ora_logging::{
-    FileLoggingConfig, LogLevel, LogOutput, LoggingConfig, RotationPolicy, init_logging, ora_info,
-    ora_warn, register_gitlancer_logger,
+    FileLoggingConfig, LogLevel, LogOutput, LoggingConfig, RotationPolicy, init_logging, ora_error,
+    ora_info, ora_warn, register_gitlancer_logger,
 };
 use ora_plugin_manager::PluginManager;
 use std::collections::HashMap;
@@ -30,6 +30,11 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
             let (state, guard) = bootstrap_desktop(app)?;
+            ora_info!(
+                message = "bundled binary paths registered",
+                ripgrep_path = %state.binary_paths.ripgrep_path().display(),
+                deno_path = %state.binary_paths.deno_path().display(),
+            );
             app.manage(state);
             app.manage(guard);
             Ok(())
@@ -204,7 +209,17 @@ fn bootstrap_desktop(
         timezone_source = "system_timezone",
     );
     register_gitlancer_logger();
-    let ripgrep_path = resolve_ripgrep_path();
+    let binary_paths = match BundledBinaryPaths::resolve() {
+        Ok(paths) => paths,
+        Err(error) => {
+            ora_error!(
+                message = "required bundled binary is unavailable; stopping Desktop startup",
+                error = %error,
+            );
+            return Err(error.into());
+        }
+    };
+    let ripgrep_path = binary_paths.ripgrep_path().to_path_buf();
     let backend = Backend::open(BackendPaths {
         database_path: app_data_directory.join("ora.sqlite3"),
         worktree_root: config_snapshot.worktree_root().to_path_buf(),
@@ -233,6 +248,7 @@ fn bootstrap_desktop(
             plugin_manager: Arc::new(plugin_manager),
             config,
             workspace_files,
+            binary_paths,
             app_data_directory: app_data_directory.clone(),
             stream_cancellations: Arc::new(Mutex::new(HashMap::new())),
         },
@@ -273,26 +289,6 @@ fn desktop_relative_path_base(app_data_directory: &Path) -> PathBuf {
             .unwrap_or_else(|| app_data_directory.to_path_buf());
     }
     std::env::current_dir().unwrap_or_else(|_| app_data_directory.to_path_buf())
-}
-
-/// Resolves ripgrep from a development override or the executable directory in a release build.
-fn resolve_ripgrep_path() -> std::path::PathBuf {
-    if cfg!(debug_assertions) {
-        return std::env::var_os("ORA_RG_PATH")
-            .map(std::path::PathBuf::from)
-            .unwrap_or_else(|| std::path::PathBuf::from("rg"));
-    }
-
-    let executable_name = if cfg!(target_os = "windows") {
-        "rg.exe"
-    } else {
-        "rg"
-    };
-    std::env::current_exe()
-        .ok()
-        .and_then(|path| path.parent().map(std::path::Path::to_path_buf))
-        .unwrap_or_else(|| std::path::PathBuf::from("."))
-        .join(executable_name)
 }
 
 /// Carries the startup timezone selected from the operating system and any deferred warning.

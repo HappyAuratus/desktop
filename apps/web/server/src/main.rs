@@ -25,6 +25,11 @@ async fn main() -> Result<(), WebBootstrapError> {
     report_timezone_status(&runtime_config);
     register_gitlancer_logger();
     let app_state = build_app_state(&runtime_config)?;
+    ora_info!(
+        message = "web runtime binary paths registered",
+        ripgrep_path = %app_state.binary_paths().ripgrep_path().display(),
+        deno_path = %app_state.binary_paths().deno_path().display(),
+    );
     let router = build_router(app_state.clone());
     let listener = bind_listener(&runtime_config).await?;
 

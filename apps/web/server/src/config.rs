@@ -13,6 +13,8 @@ const PORT_ENV_VAR: &str = "ORA_PORT";
 const LOG_LEVEL_ENV_VAR: &str = "ORA_LOG_LEVEL";
 const LOG_MODE_ENV_VAR: &str = "ORA_LOG_MODE";
 const LOG_MAX_DAYS_ENV_VAR: &str = "ORA_LOG_MAX_DAYS";
+const RIPGREP_PATH_ENV_VAR: &str = "ORA_RG_PATH";
+const DENO_PATH_ENV_VAR: &str = "ORA_DENO_PATH";
 // Shared with the `timezone` module, which owns the resolution logic that consumes them.
 pub(crate) const TIMEZONE_ENV_VAR: &str = "ORA_TIMEZONE";
 pub(crate) const SYSTEM_TIMEZONE_ENV_VAR: &str = "TZ";
@@ -28,6 +30,7 @@ pub(crate) const DEFAULT_TIMEZONE: &str = "Asia/Shanghai";
 
 /// Groups the runtime configuration required to bootstrap the web server process.
 pub struct RuntimeConfig {
+    binaries: RuntimeBinaryPaths,
     database: DatabaseConfig,
     history: HistoryConfig,
     file_system: FileSystemConfig,
@@ -47,6 +50,11 @@ impl RuntimeConfig {
     /// Returns the database configuration used by the runtime bootstrap.
     pub fn database(&self) -> &DatabaseConfig {
         &self.database
+    }
+
+    /// Returns the explicit executable paths used by the Web runtime.
+    pub fn binaries(&self) -> &RuntimeBinaryPaths {
+        &self.binaries
     }
 
     /// Returns where Ora-owned session history is stored.
@@ -94,6 +102,7 @@ impl RuntimeConfig {
         let resolved_timezone = crate::timezone::resolve(&mut read_variable);
 
         Ok(Self {
+            binaries: RuntimeBinaryPaths::from_reader(&mut read_variable)?,
             worktree,
             history: HistoryConfig::from_reader(&mut read_variable)?,
             file_system,
@@ -104,6 +113,64 @@ impl RuntimeConfig {
             timezone_warning: resolved_timezone.warning,
         })
     }
+}
+
+/// Stores the required external executables configured for the Web runtime.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct RuntimeBinaryPaths {
+    ripgrep: PathBuf,
+    deno: PathBuf,
+}
+
+impl RuntimeBinaryPaths {
+    /// Returns the explicit ripgrep executable consumed by Backend and ora-fs.
+    pub fn ripgrep_path(&self) -> &Path {
+        self.ripgrep.as_path()
+    }
+
+    /// Returns the explicit Deno executable reserved for Rust-owned integrations.
+    pub fn deno_path(&self) -> &Path {
+        self.deno.as_path()
+    }
+
+    /// Loads both required executable paths from the environment-backed reader.
+    fn from_reader(
+        mut read_variable: impl FnMut(&str) -> Option<String>,
+    ) -> Result<Self, WebBootstrapError> {
+        Ok(Self {
+            ripgrep: read_binary_path(RIPGREP_PATH_ENV_VAR, &mut read_variable)?,
+            deno: read_binary_path(DENO_PATH_ENV_VAR, &mut read_variable)?,
+        })
+    }
+
+    /// Creates explicit binary paths for bootstrap tests without mutating process environment.
+    #[cfg(test)]
+    pub(crate) fn for_tests(ripgrep_path: &Path, deno_path: &Path) -> Self {
+        Self {
+            ripgrep: ripgrep_path.to_path_buf(),
+            deno: deno_path.to_path_buf(),
+        }
+    }
+}
+
+/// Reads and validates one required absolute executable path.
+fn read_binary_path(
+    variable: &'static str,
+    mut read_variable: impl FnMut(&str) -> Option<String>,
+) -> Result<PathBuf, WebBootstrapError> {
+    let raw_path =
+        read_variable(variable).ok_or(WebBootstrapError::BinaryPathMissing { variable })?;
+    if raw_path.trim().is_empty() {
+        return Err(WebBootstrapError::BinaryPathEmpty { variable });
+    }
+    let path = PathBuf::from(raw_path);
+    if !path.is_absolute() {
+        return Err(WebBootstrapError::BinaryPathNotAbsolute { variable, path });
+    }
+    if !path.is_file() {
+        return Err(WebBootstrapError::BinaryPathNotFile { variable, path });
+    }
+    Ok(path)
 }
 
 /// Describes the server user's home directory used as the browser's default location.
@@ -352,8 +419,9 @@ fn read_log_max_days(
 #[cfg(test)]
 mod tests {
     use super::{
-        DATA_DIR_ENV_VAR, DEFAULT_HOST, DEFAULT_PORT, DatabaseConfig, FileSystemConfig,
-        HOME_ENV_VAR, HOST_ENV_VAR, LOG_MODE_ENV_VAR, PORT_ENV_VAR, RuntimeConfig, ServerConfig,
+        DATA_DIR_ENV_VAR, DEFAULT_HOST, DEFAULT_PORT, DENO_PATH_ENV_VAR, DatabaseConfig,
+        FileSystemConfig, HOME_ENV_VAR, HOST_ENV_VAR, LOG_MODE_ENV_VAR, PORT_ENV_VAR,
+        RIPGREP_PATH_ENV_VAR, RuntimeBinaryPaths, RuntimeConfig, ServerConfig,
         WORKTREE_DIR_ENV_VAR, WorktreeConfig,
     };
     use crate::error::WebBootstrapError;
@@ -565,10 +633,14 @@ mod tests {
     fn loads_runtime_configuration() {
         let temp_dir = TempDir::new().unwrap();
         let data_dir = temp_dir.path().join("state");
+        let binary_path = std::env::current_exe().unwrap();
         let config = RuntimeConfig::from_reader(|key| match key {
             DATA_DIR_ENV_VAR => Some(data_dir.to_string_lossy().to_string()),
             LOG_MODE_ENV_VAR => Some("file".to_string()),
             HOME_ENV_VAR => Some(temp_dir.path().to_string_lossy().to_string()),
+            RIPGREP_PATH_ENV_VAR | DENO_PATH_ENV_VAR => {
+                Some(binary_path.to_string_lossy().to_string())
+            }
             _ => None,
         })
         .unwrap_or_else(|error| panic!("expected runtime configuration to load: {error}"));
@@ -580,6 +652,10 @@ mod tests {
         assert_eq!(config.database().path(), expected_database_path.as_path());
         assert_eq!(config.worktree().root(), expected_worktree_root.as_path());
         assert_eq!(config.file_system().home_directory(), temp_dir.path());
+        assert_eq!(
+            config.binaries(),
+            &RuntimeBinaryPaths::for_tests(&binary_path, &binary_path)
+        );
         assert_eq!(config.logging().timezone, chrono_tz::Asia::Shanghai);
         assert_eq!(config.timezone_source(), TimezoneSource::Default);
         assert_eq!(
@@ -594,5 +670,23 @@ mod tests {
                 assert_eq!(&file_config.path, &expected_log_path);
             }
         }
+    }
+
+    /// Verifies Web startup cannot silently fall back when one executable path is omitted.
+    #[test]
+    fn requires_both_binary_paths() {
+        let binary_path = std::env::current_exe().unwrap();
+        let error = RuntimeBinaryPaths::from_reader(|key| match key {
+            RIPGREP_PATH_ENV_VAR => Some(binary_path.to_string_lossy().to_string()),
+            _ => None,
+        })
+        .unwrap_err();
+
+        assert!(matches!(
+            error,
+            WebBootstrapError::BinaryPathMissing {
+                variable: DENO_PATH_ENV_VAR
+            }
+        ));
     }
 }

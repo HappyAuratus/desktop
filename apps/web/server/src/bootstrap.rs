@@ -1,4 +1,6 @@
 use crate::app_state::AppState;
+#[cfg(test)]
+use crate::config::RuntimeBinaryPaths;
 use crate::config::RuntimeConfig;
 use crate::error::WebBootstrapError;
 use crate::service::{FileSystemApi, WorkspaceFileApi};
@@ -15,6 +17,7 @@ pub fn build_app_state(runtime_config: &RuntimeConfig) -> Result<AppState, WebBo
         runtime_config.worktree().root(),
         runtime_config.file_system().home_directory(),
         runtime_config.history().sessions_root(),
+        runtime_config.binaries().ripgrep_path(),
         runtime_config.logging().timezone,
     )?;
     let data_dir = runtime_config
@@ -29,8 +32,11 @@ pub fn build_app_state(runtime_config: &RuntimeConfig) -> Result<AppState, WebBo
         Arc::new(FileSystemApi::new(
             runtime_config.file_system().home_directory().to_path_buf(),
         )),
-        Arc::new(WorkspaceFileApi::new(resolve_ripgrep_path())),
+        Arc::new(WorkspaceFileApi::new(
+            runtime_config.binaries().ripgrep_path().to_path_buf(),
+        )),
         Arc::new(plugin_manager),
+        runtime_config.binaries().clone(),
     ))
 }
 
@@ -42,11 +48,15 @@ pub(crate) fn build_app_state_for_database(
     work_dir: &Path,
     data_dir: &Path,
 ) -> Result<AppState, WebBootstrapError> {
+    let test_executable = std::env::current_exe()
+        .unwrap_or_else(|error| panic!("expected current test executable path: {error}"));
+    let binary_paths = RuntimeBinaryPaths::for_tests(Path::new("rg"), &test_executable);
     let backend = build_backend(
         database_path,
         work_dir,
         project_root.parent().unwrap_or(project_root),
         &work_dir.with_file_name("sessions"),
+        binary_paths.ripgrep_path(),
         chrono_tz::UTC,
     )?;
 
@@ -55,8 +65,11 @@ pub(crate) fn build_app_state_for_database(
         Arc::new(FileSystemApi::new(
             project_root.parent().unwrap_or(project_root).to_path_buf(),
         )),
-        Arc::new(WorkspaceFileApi::new(resolve_ripgrep_path())),
+        Arc::new(WorkspaceFileApi::new(
+            binary_paths.ripgrep_path().to_path_buf(),
+        )),
         Arc::new(discover_plugins(data_dir)),
+        binary_paths,
     ))
 }
 
@@ -81,6 +94,7 @@ fn build_backend(
     worktree_root: &Path,
     home_directory: &Path,
     sessions_root: &Path,
+    ripgrep_path: &Path,
     timezone: chrono_tz::Tz,
 ) -> Result<Backend, WebBootstrapError> {
     Backend::open(BackendPaths {
@@ -94,25 +108,10 @@ fn build_backend(
             .unwrap_or_else(|| Path::new("."))
             .join("atoms")
             .join("skills"),
-        ripgrep_path: resolve_ripgrep_path(),
+        ripgrep_path: ripgrep_path.to_path_buf(),
         timezone,
     })
     .map_err(web_backend_bootstrap_error)
-}
-
-/// Resolves ripgrep from a development override or the bundled release executable.
-fn resolve_ripgrep_path() -> std::path::PathBuf {
-    if cfg!(debug_assertions) {
-        return std::env::var_os("ORA_RG_PATH")
-            .map(std::path::PathBuf::from)
-            .unwrap_or_else(|| std::path::PathBuf::from("rg"));
-    }
-
-    std::env::current_exe()
-        .ok()
-        .and_then(|path| path.parent().map(Path::to_path_buf))
-        .unwrap_or_else(|| std::path::PathBuf::from("."))
-        .join("rg.exe")
 }
 
 /// Maps shared backend bootstrap failures into the stable Web process error surface.
@@ -182,9 +181,11 @@ mod tests {
 
     /// Builds one runtime configuration without mutating process environment during tests.
     fn runtime_config(data_dir: &Path) -> RuntimeConfig {
+        let binary_path = std::env::current_exe().unwrap();
         RuntimeConfig::from_reader(|key| match key {
             "ORA_DATA_DIR" => Some(data_dir.to_string_lossy().to_string()),
             "HOME" => Some(data_dir.to_string_lossy().to_string()),
+            "ORA_RG_PATH" | "ORA_DENO_PATH" => Some(binary_path.to_string_lossy().to_string()),
             _ => None,
         })
         .unwrap_or_else(|error| panic!("expected runtime configuration to load: {error}"))
