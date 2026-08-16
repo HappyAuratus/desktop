@@ -138,7 +138,7 @@ jobs:
       # the root workspace target is not cached here.
       - uses: Swatinem/rust-cache@v2
         with:
-          workspaces: apps/desktop/src-tauri -> apps/desktop/src-tauri/target
+          workspaces: apps/desktop/src-tauri -> target
           save-if: ${{ github.ref == 'refs/heads/main' }}
       # System libraries required to compile Tauri 2 on ubuntu-latest (24.04).
       - name: Install Tauri system dependencies
