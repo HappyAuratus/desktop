@@ -14,16 +14,16 @@
 - It provides a task-scoped, read-only workspace explorer with bounded file reads, ripgrep search, and native refresh events.
 - It exposes the shared project/task Spec catalog, safe Markdown reads, and mounted-only refresh streams.
 
-## Data root configuration
+## Filesystem root configuration
 
-The web server reads one runtime data root:
+The web server reads separate runtime data and worktree roots:
 
 - `ORA_DATA_DIR`: root directory for runtime state. Default: `.`, resolved to an absolute path against the process working directory so Git commands running elsewhere still resolve it correctly. A blank value fails startup.
+- `ORA_WORKTREE_DIR`: root directory for task-owned linked worktrees. Default: `<HOME>/.ora/worktrees`, constructed from `FileSystemConfig.home_directory` with path joins. An explicit value must be non-empty and absolute.
 
-Every other runtime path is derived from it — there is no separate variable for any of them:
+The remaining runtime paths are derived from `ORA_DATA_DIR`:
 
 - SQLite database: `<ORA_DATA_DIR>/ora.sqlite3`
-- Worktree creation root: `<ORA_DATA_DIR>/worktrees`
 - Imported skill folders: `<ORA_DATA_DIR>/atoms/skills`
 - Log file: `<ORA_DATA_DIR>/logs/ora.log`
 - Session history root: `<ORA_DATA_DIR>/sessions`
@@ -39,8 +39,8 @@ catalog, and users add repositories through the project API or Web UI. Relative 
 valid in that catalog; they are resolved against the process working directory captured at bootstrap,
 not a later live cwd.
 
-The global worktree root is `<ORA_DATA_DIR>/worktrees`. Task creation resolves the project identified
-by the request and provisions linked worktrees under `<ORA_DATA_DIR>/worktrees/<full-task-id>`.
+The global worktree root is `ORA_WORKTREE_DIR`, or `<HOME>/.ora/worktrees` when the variable is unset. Task creation resolves the project identified
+by the request and provisions linked worktrees under `<worktree-root>/<full-task-id>`.
 Agent session startup instead resolves Task → Worktree → branch name and then asks Git for the
 authoritative linked-worktree path, which becomes the ACP session `cwd`. See
 [Task Worktrees](task-worktrees.md).

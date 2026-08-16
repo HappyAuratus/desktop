@@ -7,6 +7,7 @@ use std::num::NonZeroUsize;
 use std::path::{Path, PathBuf};
 
 const DATA_DIR_ENV_VAR: &str = "ORA_DATA_DIR";
+const WORKTREE_DIR_ENV_VAR: &str = "ORA_WORKTREE_DIR";
 const HOST_ENV_VAR: &str = "ORA_HOST";
 const PORT_ENV_VAR: &str = "ORA_PORT";
 const LOG_LEVEL_ENV_VAR: &str = "ORA_LOG_LEVEL";
@@ -88,13 +89,14 @@ impl RuntimeConfig {
         mut read_variable: impl FnMut(&str) -> Option<String>,
     ) -> Result<Self, WebBootstrapError> {
         let database = DatabaseConfig::from_reader(&mut read_variable)?;
-        let worktree = WorktreeConfig::from_database(&database);
+        let file_system = FileSystemConfig::from_reader(&mut read_variable)?;
+        let worktree = WorktreeConfig::from_reader(&mut read_variable, &file_system)?;
         let resolved_timezone = crate::timezone::resolve(&mut read_variable);
 
         Ok(Self {
             worktree,
             history: HistoryConfig::from_reader(&mut read_variable)?,
-            file_system: FileSystemConfig::from_reader(&mut read_variable)?,
+            file_system,
             database,
             server: ServerConfig::from_reader(&mut read_variable)?,
             logging: read_logging_config(&mut read_variable, resolved_timezone.timezone)?,
@@ -192,11 +194,28 @@ impl WorktreeConfig {
         self.root.as_path()
     }
 
-    /// Derives the linked-worktree root from the shared runtime data directory.
-    fn from_database(database_config: &DatabaseConfig) -> Self {
-        Self {
-            root: default_worktree_root(database_config.path()),
+    /// Loads an explicit worktree root or derives it from the server user's home directory.
+    fn from_reader(
+        mut read_variable: impl FnMut(&str) -> Option<String>,
+        file_system: &FileSystemConfig,
+    ) -> Result<Self, WebBootstrapError> {
+        let Some(raw_root) = read_variable(WORKTREE_DIR_ENV_VAR) else {
+            return Ok(Self {
+                root: file_system.home_directory().join(".ora").join("worktrees"),
+            });
+        };
+        if raw_root.trim().is_empty() {
+            return Err(WebBootstrapError::InvalidWorktreePathEmpty);
         }
+
+        let root = PathBuf::from(raw_root);
+        if !root.is_absolute() {
+            return Err(WebBootstrapError::WorktreeDirectoryNotAbsolute {
+                worktree_directory: root,
+            });
+        }
+
+        Ok(Self { root })
     }
 }
 
@@ -221,14 +240,6 @@ fn read_data_dir_root(
     std::env::current_dir()
         .map(|cwd| cwd.join(path))
         .map_err(WebBootstrapError::CurrentDirectory)
-}
-
-/// Derives the default linked-worktree root from the configured SQLite database location.
-fn default_worktree_root(database_path: &Path) -> PathBuf {
-    database_path
-        .parent()
-        .unwrap_or_else(|| Path::new("."))
-        .join("worktrees")
 }
 
 /// Describes the host and port that the HTTP server binds to.
@@ -343,7 +354,7 @@ mod tests {
     use super::{
         DATA_DIR_ENV_VAR, DEFAULT_HOST, DEFAULT_PORT, DatabaseConfig, FileSystemConfig,
         HOME_ENV_VAR, HOST_ENV_VAR, LOG_MODE_ENV_VAR, PORT_ENV_VAR, RuntimeConfig, ServerConfig,
-        WorktreeConfig,
+        WORKTREE_DIR_ENV_VAR, WorktreeConfig,
     };
     use crate::error::WebBootstrapError;
     use crate::timezone::{TimezoneSource, TimezoneWarning};
@@ -404,33 +415,93 @@ mod tests {
         assert!(matches!(error, WebBootstrapError::InvalidDatabasePathEmpty));
     }
 
-    /// Verifies the linked-worktree root falls back to an absolute path in the current directory when unset.
+    /// Verifies the linked-worktree root defaults under the server user's home directory.
     #[test]
-    fn loads_default_worktree_root_from_current_directory() {
-        let database_config = DatabaseConfig::from_reader(|_| None)
-            .unwrap_or_else(|error| panic!("expected database configuration to load: {error}"));
-        let config = WorktreeConfig::from_database(&database_config);
+    fn loads_default_worktree_root_from_home_directory() {
+        let temp_dir = TempDir::new().unwrap();
+        let file_system = FileSystemConfig::from_reader(|key| match key {
+            HOME_ENV_VAR => Some(temp_dir.path().to_string_lossy().to_string()),
+            _ => None,
+        })
+        .unwrap_or_else(|error| panic!("expected filesystem configuration to load: {error}"));
+        let config = WorktreeConfig::from_reader(|_| None, &file_system)
+            .unwrap_or_else(|error| panic!("expected worktree configuration to load: {error}"));
 
-        let expected_root = std::env::current_dir().unwrap().join("worktrees");
+        let expected_root = temp_dir.path().join(".ora").join("worktrees");
 
         assert_eq!(config.root(), expected_root.as_path());
     }
 
-    /// Verifies the linked-worktree root defaults to a `worktrees` sibling of the SQLite database path.
+    /// Verifies `ORA_WORKTREE_DIR` overrides the home-derived linked-worktree root.
     #[test]
-    fn defaults_worktree_root_next_to_database_path() {
+    fn loads_worktree_root_from_environment() {
         let temp_dir = TempDir::new().unwrap();
-        let data_dir = temp_dir.path().join("state");
-        let database_config = DatabaseConfig::from_reader(|key| match key {
-            DATA_DIR_ENV_VAR => Some(data_dir.to_string_lossy().to_string()),
+        let configured_root = temp_dir.path().join("isolated-worktrees");
+        let file_system = FileSystemConfig::from_reader(|key| match key {
+            HOME_ENV_VAR => Some(temp_dir.path().to_string_lossy().to_string()),
             _ => None,
         })
-        .unwrap_or_else(|error| panic!("expected database configuration to load: {error}"));
-        let config = WorktreeConfig::from_database(&database_config);
+        .unwrap_or_else(|error| panic!("expected filesystem configuration to load: {error}"));
+        let config = WorktreeConfig::from_reader(
+            |key| match key {
+                WORKTREE_DIR_ENV_VAR => Some(configured_root.to_string_lossy().to_string()),
+                _ => None,
+            },
+            &file_system,
+        )
+        .unwrap_or_else(|error| panic!("expected worktree configuration to load: {error}"));
 
-        let expected_root = data_dir.join("worktrees");
+        assert_eq!(config.root(), configured_root.as_path());
+    }
 
-        assert_eq!(config.root(), expected_root.as_path());
+    /// Verifies an empty explicit linked-worktree root fails during configuration loading.
+    #[test]
+    fn rejects_empty_worktree_root() {
+        let temp_dir = TempDir::new().unwrap();
+        let file_system = FileSystemConfig::from_reader(|key| match key {
+            HOME_ENV_VAR => Some(temp_dir.path().to_string_lossy().to_string()),
+            _ => None,
+        })
+        .unwrap_or_else(|error| panic!("expected filesystem configuration to load: {error}"));
+        let error = match WorktreeConfig::from_reader(
+            |key| match key {
+                WORKTREE_DIR_ENV_VAR => Some("   ".to_string()),
+                _ => None,
+            },
+            &file_system,
+        ) {
+            Ok(_) => panic!("expected empty worktree configuration to fail"),
+            Err(error) => error,
+        };
+
+        assert!(matches!(error, WebBootstrapError::InvalidWorktreePathEmpty));
+    }
+
+    /// Verifies a relative explicit linked-worktree root cannot depend on process cwd.
+    #[test]
+    fn rejects_relative_worktree_root() {
+        let temp_dir = TempDir::new().unwrap();
+        let file_system = FileSystemConfig::from_reader(|key| match key {
+            HOME_ENV_VAR => Some(temp_dir.path().to_string_lossy().to_string()),
+            _ => None,
+        })
+        .unwrap_or_else(|error| panic!("expected filesystem configuration to load: {error}"));
+        let error = match WorktreeConfig::from_reader(
+            |key| match key {
+                WORKTREE_DIR_ENV_VAR => Some("relative-worktrees".to_string()),
+                _ => None,
+            },
+            &file_system,
+        ) {
+            Ok(_) => panic!("expected relative worktree configuration to fail"),
+            Err(error) => error,
+        };
+
+        assert!(matches!(
+            error,
+            WebBootstrapError::WorktreeDirectoryNotAbsolute { worktree_directory }
+                if worktree_directory == std::path::PathBuf::from("relative-worktrees")
+        ));
     }
 
     /// Verifies the logging configuration derives the file path from `ORA_DATA_DIR`.
@@ -503,7 +574,7 @@ mod tests {
         .unwrap_or_else(|error| panic!("expected runtime configuration to load: {error}"));
 
         let expected_database_path = data_dir.join("ora.sqlite3");
-        let expected_worktree_root = data_dir.join("worktrees");
+        let expected_worktree_root = temp_dir.path().join(".ora").join("worktrees");
         let expected_log_path = data_dir.join("logs").join("ora.log");
 
         assert_eq!(config.database().path(), expected_database_path.as_path());

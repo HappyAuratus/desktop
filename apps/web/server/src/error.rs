@@ -43,6 +43,12 @@ pub enum WebBootstrapError {
     },
     #[error("ORA_DATA_DIR must not be empty")]
     InvalidDatabasePathEmpty,
+    #[error("ORA_WORKTREE_DIR must not be empty")]
+    InvalidWorktreePathEmpty,
+    #[error("ORA_WORKTREE_DIR must be absolute: {worktree_directory:?}")]
+    WorktreeDirectoryNotAbsolute {
+        worktree_directory: std::path::PathBuf,
+    },
     #[error("failed to resolve the current directory")]
     CurrentDirectory(#[source] std::io::Error),
     #[error("ORA_LOG_MAX_DAYS must be greater than zero")]

@@ -168,7 +168,11 @@ fn bootstrap_desktop(
     app: &mut tauri::App,
 ) -> Result<(DesktopState, DesktopRuntimeGuard), DesktopBootstrapError> {
     let app_data_directory = desktop_data_directory(app)?;
-    let config = DesktopConfigStore::load_or_create(&app_data_directory)?;
+    let home_directory = app
+        .path()
+        .home_dir()
+        .map_err(DesktopBootstrapError::AppDataDirectory)?;
+    let config = DesktopConfigStore::load_or_create(&app_data_directory, &home_directory)?;
     let config_snapshot = config.snapshot()?;
     let resolved_timezone = read_system_timezone();
     let logging = init_logging(desktop_logging_config(
@@ -204,10 +208,7 @@ fn bootstrap_desktop(
     let backend = Backend::open(BackendPaths {
         database_path: app_data_directory.join("ora.sqlite3"),
         worktree_root: config_snapshot.worktree_root().to_path_buf(),
-        home_directory: app
-            .path()
-            .home_dir()
-            .map_err(DesktopBootstrapError::AppDataDirectory)?,
+        home_directory,
         relative_path_base: desktop_relative_path_base(&app_data_directory),
         sessions_root: app_data_directory.join("sessions"),
         skills_root: app_data_directory.join("atoms").join("skills"),

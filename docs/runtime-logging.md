@@ -19,7 +19,7 @@ Initialization is process-wide and the timezone can be set only once, so it must
 - `ORA_LOG_MAX_DAYS`: retention window in days for file-backed logging, counting the current active file. Default: `3`. A non-numeric or zero value fails startup.
 - `ORA_TIMEZONE`: IANA timezone used by structured event timestamps, such as `Asia/Shanghai` or `Europe/London`.
 
-The log file path is **not** independently configurable. It is derived from the runtime data root as `<ORA_DATA_DIR>/logs/ora.log`, alongside the SQLite database and worktree root. See [Web Server Runtime](web-server-runtime.md).
+The log file path is **not** independently configurable. It is derived from the runtime data root as `<ORA_DATA_DIR>/logs/ora.log`, alongside the SQLite database and other runtime state; worktrees use the separate `ORA_WORKTREE_DIR` configuration. See [Web Server Runtime](web-server-runtime.md).
 
 `ORA_LOG_MODE=stdout` writes JSON lines to standard output only — no files are created and retention cleanup does not run. File-backed modes rotate daily and delete the oldest matching files first once the retained daily window would exceed `ORA_LOG_MAX_DAYS`. `stdout_and_file` emits every event to both sinks using the same envelope.
 
