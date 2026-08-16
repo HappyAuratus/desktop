@@ -148,7 +148,11 @@ export type WorkflowNodeRun = {
  * Describes the lifecycle state of one node execution in the public contract.
  */
 export type WorkflowNodeStatus =
-  "pending" | "running" | "succeeded" | "failed" | "cancelled";
+  | "pending"
+  | "running"
+  | "succeeded"
+  | "failed"
+  | "cancelled";
 
 /**
  * Public workflow run payload without persistence audit metadata.
@@ -173,7 +177,11 @@ export type WorkflowRun = {
  * Describes the lifecycle state of a workflow run in the public contract.
  */
 export type WorkflowRunStatus =
-  "pending" | "running" | "succeeded" | "failed" | "cancelled";
+  | "pending"
+  | "running"
+  | "succeeded"
+  | "failed"
+  | "cancelled";
 
 /**
  * Lightweight run summary for list views — name is the associated task title.

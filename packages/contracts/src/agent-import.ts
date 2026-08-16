@@ -19,7 +19,10 @@ export type AgentImportConflictInfo = {
 export type AgentImportDecision = "skip" | "overwrite";
 
 export type AgentImportResultStatus =
-  "imported" | "overwritten" | "skipped" | "stale_conflict";
+  | "imported"
+  | "overwritten"
+  | "skipped"
+  | "stale_conflict";
 
 export type CommitAgentImportRequest = {
   content: string;

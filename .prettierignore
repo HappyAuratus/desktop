@@ -4,6 +4,6 @@ dist-ssr
 target
 .data
 .tmp
-packages/contracts/.test-dist
+packages/contracts
 *.tsbuildinfo
 pnpm-lock.yaml

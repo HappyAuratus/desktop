@@ -119,13 +119,11 @@ export type TaskDiffCommentAnchor = {
 /**
  * Distinguishes anchored root discussions from reply messages in public responses.
  */
-export type TaskDiffCommentKind =
-  | {
-      kind: "thread";
-      anchor: TaskDiffCommentAnchor;
-      status: TaskDiffThreadStatus;
-    }
-  | { kind: "reply"; parentCommentId: string };
+export type TaskDiffCommentKind = {
+  "kind": "thread";
+  anchor: TaskDiffCommentAnchor;
+  status: TaskDiffThreadStatus;
+} | { "kind": "reply"; parentCommentId: string };
 
 /**
  * Selects which Git layer should be rendered in the task review surface.
