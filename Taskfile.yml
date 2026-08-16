@@ -42,6 +42,17 @@ tasks:
   ############## Clean and Build Tasks ##############
   ###################################################
 
+  export-contracts:
+    desc: Regenerate TypeScript contracts and the frontend SDK package
+    cmds:
+      - cargo xtask export-contracts
+      - pnpm --filter @ora/contracts generate:error-schema
+
+  build:
+    desc: Build all crates
+    cmds:
+      - cargo build --workspace
+
   clean:
     desc: Clean build artifacts
     cmds:
@@ -55,14 +66,12 @@ tasks:
       - pnpm store prune
       - cargo clean
 
-  lint:
-    desc: Run linters for the frontend, backend, and Desktop app
-    cmds:
-      - task: lint:frontend
-      - task: lint:backend
-      - task: lint:desktop
-
   format:
+    desc: Format files changed in the working tree or staging area
+    cmds:
+      - pnpm exec node scripts/format-changed.mjs
+
+  format:all:
     desc: Format all frontend, backend, and Desktop packages
     cmds:
       - task: format:frontend
@@ -80,6 +89,12 @@ tasks:
       - pnpm --filter @ora/workflow-runtime format
       - pnpm --filter @ora/app-shell format
 
+  format:backend:
+    desc: Format all Rust crates
+    silent: true
+    cmds:
+      - cargo fmt --all
+
   format:desktop:
     desc: Format the Desktop TypeScript package and Tauri Rust workspace
     silent: true
@@ -87,18 +102,12 @@ tasks:
       - pnpm --filter @ora/desktop format
       - cargo fmt --manifest-path apps/desktop/src-tauri/Cargo.toml --all
 
-  format:backend:
-    desc: Format all Rust crates
-    silent: true
+  lint:
+    desc: Run linters for the frontend, backend, and Desktop app
     cmds:
-      - cargo fmt --all
-
-  lint:backend:
-    desc: Run linters on all Rust crates
-    silent: true
-    cmds:
-      - cargo fmt --all -- --check
-      - cargo clippy --workspace -- -D warnings
+      - task: lint:frontend
+      - task: lint:backend
+      - task: lint:desktop
 
   lint:frontend:
     desc: Run linters on all frontend packages
@@ -117,6 +126,13 @@ tasks:
       - pnpm --filter @ora/app-shell format:check
       - pnpm --filter @ora/app-shell lint
 
+  lint:backend:
+    desc: Run linters on all Rust crates
+    silent: true
+    cmds:
+      - cargo fmt --all -- --check
+      - cargo clippy --workspace -- -D warnings
+
   lint:desktop:
     desc: Run linters for the Desktop TypeScript package and Tauri Rust workspace
     silent: true
@@ -126,16 +142,13 @@ tasks:
       - cargo fmt --manifest-path apps/desktop/src-tauri/Cargo.toml --all -- --check
       - cargo clippy --manifest-path apps/desktop/src-tauri/Cargo.toml -- -D warnings
 
-  export-contracts:
-    desc: Regenerate TypeScript contracts and the frontend SDK package
+  test:
+    desc: Run all frontend, backend, and Desktop checks (may take a long time)
+    silent: true
     cmds:
-      - cargo xtask export-contracts
-      - pnpm --filter @ora/contracts generate:error-schema
-
-  build:
-    desc: Build all crates
-    cmds:
-      - cargo build --workspace
+      - task: test:frontend
+      - task: test:backend
+      - task: test:desktop
 
   test:frontend:
     desc: Run TypeScript package test suites (contracts, chat, platform, workflow-runtime, app-shell)
@@ -161,14 +174,6 @@ tasks:
       - pnpm --filter @ora/desktop test
       - cargo test --manifest-path apps/desktop/src-tauri/Cargo.toml
 
-  test:
-    desc: Run all frontend, backend, and Desktop checks (may take a long time)
-    silent: true
-    cmds:
-      - task: test:frontend
-      - task: test:backend
-      - task: test:desktop
-
   ###################################################
   ############# Run Development Servers #############
   ###################################################
@@ -178,19 +183,6 @@ tasks:
     cmds:
       - pnpm --filter @ora/web-client dev
 
-  run:ui-showcase:
-    desc: Run the UI component showcase in development mode
-    cmds:
-      - pnpm --filter @ora/ui-showcase dev
-
-  run:desktop:
-    desc: Run the desktop Tauri app in development mode
-    env:
-      ORA_DATA_DIR: "{{.ROOT_DIR}}/.data"
-      VSLANG: "1033"
-    cmds:
-      - pnpm --filter @ora/desktop tauri dev
-
   run:backend:
     desc: Run the web server backend in development mode
     env:
@@ -199,6 +191,14 @@ tasks:
       ORA_LOG_MODE: '{{.LOG_MODE | default "file"}}'
     cmds:
       - cargo run --bin ora_web_server
+
+  run:desktop:
+    desc: Run the desktop Tauri app in development mode
+    env:
+      ORA_DATA_DIR: "{{.ROOT_DIR}}/.data"
+      VSLANG: "1033"
+    cmds:
+      - pnpm --filter @ora/desktop tauri dev
 
   logdy:
     desc: Follow Ora backend's daily logs in the local Logdy UI
