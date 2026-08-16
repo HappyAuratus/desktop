@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "format": "prettier --write \"web/**/*.{ts,tsx,css}\" \"*.{html,json,ts}\" --ignore-path ../../.prettierignore",
+    "format:check": "prettier --check \"web/**/*.{ts,tsx,css}\" \"*.{html,json,ts}\" --ignore-path ../../.prettierignore",
     "dev": "vite",
     "build": "tsc -b && vite build",
     "lint": "eslint . --max-warnings 0",

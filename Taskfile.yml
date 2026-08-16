@@ -104,17 +104,24 @@ tasks:
     desc: Run linters on all frontend packages
     silent: true
     cmds:
+      - pnpm --filter @ora/contracts format:check
       - pnpm --filter @ora/contracts lint
+      - pnpm --filter @ora/web-client format:check
       - pnpm --filter @ora/web-client lint
+      - pnpm --filter @ora/chat format:check
       - pnpm --filter @ora/chat lint
+      - pnpm --filter @ora/platform format:check
       - pnpm --filter @ora/platform lint
+      - pnpm --filter @ora/workflow-runtime format:check
       - pnpm --filter @ora/workflow-runtime lint
+      - pnpm --filter @ora/app-shell format:check
       - pnpm --filter @ora/app-shell lint
 
   lint:desktop:
     desc: Run linters for the Desktop TypeScript package and Tauri Rust workspace
     silent: true
     cmds:
+      - pnpm --filter @ora/desktop format:check
       - pnpm --filter @ora/desktop lint
       - cargo fmt --manifest-path apps/desktop/src-tauri/Cargo.toml --all -- --check
       - cargo clippy --manifest-path apps/desktop/src-tauri/Cargo.toml -- -D warnings
@@ -133,7 +140,6 @@ tasks:
   test:frontend:
     desc: Run TypeScript package test suites (contracts, chat, platform, workflow-runtime, app-shell)
     cmds:
-      - task: format:frontend
       - task: export-contracts
       - task: lint:frontend
       - pnpm --filter @ora/contracts test
@@ -145,14 +151,12 @@ tasks:
   test:backend:
     desc: Run Rust crate test suites
     cmds:
-      - task: format:backend
       - task: lint:backend
       - cargo test --workspace
 
   test:desktop:
     desc: Run the Desktop transport and independent Tauri Rust workspace tests
     cmds:
-      - task: format:desktop
       - task: lint:desktop
       - pnpm --filter @ora/desktop test
       - cargo test --manifest-path apps/desktop/src-tauri/Cargo.toml

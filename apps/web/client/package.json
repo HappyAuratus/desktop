@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "format": "prettier --write . --ignore-path ../../../.prettierignore",
+    "format:check": "prettier --check . --ignore-path ../../../.prettierignore",
     "dev": "vite",
     "build": "tsc -b && vite build",
     "lint": "tsc -b --noEmit && eslint . --max-warnings 0",

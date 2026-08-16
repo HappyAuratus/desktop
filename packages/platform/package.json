@@ -12,6 +12,7 @@
   },
   "scripts": {
     "format": "prettier --write . --ignore-path ../../.prettierignore",
+    "format:check": "prettier --check . --ignore-path ../../.prettierignore",
     "lint": "tsc -p tsconfig.json --noEmit && eslint src --max-warnings 0",
     "test": "node ../../scripts/run-with-clean-stderr.mjs \"vitest run\"",
     "test:watch": "vitest"
