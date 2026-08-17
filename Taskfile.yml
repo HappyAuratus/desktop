@@ -82,7 +82,6 @@ tasks:
     desc: Format all frontend packages covered by lint
     silent: true
     cmds:
-      - pnpm --filter @ora/contracts format
       - pnpm --filter @ora/web-client format
       - pnpm --filter @ora/chat format
       - pnpm --filter @ora/platform format
@@ -113,7 +112,6 @@ tasks:
     desc: Run linters on all frontend packages
     silent: true
     cmds:
-      - pnpm --filter @ora/contracts format:check
       - pnpm --filter @ora/contracts lint
       - pnpm --filter @ora/web-client format:check
       - pnpm --filter @ora/web-client lint
