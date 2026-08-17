@@ -84,6 +84,33 @@ fn updates_by_id_and_preserves_identity_and_creation_time() {
 }
 
 #[test]
+fn update_rejects_non_slug_name_without_mutating_catalog_or_package() {
+    let original = skill("skill-1", "review", "Reviews", 10, 20, false);
+    let repository = Rc::new(FakeSkillRepository::with_skills(vec![original.clone()]));
+    let storage = Rc::new(FakeSkillStorage::with_manifest("review", "Reviews"));
+    let original_manifest = storage.manifest("review");
+
+    let error = UpdateSkillHandler::new(repository.clone(), storage.clone(), FixedClock(30))
+        .handle(UpdateSkillRequest {
+            skill_id: "skill-1".to_string(),
+            name: "bad/name".to_string(),
+            description: "Invalid".to_string(),
+            content: None,
+        })
+        .unwrap_err();
+
+    assert_eq!(
+        error,
+        ApplicationError::SkillNameInvalid {
+            name: "bad/name".to_string()
+        }
+    );
+    assert_eq!(repository.skills.borrow().as_slice(), &[original]);
+    assert_eq!(storage.manifest("review"), original_manifest);
+    assert!(!storage.formal_exists("bad/name"));
+}
+
+#[test]
 fn preserves_or_clears_skill_body_without_losing_unknown_front_matter() {
     let repository = Rc::new(FakeSkillRepository::with_skills(vec![skill(
         "skill-1", "review", "Reviews", 10, 20, false,
