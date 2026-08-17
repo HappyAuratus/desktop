@@ -3,7 +3,8 @@ use super::ports::{
     ImportSessionState, SkillImportProgressEvent,
 };
 use crate::skill::{
-    SkillStorage, commit_restored_package, commit_unclaimed_package, has_usable_package,
+    SkillStorage, commit_existing_package, commit_restored_package, commit_unclaimed_package,
+    has_usable_package, persist_promoted_package,
 };
 use crate::{ApplicationError, Clock, SkillRepository};
 use ora_domain::{AuditFields, Namespace, Skill, SkillId};
@@ -223,11 +224,25 @@ where
             };
         }
     };
+    if let Some(existing) = &existing
+        && storage.formal_exists(&existing.name)
+        && storage.stage_existing(&existing.name, &staging).is_err()
+    {
+        return CandidateOutcome::Failed {
+            error_code: "skill_storage_error".to_string(),
+        };
+    }
     if let Err(error_code) = stage_boundary(storage, &staging, snapshot, candidate) {
         return CandidateOutcome::Failed { error_code };
     }
-    let promoted = if existing.is_some() {
-        match commit_restored_package(storage, &skill.name, &staging) {
+    let promoted = if let Some(existing) = &existing {
+        match commit_restored_package(
+            storage,
+            &skill.namespace,
+            &skill.name,
+            &existing.name,
+            &staging,
+        ) {
             Ok(promoted) => promoted,
             Err(ApplicationError::SkillNameConflict { .. }) => {
                 return CandidateOutcome::StaleConflict;
@@ -248,18 +263,16 @@ where
             }
         }
     };
-    let persist_ok = if existing.is_some() {
-        repository.update_skill(skill).is_ok()
+    let persisted = if existing.is_some() {
+        persist_promoted_package(storage, &promoted, || repository.update_skill(skill))
     } else {
-        repository.create_skill(skill).is_ok()
+        persist_promoted_package(storage, &promoted, || repository.create_skill(skill))
     };
-    if !persist_ok {
-        promoted.rollback(storage);
+    if persisted.is_err() {
         return CandidateOutcome::Failed {
             error_code: "skill_repository_error".to_string(),
         };
     }
-    let _ = promoted.finish(storage);
     CandidateOutcome::Imported
 }
 
@@ -315,38 +328,19 @@ where
     if let Err(error_code) = stage_boundary(storage, &staging, snapshot, candidate) {
         return CandidateOutcome::Failed { error_code };
     }
-    if storage.formal_exists(&existing.name) {
-        let handle = match storage.commit_swap(&candidate.name, &existing.name, &staging) {
-            Ok(handle) => handle,
-            Err(_) => {
-                return CandidateOutcome::Failed {
-                    error_code: "skill_storage_error".to_string(),
-                };
-            }
-        };
-        if repository.update_skill(skill).is_err() {
-            let _ = storage.rollback_swap(&handle);
+    let promoted = match commit_existing_package(storage, &candidate.name, &existing.name, &staging)
+    {
+        Ok(promoted) => promoted,
+        Err(_) => {
             return CandidateOutcome::Failed {
-                error_code: "skill_repository_error".to_string(),
+                error_code: "skill_storage_error".to_string(),
             };
         }
-        let _ = storage.finish_swap(&handle);
-    } else {
-        let handle = match storage.commit_create(&candidate.name, &staging) {
-            Ok(handle) => handle,
-            Err(_) => {
-                return CandidateOutcome::Failed {
-                    error_code: "skill_storage_error".to_string(),
-                };
-            }
+    };
+    if persist_promoted_package(storage, &promoted, || repository.update_skill(skill)).is_err() {
+        return CandidateOutcome::Failed {
+            error_code: "skill_repository_error".to_string(),
         };
-        if repository.update_skill(skill).is_err() {
-            let _ = storage.rollback_create(&handle);
-            return CandidateOutcome::Failed {
-                error_code: "skill_repository_error".to_string(),
-            };
-        }
-        let _ = storage.finish_create(&handle);
     }
     CandidateOutcome::Overwritten
 }

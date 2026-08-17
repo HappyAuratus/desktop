@@ -1,6 +1,7 @@
 use super::{
-    CreateSkillHandler, DeleteSkillHandler, GetSkillHandler, ListSkillsHandler, SkillIdGenerator,
-    SkillRepository, SkillStorage, SkillStorageError, UpdateSkillHandler,
+    CreateSkillHandler, DeleteSkillHandler, FilesystemSkillStorage, GetSkillHandler,
+    ListSkillsHandler, SkillIdGenerator, SkillRepository, SkillStorage, SkillStorageError,
+    UpdateSkillHandler,
 };
 use crate::skill::storage::{CreateHandle, DeleteHandle, SwapHandle, TransactionJournal};
 use crate::{ApplicationError, Clock, RepositoryError};
@@ -13,8 +14,10 @@ use ora_utils::path::StrictRelativePath;
 use pretty_assertions::assert_eq;
 use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
+use std::fs;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
+use tempfile::TempDir;
 
 #[test]
 fn creates_trimmed_skill_with_generated_id_and_private_audit_fields() {
@@ -449,6 +452,7 @@ fn restore_does_not_replace_an_untracked_complete_package() {
     assert_eq!(
         error,
         ApplicationError::SkillNameConflict {
+            namespace: "local".to_string(),
             name: "stray".to_string()
         }
     );
@@ -528,10 +532,185 @@ fn surfaces_storage_failures_without_half_staging() {
     assert!(!storage.formal_exists("review"));
 }
 
+#[test]
+fn same_name_restore_preserves_residual_sibling_files() {
+    let temp = TempDir::new().unwrap();
+    let skills_root = temp.path().join("skills");
+    create_residual_package(&skills_root, "review");
+    let repository = Rc::new(FakeSkillRepository::with_skills(vec![skill(
+        "skill-1", "review", "Reviews", 1, 1, false,
+    )]));
+    let storage = FilesystemSkillStorage::new(skills_root.clone());
+
+    CreateSkillHandler::new(repository, storage, FixedSkillIdGenerator, FixedClock(2))
+        .handle(CreateSkillRequest {
+            name: "review".to_string(),
+            description: "Restored".to_string(),
+            content: None,
+        })
+        .unwrap();
+
+    assert_eq!(
+        fs::read_to_string(skills_root.join("review/scripts/helper.js")).unwrap(),
+        "preserve me"
+    );
+}
+
+#[test]
+fn unavailable_rename_moves_the_whole_residual_package() {
+    let temp = TempDir::new().unwrap();
+    let skills_root = temp.path().join("skills");
+    create_residual_package(&skills_root, "review");
+    let repository = Rc::new(FakeSkillRepository::with_skills(vec![skill(
+        "skill-1", "review", "Reviews", 1, 1, false,
+    )]));
+    let storage = FilesystemSkillStorage::new(skills_root.clone());
+
+    UpdateSkillHandler::new(repository.clone(), storage, FixedClock(2))
+        .handle(UpdateSkillRequest {
+            skill_id: "skill-1".to_string(),
+            name: "renamed".to_string(),
+            description: "Restored".to_string(),
+            content: None,
+        })
+        .unwrap();
+
+    assert!(!skills_root.join("review").exists());
+    assert_eq!(
+        fs::read_to_string(skills_root.join("renamed/scripts/helper.js")).unwrap(),
+        "preserve me"
+    );
+    assert_eq!(repository.skills.borrow()[0].name, "renamed");
+}
+
+#[test]
+fn unavailable_rename_never_overwrites_an_existing_target_directory() {
+    for (target_name, target_manifest) in [
+        (
+            "usable-target",
+            render_minimal_manifest("usable-target", "Usable"),
+        ),
+        ("broken-target", "---\nname: [unterminated".to_string()),
+    ] {
+        let temp = TempDir::new().unwrap();
+        let skills_root = temp.path().join("skills");
+        create_residual_package(&skills_root, "review");
+        let target = skills_root.join(target_name);
+        fs::create_dir_all(&target).unwrap();
+        fs::write(target.join("SKILL.md"), &target_manifest).unwrap();
+        fs::write(target.join("owner.txt"), "keep target").unwrap();
+        let repository = Rc::new(FakeSkillRepository::with_skills(vec![skill(
+            "skill-1", "review", "Reviews", 1, 1, false,
+        )]));
+
+        let error = UpdateSkillHandler::new(
+            repository.clone(),
+            FilesystemSkillStorage::new(skills_root.clone()),
+            FixedClock(2),
+        )
+        .handle(UpdateSkillRequest {
+            skill_id: "skill-1".to_string(),
+            name: target_name.to_string(),
+            description: "Restored".to_string(),
+            content: None,
+        })
+        .unwrap_err();
+
+        assert_eq!(
+            error,
+            ApplicationError::SkillNameConflict {
+                namespace: "local".to_string(),
+                name: target_name.to_string(),
+            }
+        );
+        assert_eq!(repository.skills.borrow()[0].name, "review");
+        assert!(skills_root.join("review").exists());
+        assert_eq!(
+            fs::read_to_string(target.join("owner.txt")).unwrap(),
+            "keep target"
+        );
+    }
+}
+
+#[test]
+fn unavailable_rename_rolls_back_package_when_repository_update_fails() {
+    let temp = TempDir::new().unwrap();
+    let skills_root = temp.path().join("skills");
+    create_residual_package(&skills_root, "review");
+    let repository = Rc::new(FakeSkillRepository::with_skills(vec![skill(
+        "skill-1", "review", "Reviews", 1, 1, false,
+    )]));
+    repository.fail_next_update(RepositoryError::new(std::io::Error::other("write failed")));
+
+    let result = UpdateSkillHandler::new(
+        repository.clone(),
+        FilesystemSkillStorage::new(skills_root.clone()),
+        FixedClock(2),
+    )
+    .handle(UpdateSkillRequest {
+        skill_id: "skill-1".to_string(),
+        name: "renamed".to_string(),
+        description: "Restored".to_string(),
+        content: None,
+    });
+
+    assert!(matches!(
+        result,
+        Err(ApplicationError::SkillRepository { .. })
+    ));
+    assert_eq!(repository.skills.borrow()[0].name, "review");
+    assert!(skills_root.join("review").exists());
+    assert!(!skills_root.join("renamed").exists());
+    assert_eq!(
+        fs::read_to_string(skills_root.join("review/scripts/helper.js")).unwrap(),
+        "preserve me"
+    );
+}
+
+#[test]
+fn unavailable_rename_leaves_catalog_and_old_package_on_staging_or_swap_failure() {
+    for fail_swap in [false, true] {
+        let repository = Rc::new(FakeSkillRepository::with_skills(vec![skill(
+            "skill-1", "review", "Reviews", 1, 1, false,
+        )]));
+        let storage = Rc::new(FakeSkillStorage::default());
+        storage
+            .formal
+            .borrow_mut()
+            .insert("review".to_string(), b"---\nname: [unterminated".to_vec());
+        if fail_swap {
+            storage.fail_next_swap();
+        } else {
+            storage.fail_next();
+        }
+
+        let result = UpdateSkillHandler::new(repository.clone(), storage.clone(), FixedClock(2))
+            .handle(UpdateSkillRequest {
+                skill_id: "skill-1".to_string(),
+                name: "renamed".to_string(),
+                description: "Restored".to_string(),
+                content: None,
+            });
+
+        assert!(matches!(result, Err(ApplicationError::SkillStorage { .. })));
+        assert_eq!(repository.skills.borrow()[0].name, "review");
+        assert!(storage.formal_exists("review"));
+        assert!(!storage.formal_exists("renamed"));
+    }
+}
+
+fn create_residual_package(skills_root: &Path, name: &str) {
+    let package = skills_root.join(name);
+    fs::create_dir_all(package.join("scripts")).unwrap();
+    fs::write(package.join("SKILL.md"), "---\nname: [unterminated").unwrap();
+    fs::write(package.join("scripts/helper.js"), "preserve me").unwrap();
+}
+
 #[derive(Default)]
 struct FakeSkillRepository {
     skills: RefCell<Vec<Skill>>,
     next_error: RefCell<Option<RepositoryError>>,
+    next_update_error: RefCell<Option<RepositoryError>>,
 }
 
 impl FakeSkillRepository {
@@ -539,10 +718,14 @@ impl FakeSkillRepository {
         Self {
             skills: RefCell::new(skills),
             next_error: RefCell::new(None),
+            next_update_error: RefCell::new(None),
         }
     }
     fn fail_next(&self, error: RepositoryError) {
         self.next_error.replace(Some(error));
+    }
+    fn fail_next_update(&self, error: RepositoryError) {
+        self.next_update_error.replace(Some(error));
     }
     fn take_error(&self) -> Result<(), RepositoryError> {
         self.next_error.borrow_mut().take().map_or(Ok(()), Err)
@@ -594,6 +777,9 @@ impl SkillRepository for Rc<FakeSkillRepository> {
     fn update_skill(&self, skill: Skill) -> Result<Skill, RepositoryError> {
         self.take_error()?;
         let mut skills = self.skills.borrow_mut();
+        if let Some(error) = self.next_update_error.borrow_mut().take() {
+            return Err(error);
+        }
         if let Some(existing) = skills
             .iter_mut()
             .find(|existing| existing.id == skill.id && !existing.audit_fields.is_deleted)
@@ -633,6 +819,7 @@ struct FakeSkillStorage {
     backups: RefCell<HashMap<PathBuf, (String, Vec<u8>)>>,
     next_path: Cell<usize>,
     fail: Cell<bool>,
+    fail_swap: Cell<bool>,
 }
 
 impl FakeSkillStorage {
@@ -649,6 +836,9 @@ impl FakeSkillStorage {
     }
     fn fail_next(&self) {
         self.fail.replace(true);
+    }
+    fn fail_next_swap(&self) {
+        self.fail_swap.replace(true);
     }
     fn take_fail(&self) -> Result<(), SkillStorageError> {
         if self.fail.replace(false) {
@@ -738,6 +928,11 @@ impl SkillStorage for Rc<FakeSkillStorage> {
         staging: &Path,
     ) -> Result<SwapHandle, SkillStorageError> {
         self.take_fail()?;
+        if self.fail_swap.replace(false) {
+            return Err(SkillStorageError::OperationFailed {
+                message: "fake swap failure".to_string(),
+            });
+        }
         if !self.formal.borrow().contains_key(from_name) {
             return Err(SkillStorageError::FormalDirectoryMissing {
                 name: from_name.to_string(),

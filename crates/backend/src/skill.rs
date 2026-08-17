@@ -269,6 +269,10 @@ mod tests {
             self.inner.remove_dir(path)
         }
 
+        fn remove_formal(&self, name: &str) -> Result<(), SkillStorageError> {
+            self.inner.remove_formal(name)
+        }
+
         fn list_journals(&self) -> Result<Vec<TransactionJournal>, SkillStorageError> {
             self.inner.list_journals()
         }

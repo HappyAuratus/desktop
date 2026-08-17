@@ -165,11 +165,41 @@ function renderSettings(
     },
   ];
   state.skills = [
-    { id: "openspec-verify-change", namespace: "local", name: "openspec-verify-change", description: "skill", availability: "available" },
-    { id: "openspec-archive-change", namespace: "local", name: "openspec-archive-change", description: "skill", availability: "available" },
-    { id: "openspec-explore", namespace: "local", name: "openspec-explore", description: "skill", availability: "available" },
-    { id: "cdase:sfmea_review", namespace: "local", name: "cdase:sfmea_review", description: "skill", availability: "available" },
-    { id: "missing-skill", namespace: "local", name: "missing-skill", description: "skill", availability: "unavailable" },
+    {
+      id: "openspec-verify-change",
+      namespace: "local",
+      name: "openspec-verify-change",
+      description: "skill",
+      availability: "available",
+    },
+    {
+      id: "openspec-archive-change",
+      namespace: "local",
+      name: "openspec-archive-change",
+      description: "skill",
+      availability: "available",
+    },
+    {
+      id: "openspec-explore",
+      namespace: "local",
+      name: "openspec-explore",
+      description: "skill",
+      availability: "available",
+    },
+    {
+      id: "cdase:sfmea_review",
+      namespace: "local",
+      name: "cdase:sfmea_review",
+      description: "skill",
+      availability: "available",
+    },
+    {
+      id: "missing-skill",
+      namespace: "local",
+      name: "missing-skill",
+      description: "skill",
+      availability: "unavailable",
+    },
   ];
   // Warm-session model catalog consumed by the workflow inspector's model selector.
   state.configOptions = [
@@ -887,7 +917,13 @@ describe("WorkflowSettings", () => {
       },
     ];
     state.skills = [
-      { id: "openspec-verify-change", namespace: "local", name: "openspec-verify-change", description: "skill", availability: "available" },
+      {
+        id: "openspec-verify-change",
+        namespace: "local",
+        name: "openspec-verify-change",
+        description: "skill",
+        availability: "available",
+      },
     ];
     // NGA exists as a CLI but its warm session reports no model catalog, so
     // picking it must keep the node on NGA instead of snapping back to the

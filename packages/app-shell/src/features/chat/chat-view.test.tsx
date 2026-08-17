@@ -348,8 +348,20 @@ describe("Composer", () => {
         onSend={() => {}}
         isResponding={false}
         skills={[
-          { id: "skill-1", name: "code-review", description: "Review the current diff", availability: "available" },
-          { id: "skill-2", name: "missing-skill", description: "Lost package", availability: "unavailable" },
+          {
+            id: "skill-1",
+            namespace: "local",
+            name: "code-review",
+            description: "Review the current diff",
+            availability: "available",
+          },
+          {
+            id: "skill-2",
+            namespace: "local",
+            name: "missing-skill",
+            description: "Lost package",
+            availability: "unavailable",
+          },
         ]}
         availableCommands={[]}
       />,
@@ -358,7 +370,9 @@ describe("Composer", () => {
     await user.click(screen.getByRole("button", { name: "打开快捷操作" }));
 
     expect(screen.getByRole("option", { name: "code-review" })).toBeVisible();
-    expect(screen.queryByRole("option", { name: "missing-skill" })).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("option", { name: "missing-skill" }),
+    ).not.toBeInTheDocument();
   });
 
   it("previews a selected image and sends it as ACP image content", async () => {

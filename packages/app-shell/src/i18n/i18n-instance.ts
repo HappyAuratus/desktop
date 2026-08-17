@@ -2969,16 +2969,15 @@ void appI18n.use(initReactI18next).init({
 if (typeof document !== "undefined")
   document.documentElement.lang = initialLocale;
 
+/** Returns the locale currently applied by the app i18n instance. */
+export function activeLocale(): Locale {
+  return appI18n.resolvedLanguage === "en-US" ? "en-US" : "zh-CN";
+}
 appI18n.on("languageChanged", (language) => {
   const locale: Locale = language === "en-US" ? "en-US" : "zh-CN";
   if (typeof document !== "undefined") document.documentElement.lang = locale;
   if (typeof window !== "undefined") {
     try {
-      /** Returns the locale currently applied by the app i18n instance. */
-      export function activeLocale(): Locale {
-        return appI18n.resolvedLanguage === "en-US" ? "en-US" : "zh-CN";
-      }
-
       window.localStorage.setItem(LOCALE_STORAGE_KEY, locale);
     } catch {
       // Storage is an enhancement; language switching still works for the current runtime.

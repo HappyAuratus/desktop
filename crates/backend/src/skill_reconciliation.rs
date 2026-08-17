@@ -558,7 +558,7 @@ mod tests {
 
         assert!(
             repository
-                .find_skill_by_name("missing-dir")
+                .find_skill_by_name(&Namespace::local(), "missing-dir")
                 .unwrap()
                 .is_some()
         );
@@ -577,6 +577,7 @@ mod tests {
             .create_skill(
                 Skill::new(
                     SkillId::new("skill-1"),
+                    Namespace::local(),
                     "broken",
                     "Reviews",
                     AuditFields::new(100, 100, false),
@@ -589,7 +590,47 @@ mod tests {
             reconcile_skill_storage(&pool(&database_path), &skills_root).unwrap();
         });
 
-        assert!(repository.find_skill_by_name("broken").unwrap().is_some());
+        assert!(
+            repository
+                .find_skill_by_name(&Namespace::local(), "broken")
+                .unwrap()
+                .is_some()
+        );
+        assert!(leftover.exists());
+    }
+
+    #[test]
+    fn keeps_visible_record_when_root_manifest_is_damaged() {
+        let temp = TempDir::new().unwrap();
+        let skills_root = temp.path().join("atoms").join("skills");
+        let leftover = skills_root.join("damaged");
+        fs::create_dir_all(&leftover).unwrap();
+        fs::write(leftover.join("SKILL.md"), "---\nname: [unterminated").unwrap();
+        let database_path = temp.path().join("ora.sqlite3");
+        let repository = SqliteSkillRepository::new(pool(&database_path));
+        repository
+            .create_skill(
+                Skill::new(
+                    SkillId::new("skill-2"),
+                    Namespace::local(),
+                    "damaged",
+                    "Reviews",
+                    AuditFields::new(100, 100, false),
+                )
+                .unwrap(),
+            )
+            .unwrap();
+
+        ora_logging::with_trace_logging(|| {
+            reconcile_skill_storage(&pool(&database_path), &skills_root).unwrap();
+        });
+
+        assert!(
+            repository
+                .find_skill_by_name(&Namespace::local(), "damaged")
+                .unwrap()
+                .is_some()
+        );
         assert!(leftover.exists());
     }
 

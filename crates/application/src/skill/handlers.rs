@@ -1,7 +1,8 @@
 use crate::skill::mapper::{map_skill, map_skill_details};
 use crate::skill::package_health::{
-    claim_untracked_name, clear_incomplete_package, commit_restored_package,
+    claim_untracked_name, commit_existing_package, commit_restored_package,
     commit_unclaimed_package, has_usable_package, manifest_is_usable, package_availability,
+    persist_promoted_package,
 };
 use crate::skill::ports::{SkillIdGenerator, SkillRepository};
 use crate::skill::storage::{SkillStorage, SkillStorageError};
@@ -104,11 +105,10 @@ where
             .write_manifest(&staging, manifest.as_bytes())
             .map_err(ApplicationError::from_skill_storage_error)?;
         let promoted = commit_unclaimed_package(&self.storage, &skill.name, &staging)?;
-        let created = self.repository.create_skill(skill).map_err(|error| {
-            promoted.rollback(&self.storage);
-            ApplicationError::from_skill_repository_error(error)
-        })?;
-        promoted.finish(&self.storage)?;
+        let created = persist_promoted_package(&self.storage, &promoted, || {
+            self.repository.create_skill(skill)
+        })
+        .map_err(ApplicationError::from_skill_repository_error)?;
 
         Ok(CreateSkillResponse {
             skill: map_skill(created, SkillAvailability::Available),
@@ -306,17 +306,12 @@ where
         self.storage
             .write_manifest(&staging, rewritten.as_bytes())
             .map_err(ApplicationError::from_skill_storage_error)?;
-        let handle = self
-            .storage
-            .commit_swap(&skill.name, &existing.name, &staging)
-            .map_err(ApplicationError::from_skill_storage_error)?;
-        let updated = self.repository.update_skill(skill).map_err(|error| {
-            let _ = self.storage.rollback_swap(&handle);
-            ApplicationError::from_skill_repository_error(error)
-        })?;
-        self.storage
-            .finish_swap(&handle)
-            .map_err(ApplicationError::from_skill_storage_error)?;
+        let promoted =
+            commit_existing_package(&self.storage, &skill.name, &existing.name, &staging)?;
+        let updated = persist_promoted_package(&self.storage, &promoted, || {
+            self.repository.update_skill(skill)
+        })
+        .map_err(ApplicationError::from_skill_repository_error)?;
 
         Ok(UpdateSkillResponse {
             skill: map_skill(updated, SkillAvailability::Available),
@@ -447,36 +442,33 @@ where
         ),
     )
     .map_err(ApplicationError::from_skill_domain_error)?;
-    if skill.name != existing.name {
-        // The restored package lands under the new name; drop an incomplete leftover left
-        // behind at the old path so it cannot block a later claim of that name.
-        clear_incomplete_package(storage, &existing.name)?;
-        if has_usable_package(storage, &skill.name)? {
-            return Err(ApplicationError::SkillNameConflict {
-                namespace: skill.namespace.to_string(),
-                name: skill.name,
-            });
-        }
+    if skill.name != existing.name && storage.formal_exists(&skill.name) {
+        return Err(ApplicationError::SkillNameConflict {
+            namespace: skill.namespace.to_string(),
+            name: skill.name,
+        });
     }
     let staging = storage
         .create_staging()
         .map_err(ApplicationError::from_skill_storage_error)?;
-    // Keep extra package files when restoring in place over a leftover directory
-    // (for example a truncated SKILL.md that still sits beside scripts).
-    if skill.name == existing.name && storage.formal_exists(&skill.name) {
+    // Preserve the entire residual package for both same-name restore and rename.
+    if storage.formal_exists(&existing.name) {
         storage
-            .stage_existing(&skill.name, &staging)
+            .stage_existing(&existing.name, &staging)
             .map_err(ApplicationError::from_skill_storage_error)?;
     }
     let manifest = render_manifest(&skill.name, &skill.description, content.unwrap_or(""));
     storage
         .write_manifest(&staging, manifest.as_bytes())
         .map_err(ApplicationError::from_skill_storage_error)?;
-    let promoted = commit_restored_package(storage, &skill.name, &staging)?;
-    let updated = repository.update_skill(skill).map_err(|error| {
-        promoted.rollback(storage);
-        ApplicationError::from_skill_repository_error(error)
-    })?;
-    promoted.finish(storage)?;
+    let promoted = commit_restored_package(
+        storage,
+        &skill.namespace,
+        &skill.name,
+        &existing.name,
+        &staging,
+    )?;
+    let updated = persist_promoted_package(storage, &promoted, || repository.update_skill(skill))
+        .map_err(ApplicationError::from_skill_repository_error)?;
     Ok(updated)
 }

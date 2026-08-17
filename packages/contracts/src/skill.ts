@@ -56,7 +56,7 @@ export type Skill = {
 };
 
 /**
- * Reports whether a catalog skill still has a usable on-disk package.
+ * Reports whether a catalog skill still has a loadable on-disk package.
  */
 export type SkillAvailability = "available" | "unavailable";
 

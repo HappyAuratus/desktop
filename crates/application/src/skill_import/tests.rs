@@ -803,6 +803,49 @@ fn imports_over_an_untracked_package_when_the_name_is_unclaimed() {
 }
 
 #[test]
+fn importing_over_an_unavailable_row_preserves_residual_sibling_files() {
+    let temp = TempDir::new().unwrap();
+    let repository = FakeSkillRepository::new();
+    repository.push_skill("skill-1", "review", "Reviews", 100, 100);
+    let formal = temp.path().join("atoms").join("skills").join("review");
+    fs::create_dir_all(formal.join("scripts")).unwrap();
+    fs::write(formal.join("SKILL.md"), "---\nname: [unterminated").unwrap();
+    fs::write(formal.join("scripts/helper.js"), "preserve me").unwrap();
+
+    let source = temp.path().join("source");
+    write_manifest(&source, "SKILL.md", "review", "Imported review");
+    let (service, _) = test_service(repository.clone(), &temp, Duration::from_secs(30));
+    let session = prepare_folder(&service, &source);
+    assert_eq!(
+        session.candidates[0].status,
+        ora_contracts::SkillImportCandidateStatus::Ready
+    );
+
+    service
+        .commit(CommitSkillImportRequest {
+            session_id: session.session_id.clone(),
+            decisions: vec![],
+        })
+        .unwrap();
+    let completed = wait_for_completion(&service, &session.session_id);
+
+    assert_eq!(
+        completed.progress.results[0].status,
+        ora_contracts::SkillImportResultStatus::Imported
+    );
+    assert_eq!(repository.snapshot()[0].id.to_string(), "skill-1");
+    assert_eq!(
+        fs::read_to_string(formal.join("scripts/helper.js")).unwrap(),
+        "preserve me"
+    );
+    assert!(
+        fs::read_to_string(formal.join("SKILL.md"))
+            .unwrap()
+            .contains("Imported review")
+    );
+}
+
+#[test]
 fn imports_the_same_name_after_deleting_an_unavailable_skill() {
     let temp = TempDir::new().unwrap();
     let repository = FakeSkillRepository::new();
