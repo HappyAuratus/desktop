@@ -13,6 +13,7 @@ members = [
     "crates/logging",
     "crates/plugin-manifest",
     "crates/plugin-manager",
+    "crates/plugin-runtime",
     "crates/process",
     "crates/pty",
     "crates/scheduler",
@@ -45,6 +46,7 @@ ora-history = { path = "crates/history" }
 ora-logging = { path = "crates/logging" }
 ora-plugin-manifest = { path = "crates/plugin-manifest" }
 ora-plugin-manager = { path = "crates/plugin-manager" }
+ora-plugin-runtime = { path = "crates/plugin-runtime" }
 ora-process = { path = "crates/process" }
 ora-pty = { path = "crates/pty" }
 ora-scheduler = { path = "crates/scheduler" }

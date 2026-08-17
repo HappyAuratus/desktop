@@ -1857,6 +1857,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "ora-plugin-runtime"
+version = "0.0.0"
+dependencies = [
+ "ora-logging",
+ "ora-process",
+ "pretty_assertions",
+ "serde_json",
+ "thiserror 2.0.19",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
 name = "ora-process"
 version = "0.0.0"
 dependencies = [

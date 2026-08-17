@@ -87,6 +87,7 @@ tasks:
       - pnpm --filter @ora/platform format
       - pnpm --filter @ora/workflow-runtime format
       - pnpm --filter @ora/app-shell format
+      - pnpm --filter @ora-space/plugin-sdk format
 
   format:backend:
     desc: Format all Rust crates
@@ -123,6 +124,8 @@ tasks:
       - pnpm --filter @ora/workflow-runtime lint
       - pnpm --filter @ora/app-shell format:check
       - pnpm --filter @ora/app-shell lint
+      - pnpm --filter @ora-space/plugin-sdk format:check
+      - pnpm --filter @ora-space/plugin-sdk lint
 
   lint:backend:
     desc: Run linters on all Rust crates
@@ -149,7 +152,7 @@ tasks:
       - task: test:desktop
 
   test:frontend:
-    desc: Run TypeScript package test suites (contracts, chat, platform, workflow-runtime, app-shell)
+    desc: Run TypeScript package test suites, including the Deno plugin SDK
     cmds:
       - task: export-contracts
       - task: lint:frontend
@@ -158,6 +161,7 @@ tasks:
       - pnpm --filter @ora/platform test
       - pnpm --filter @ora/workflow-runtime test
       - pnpm --filter @ora/app-shell test
+      - pnpm --filter @ora-space/plugin-sdk test
 
   test:backend:
     desc: Run Rust crate test suites
