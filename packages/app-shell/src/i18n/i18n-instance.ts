@@ -113,7 +113,7 @@ export const translationResources = {
     "errors.workflow_run_active": "该工作流运行仍处于活动状态。",
     "errors.workflow_run_graph_parse": "工作流图解析失败。",
     "errors.workflow_run_validation": "工作流运行校验失败。",
-    "errors.workflow_skill_not_found": "未找到该工作流技能。",
+    "errors.workflow_skill_not_found": "该工作流需要的技能不可用。",
     "errors.workflow_role_not_found": "未找到该工作流角色。",
     "errors.workflow_run_start_failed": "启动工作流运行失败。",
     "errors.workflow_run_not_restartable": "该工作流运行无法重新启动。",
@@ -669,8 +669,10 @@ export const translationResources = {
       "选择一个技能文件夹或 ZIP、.skill、.tar.gz、.tgz 压缩包。导入前会先检查所有候选项。",
     "settings.skills.importFolder": "选择文件夹",
     "settings.skills.importArchive": "选择压缩包",
-    "settings.skills.importProgress":
-      "正在处理 {{processed}} / {{total}} 个技能",
+    "settings.skills.importing": "导入中…",
+    "settings.skills.importDiscovered": "共 {{count}} 个技能",
+    "settings.skills.importResultLine": "{{name}}：{{reason}}",
+    "settings.skills.importProgress": "导入中… {{processed}} / {{total}}",
     "settings.skills.importFiles": "个文件",
     "settings.skills.importExisting": "现有描述：{{description}}",
     "settings.skills.importSkip": "跳过",
@@ -678,9 +680,53 @@ export const translationResources = {
     "settings.skills.importCommit": "确认导入",
     "settings.skills.importCompleted": "导入已完成。",
     "settings.skills.importAnother": "继续导入",
+    "settings.skills.importChooseAnother": "重新选择",
     "settings.skills.deleteTitle": "删除“{{name}}”？",
     "settings.skills.deleteDescription":
       "该技能将从可用命令中移除，此操作无法撤销。",
+    "settings.skills.unavailable": "不可用",
+    "settings.skills.unavailableTitle": "“{{name}}”的技能包已丢失",
+    "settings.skills.unavailableDescription":
+      "这个技能还在列表里，但本地文件找不到了。请删除，或重新上传同名技能包。",
+    "settings.skills.unavailableRestore": "重新上传",
+    "settings.skills.unavailableAction": "处理",
+    "settings.skills.unavailableBanner":
+      "{{count}} 个技能的本地文件已丢失，请删除或重新上传。",
+    "settings.skills.importRestoreHint": "请导入名为“{{name}}”的技能包以恢复。",
+    "settings.skills.importRestoreMissing":
+      "导入内容里没有名为“{{name}}”的技能。",
+    "settings.skills.importCompletedWithFailures": "{{count}} 个技能导入失败。",
+    "settings.skills.importStatus.ready": "待导入",
+    "settings.skills.importStatus.conflict": "同名冲突",
+    "settings.skills.importStatus.invalid": "无效",
+    "settings.skills.importStatus.imported": "已导入",
+    "settings.skills.importStatus.overwritten": "已覆盖",
+    "settings.skills.importStatus.skipped": "已跳过",
+    "settings.skills.importStatus.failed": "导入失败",
+    "settings.skills.importStatus.staleconflict": "目标已变化",
+    "settings.skills.importStatus.prepared": "待确认",
+    "settings.skills.importStatus.committing": "导入中",
+    "settings.skills.importStatus.completed": "已完成",
+    "settings.skills.importStatus.cancelled": "已取消",
+    "settings.skills.importStatus.unknown": "未知状态",
+    "settings.skills.importReason.yaml_invalid": "SKILL.md 格式无效。",
+    "settings.skills.importReason.name_missing": "SKILL.md 缺少名称。",
+    "settings.skills.importReason.name_invalid":
+      "技能名称只能使用字母、数字、点、下划线和连字符。",
+    "settings.skills.importReason.description_missing": "SKILL.md 缺少描述。",
+    "settings.skills.importReason.description_too_large":
+      "技能描述超过最大长度。",
+    "settings.skills.importReason.skill_manifest_too_large":
+      "SKILL.md 超过最大大小。",
+    "settings.skills.importReason.invalid_candidate": "该技能无效，无法导入。",
+    "settings.skills.importReason.decision_missing":
+      "同名技能尚未选择跳过或覆盖。",
+    "settings.skills.importReason.skill_storage_error": "无法写入技能文件。",
+    "settings.skills.importReason.skill_repository_error": "无法保存技能记录。",
+    "settings.skills.importReason.skill_name_invalid": "技能名称无效。",
+    "settings.skills.importReason.stale_conflict":
+      "目标技能已变化，请重新导入。",
+    "settings.skills.importReason.unknown": "导入失败。",
     "settings.skills.marketplacesTitle": "Skill 市场",
     "settings.skills.marketplacesDescription":
       "从公开市场发现 Skill，或在企业内网接入组织专属能力。",
@@ -1482,7 +1528,8 @@ export const translationResources = {
     "errors.workflow_run_active": "The workflow run is still active.",
     "errors.workflow_run_graph_parse": "Failed to parse the workflow graph.",
     "errors.workflow_run_validation": "Workflow run validation failed.",
-    "errors.workflow_skill_not_found": "Workflow skill not found.",
+    "errors.workflow_skill_not_found":
+      "A skill required by this workflow is unavailable.",
     "errors.workflow_role_not_found": "Workflow role not found.",
     "errors.workflow_run_start_failed": "Failed to start the workflow run.",
     "errors.workflow_run_not_restartable":
@@ -2077,8 +2124,10 @@ export const translationResources = {
       "Select one skill folder or a ZIP, .skill, .tar.gz, or .tgz archive. Ora validates every candidate before importing.",
     "settings.skills.importFolder": "Choose folder",
     "settings.skills.importArchive": "Choose archive",
-    "settings.skills.importProgress":
-      "Processed {{processed}} / {{total}} skills",
+    "settings.skills.importing": "Importing...",
+    "settings.skills.importDiscovered": "{{count}} skill(s)",
+    "settings.skills.importResultLine": "{{name}}: {{reason}}",
+    "settings.skills.importProgress": "Importing... {{processed}} / {{total}}",
     "settings.skills.importFiles": "files",
     "settings.skills.importExisting": "Existing description: {{description}}",
     "settings.skills.importSkip": "Skip",
@@ -2086,9 +2135,61 @@ export const translationResources = {
     "settings.skills.importCommit": "Confirm import",
     "settings.skills.importCompleted": "Import completed.",
     "settings.skills.importAnother": "Import another",
+    "settings.skills.importChooseAnother": "Choose another",
     "settings.skills.deleteTitle": "Delete “{{name}}”?",
     "settings.skills.deleteDescription":
       "This skill will be removed from available commands. This cannot be undone.",
+    "settings.skills.unavailable": "Unavailable",
+    "settings.skills.unavailableTitle":
+      "The “{{name}}” skill package is missing",
+    "settings.skills.unavailableDescription":
+      "The skill is still listed, but its local files are gone. Delete it, or re-upload a package with the same name.",
+    "settings.skills.unavailableRestore": "Re-upload",
+    "settings.skills.unavailableAction": "Fix",
+    "settings.skills.unavailableBanner":
+      "{{count}} skill(s) lost local files. Delete or re-upload.",
+    "settings.skills.importRestoreHint":
+      "Import a package named “{{name}}” to restore it.",
+    "settings.skills.importRestoreMissing":
+      "This import does not include a skill named “{{name}}”.",
+    "settings.skills.importCompletedWithFailures":
+      "{{count}} skill(s) failed to import.",
+    "settings.skills.importStatus.ready": "Ready",
+    "settings.skills.importStatus.conflict": "Name conflict",
+    "settings.skills.importStatus.invalid": "Invalid",
+    "settings.skills.importStatus.imported": "Imported",
+    "settings.skills.importStatus.overwritten": "Overwritten",
+    "settings.skills.importStatus.skipped": "Skipped",
+    "settings.skills.importStatus.failed": "Import failed",
+    "settings.skills.importStatus.staleconflict": "Target changed",
+    "settings.skills.importStatus.prepared": "Ready to confirm",
+    "settings.skills.importStatus.committing": "Importing",
+    "settings.skills.importStatus.completed": "Completed",
+    "settings.skills.importStatus.cancelled": "Cancelled",
+    "settings.skills.importStatus.unknown": "Unknown status",
+    "settings.skills.importReason.yaml_invalid": "SKILL.md is not valid YAML.",
+    "settings.skills.importReason.name_missing": "SKILL.md is missing a name.",
+    "settings.skills.importReason.name_invalid":
+      "Skill names may only use letters, numbers, dots, underscores, and hyphens.",
+    "settings.skills.importReason.description_missing":
+      "SKILL.md is missing a description.",
+    "settings.skills.importReason.description_too_large":
+      "The skill description exceeds the maximum length.",
+    "settings.skills.importReason.skill_manifest_too_large":
+      "SKILL.md exceeds the maximum size.",
+    "settings.skills.importReason.invalid_candidate":
+      "This skill is invalid and cannot be imported.",
+    "settings.skills.importReason.decision_missing":
+      "Choose skip or overwrite for the existing skill.",
+    "settings.skills.importReason.skill_storage_error":
+      "The skill files could not be written.",
+    "settings.skills.importReason.skill_repository_error":
+      "The skill record could not be saved.",
+    "settings.skills.importReason.skill_name_invalid":
+      "The skill name is invalid.",
+    "settings.skills.importReason.stale_conflict":
+      "The target skill changed. Import it again.",
+    "settings.skills.importReason.unknown": "Import failed.",
     "settings.skills.marketplacesTitle": "Skill marketplaces",
     "settings.skills.marketplacesDescription":
       "Discover public skills or connect organization-specific capabilities on an enterprise network.",
@@ -2868,6 +2969,10 @@ void appI18n.use(initReactI18next).init({
 if (typeof document !== "undefined")
   document.documentElement.lang = initialLocale;
 
+/** Returns the locale currently applied by the app i18n instance. */
+export function activeLocale(): Locale {
+  return appI18n.resolvedLanguage === "en-US" ? "en-US" : "zh-CN";
+}
 appI18n.on("languageChanged", (language) => {
   const locale: Locale = language === "en-US" ? "en-US" : "zh-CN";
   if (typeof document !== "undefined") document.documentElement.lang = locale;

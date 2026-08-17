@@ -5,7 +5,7 @@ use super::ports::{
     CandidateDecision, CandidateStatus, ConflictSkillInfo, ImportCandidate, ImportSessionState,
     SkillImportConfig, SkillImportIdGenerator, SkillImportProgressPublisher,
 };
-use crate::skill::SkillStorage;
+use crate::skill::{SkillStorage, has_usable_package};
 use crate::{ApplicationError, Clock, SkillRepository};
 use ora_contracts::{
     CancelSkillImportRequest, CancelSkillImportResponse, CommitSkillImportRequest,
@@ -82,6 +82,7 @@ where
         fs::create_dir_all(&session_root).map_err(map_io_error)?;
 
         let repository = self.repository.clone();
+        let storage = self.storage.clone();
         let id_generator = self.id_generator.clone();
         let limits = self.config.limits.clone();
         let preparation_timeout = self.config.preparation_timeout;
@@ -92,6 +93,7 @@ where
         let _ = std::thread::spawn(move || {
             let result = prepare_candidates(
                 &repository,
+                &storage,
                 &id_generator,
                 &limits,
                 &thread_session_root,
@@ -422,8 +424,9 @@ where
 }
 
 /// Materializes and scans one source into prepared candidates (runs under the timeout budget).
-fn prepare_candidates<Repository, IdGenerator>(
+fn prepare_candidates<Repository, Storage, IdGenerator>(
     repository: &Repository,
+    storage: &Storage,
     id_generator: &IdGenerator,
     limits: &Limits,
     session_root: &Path,
@@ -431,6 +434,7 @@ fn prepare_candidates<Repository, IdGenerator>(
 ) -> Result<Vec<ImportCandidate>, SkillImportError>
 where
     Repository: SkillRepository,
+    Storage: SkillStorage,
     IdGenerator: SkillImportIdGenerator,
 {
     let snapshot_root = session_root.join("snapshot");
@@ -476,6 +480,7 @@ where
             &snapshot,
             boundary,
             repository,
+            storage,
             id_generator,
             limits,
         )?);
@@ -485,15 +490,17 @@ where
 }
 
 /// Builds one candidate from its boundary, parsing the manifest and querying conflicts.
-fn build_candidate<Repository, IdGenerator>(
+fn build_candidate<Repository, Storage, IdGenerator>(
     snapshot: &ExtractedTree,
     boundary: &SkillBoundary,
     repository: &Repository,
+    storage: &Storage,
     id_generator: &IdGenerator,
     limits: &Limits,
 ) -> Result<ImportCandidate, SkillImportError>
 where
     Repository: SkillRepository,
+    Storage: SkillStorage,
     IdGenerator: SkillImportIdGenerator,
 {
     let candidate_id = id_generator.generate_import_id();
@@ -508,7 +515,15 @@ where
                 .map_err(|error| SkillImportError::Repository {
                     message: error.to_string(),
                 })?;
-            let existing_skill = existing.map(|skill| ConflictSkillInfo {
+            let usable = existing
+                .as_ref()
+                .map(|skill| has_usable_package(storage, &skill.name))
+                .transpose()
+                .map_err(|error| SkillImportError::Storage {
+                    message: error.to_string(),
+                })?
+                .unwrap_or(false);
+            let existing_skill = existing.filter(|_| usable).map(|skill| ConflictSkillInfo {
                 skill_id: skill.id,
                 name: skill.name,
                 updated_at: skill.audit_fields.updated_at,

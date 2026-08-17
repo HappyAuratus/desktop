@@ -23,7 +23,7 @@ pub(crate) struct SkillApi {
         SystemClock,
     >,
     get: GetSkillHandler<SqliteSkillRepository, FilesystemSkillStorage>,
-    list: ListSkillsHandler<SqliteSkillRepository>,
+    list: ListSkillsHandler<SqliteSkillRepository, FilesystemSkillStorage>,
     update: UpdateSkillHandler<SqliteSkillRepository, FilesystemSkillStorage, SystemClock>,
     delete: DeleteSkillHandler<SqliteSkillRepository, FilesystemSkillStorage, SystemClock>,
     import: SkillImportService<
@@ -49,7 +49,7 @@ impl SkillApi {
                 clock,
             ),
             get: GetSkillHandler::new(repository.clone(), storage.clone()),
-            list: ListSkillsHandler::new(repository.clone()),
+            list: ListSkillsHandler::new(repository.clone(), storage.clone()),
             update: UpdateSkillHandler::new(repository.clone(), storage.clone(), clock),
             delete: DeleteSkillHandler::new(repository.clone(), storage, clock),
             import: SkillImportService::new(
@@ -267,6 +267,10 @@ mod tests {
 
         fn remove_dir(&self, path: &Path) -> Result<(), SkillStorageError> {
             self.inner.remove_dir(path)
+        }
+
+        fn remove_formal(&self, name: &str) -> Result<(), SkillStorageError> {
+            self.inner.remove_formal(name)
         }
 
         fn list_journals(&self) -> Result<Vec<TransactionJournal>, SkillStorageError> {

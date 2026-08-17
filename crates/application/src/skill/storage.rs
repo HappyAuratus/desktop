@@ -180,6 +180,14 @@ pub trait SkillStorage {
     /// Removes one directory (best effort by the caller's recovery policy).
     fn remove_dir(&self, path: &Path) -> Result<(), SkillStorageError>;
 
+    /// Removes the formal `<name>` directory when it still exists.
+    ///
+    /// Callers must only use this for incomplete leftovers (no root `SKILL.md`) or for
+    /// post-delete cleanup when `commit_delete` already reported the directory missing.
+    /// Create and import of an unclaimed name replace leftovers through a journaled swap
+    /// instead of calling this, so a failed persist can restore the original package.
+    fn remove_formal(&self, name: &str) -> Result<(), SkillStorageError>;
+
     /// Lists every unresolved transaction journal for startup recovery.
     fn list_journals(&self) -> Result<Vec<TransactionJournal>, SkillStorageError>;
 

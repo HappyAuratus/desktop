@@ -4,7 +4,7 @@
 
 ## Responsibilities
 
-- `Backend::open` creates required directories, bootstraps and migrates SQLite, reconciles imported skill packages, constructs APIs, starts the [agent runtime](src/agent_runtime/README.md), and composes the workflow run engine.
+- `Backend::open` creates required directories, bootstraps and migrates SQLite, reconciles imported skill packages (catalog rows whose on-disk package is missing or unreadable stay unavailable instead of refusing to start), constructs APIs, starts the [agent runtime](src/agent_runtime/README.md), and composes the workflow run engine.
 - Workflow run start, restart, HITL, and cancel are live production paths: `build_workflow_run_engine` constructs `WorkflowRunEngine` with `WorkflowRunNodeExecutor` as the `NodeExecutor`. The executor drives each agent node through a real Ora session and reports completion through `WorkflowRunCallback`. Adapters call the resulting `WorkflowRunControlHandler`; they do not construct the executor.
 - `Backend::open` also owns one `AppEventHub`. It exposes the hub through the transport adapters as a best-effort invalidation stream and injects only its internal publisher into session actors; the hub does not depend on Axum or Tauri.
 - The shared `ora-scheduler::Scheduler` owns actor-facing delayed work. Scheduler tasks enqueue internal commands, while actors remain the only code that calls ACP or writes session state.

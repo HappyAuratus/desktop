@@ -23,7 +23,8 @@ Contracts are the app-facing protocol, not a projection of the domain. Each enti
 - `Project`: `id`, `name`, `rootPath`
 - `Task`: `id`, `projectId`, `title`, `status`, `workspaceMode`
 - `Session`: `id`, `taskId`, `agentCli`, `status`, `historyState`
-- `Skill` and `Agent`: `id`, `name`, `description`
+- `Skill`: `id`, `namespace`, `name`, `description`, `availability`
+- `Agent`: `id`, `namespace`, `name`, `description`
 - `ProjectBranch`: `name`, `refName`, `displayName`
 - Workspace file contracts keep task identity in the request and expose only normalized relative paths: `WorkspaceEntry`, `ReadWorkspaceFileResponse`, `SearchWorkspaceResponse`, and `WorkspaceFileEventBatch`. The server resolves the task's managed workspace; callers never provide a filesystem root.
 - `Workflow`: `id`, `name`, `publishedSnapshotId`
