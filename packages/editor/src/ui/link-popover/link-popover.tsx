@@ -26,8 +26,6 @@ import {
 import { Separator } from "../../primitive/separator";
 import { Card, CardBody, CardItemGroup } from "../../primitive/card";
 import { Input, InputGroup } from "../../primitive/input";
-import { UserLangEnum } from "../../types";
-import { useEditorLanguage } from "../../context";
 
 export interface LinkMainProps {
   /**
@@ -74,7 +72,6 @@ export interface LinkPopoverProps
  */
 export const LinkButton = React.forwardRef<HTMLButtonElement, ButtonProps>(
   ({ className, children, ...props }, ref) => {
-    const language = useEditorLanguage();
     return (
       <Button
         type="button"
@@ -83,7 +80,7 @@ export const LinkButton = React.forwardRef<HTMLButtonElement, ButtonProps>(
         role="button"
         tabIndex={-1}
         aria-label="Link"
-        tooltip={i18nText[language].link}
+        tooltip="Link"
         ref={ref}
         {...props}
       >
@@ -106,7 +103,6 @@ const LinkMain: React.FC<LinkMainProps> = ({
   openLink,
   isActive,
 }) => {
-  const language = useEditorLanguage();
   const isMobile = useIsMobile();
 
   const handleKeyDown = (event: React.KeyboardEvent) => {
@@ -131,7 +127,7 @@ const LinkMain: React.FC<LinkMainProps> = ({
           <InputGroup>
             <Input
               type="url"
-              placeholder={i18nText[language].pasteLink}
+              placeholder="Paste a link..."
               value={url}
               onChange={(e) => setUrl(e.target.value)}
               onKeyDown={handleKeyDown}
@@ -146,7 +142,7 @@ const LinkMain: React.FC<LinkMainProps> = ({
             <Button
               type="button"
               onClick={setLink}
-              title={i18nText[language].applyLink}
+              title="Apply link"
               disabled={!url && !isActive}
               data-style="ghost"
             >
@@ -160,7 +156,7 @@ const LinkMain: React.FC<LinkMainProps> = ({
             <Button
               type="button"
               onClick={openLink}
-              title={i18nText[language].openInNewWindow}
+              title="Open in new window"
               disabled={!url && !isActive}
               data-style="ghost"
             >
@@ -170,7 +166,7 @@ const LinkMain: React.FC<LinkMainProps> = ({
             <Button
               type="button"
               onClick={removeLink}
-              title={i18nText[language].removeLink}
+              title="Remove link"
               disabled={!url && !isActive}
               data-style="ghost"
             >
@@ -238,6 +234,14 @@ export const LinkPopover = React.forwardRef<
       onSetLink,
     });
 
+    const [wasLinkActive, setWasLinkActive] = React.useState(false);
+    if (isActive !== wasLinkActive) {
+      setWasLinkActive(isActive);
+      if (autoOpenOnLinkActive && isActive) {
+        setIsOpen(true);
+      }
+    }
+
     const handleOnOpenChange = React.useCallback(
       (nextIsOpen: boolean) => {
         setIsOpen(nextIsOpen);
@@ -259,12 +263,6 @@ export const LinkPopover = React.forwardRef<
       },
       [onClick, isOpen],
     );
-
-    React.useEffect(() => {
-      if (autoOpenOnLinkActive && isActive) {
-        setIsOpen(true);
-      }
-    }, [autoOpenOnLinkActive, isActive]);
 
     if (!isVisible) {
       return null;
@@ -301,23 +299,6 @@ export const LinkPopover = React.forwardRef<
     );
   },
 );
-
-const i18nText = {
-  [UserLangEnum.ZHCN]: {
-    link: "链接",
-    pasteLink: "粘贴链接...",
-    applyLink: "使用链接",
-    openInNewWindow: "在新窗口打开",
-    removeLink: "移除链接",
-  },
-  [UserLangEnum.ENUS]: {
-    link: "Link",
-    pasteLink: "Paste a link...",
-    applyLink: "Apply link",
-    openInNewWindow: "Open in new window",
-    removeLink: "Remove link",
-  },
-};
 
 LinkPopover.displayName = "LinkPopover";
 

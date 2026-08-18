@@ -14,8 +14,6 @@ import { TEXT_ALIGN_SHORTCUT_KEYS, useTextAlign } from "../text-align-button";
 import type { ButtonProps } from "../../primitive/button";
 import { Button } from "../../primitive/button";
 import { Badge } from "../../primitive/badge";
-import { UserLangEnum } from "../../types";
-import { useEditorLanguage } from "../../context";
 
 export interface TextAlignButtonProps
   extends Omit<ButtonProps, "type">, UseTextAlignConfig {
@@ -63,7 +61,6 @@ export const TextAlignButton = React.forwardRef<
     },
     ref,
   ) => {
-    const language = useEditorLanguage();
     const { editor } = useTiptapEditor(providedEditor);
     const {
       isVisible,
@@ -104,9 +101,7 @@ export const TextAlignButton = React.forwardRef<
         tabIndex={-1}
         aria-label={label}
         aria-pressed={isActive}
-        tooltip={
-          i18nText[language][label as keyof (typeof i18nText)[typeof language]]
-        }
+        tooltip={label}
         onClick={handleClick}
         {...buttonProps}
         ref={ref}
@@ -127,20 +122,5 @@ export const TextAlignButton = React.forwardRef<
     );
   },
 );
-
-const i18nText = {
-  [UserLangEnum.ZHCN]: {
-    "Align left": "左对齐",
-    "Align center": "居中对齐",
-    "Align right": "右对齐",
-    "Align justify": "两端对齐",
-  },
-  [UserLangEnum.ENUS]: {
-    "Align left": "Align left",
-    "Align center": "Align center",
-    "Align right": "Align right",
-    "Align justify": "Align justify",
-  },
-};
 
 TextAlignButton.displayName = "TextAlignButton";

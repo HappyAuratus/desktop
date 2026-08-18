@@ -14,7 +14,7 @@ export type VideoAttributes = {
 };
 
 export interface VideoOptions {
-  HTMLAttributes: Record<string, any>;
+  HTMLAttributes: Record<string, unknown>;
   /** Whether to include controls by default. @default true */
   controls: boolean;
   /** Whether to autoplay by default. @default false */

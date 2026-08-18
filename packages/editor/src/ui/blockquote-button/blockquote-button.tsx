@@ -14,8 +14,6 @@ import { parseShortcutKeys } from "../../utils";
 import type { ButtonProps } from "../../primitive/button";
 import { Button } from "../../primitive/button";
 import { Badge } from "../../primitive/badge";
-import { UserLangEnum } from "../../types";
-import { useEditorLanguage } from "../../context";
 
 export interface BlockquoteButtonProps
   extends Omit<ButtonProps, "type">, UseBlockquoteConfig {
@@ -60,7 +58,6 @@ export const BlockquoteButton = React.forwardRef<
     },
     ref,
   ) => {
-    const language = useEditorLanguage();
     const { editor } = useTiptapEditor(providedEditor);
     const {
       isVisible,
@@ -100,7 +97,7 @@ export const BlockquoteButton = React.forwardRef<
         data-disabled={!canToggle}
         aria-label={label}
         aria-pressed={isActive}
-        tooltip={i18nText[language].tooltip}
+        tooltip={label}
         onClick={handleClick}
         {...buttonProps}
         ref={ref}
@@ -118,14 +115,5 @@ export const BlockquoteButton = React.forwardRef<
     );
   },
 );
-
-const i18nText = {
-  [UserLangEnum.ZHCN]: {
-    tooltip: "引用",
-  },
-  [UserLangEnum.ENUS]: {
-    tooltip: "Blockquote",
-  },
-};
 
 BlockquoteButton.displayName = "BlockquoteButton";

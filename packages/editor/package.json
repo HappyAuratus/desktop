@@ -11,7 +11,8 @@
   "scripts": {
     "format": "prettier --write . --ignore-path ../../.prettierignore",
     "format:check": "prettier --check . --ignore-path ../../.prettierignore",
-    "lint": "tsc -p tsconfig.json --noEmit && eslint src --max-warnings 0"
+    "lint": "tsc -p tsconfig.json --noEmit && eslint src tests --max-warnings 0",
+    "test": "node ../../scripts/run-with-clean-stderr.mjs \"tsc -p tsconfig.json --noEmit && node --import tsx --test tests/*.test.ts\""
   },
   "dependencies": {
     "@floating-ui/react": "^0.27.19",
@@ -31,9 +32,7 @@
     "@tiptap/pm": "^3.0.7",
     "@tiptap/react": "^3.0.7",
     "@tiptap/starter-kit": "^3.0.7",
-    "browser-image-compression": "^2.0.2",
     "lodash": "^4.17.21",
-    "lucide-react": "^0.535.0",
     "react-hotkeys-hook": "^4.6.1"
   },
   "peerDependencies": {
@@ -43,6 +42,7 @@
   "devDependencies": {
     "@types/lodash": "^4.17.0",
     "@types/react": "^19.1.8",
+    "tsx": "^4.0.0",
     "typescript": "^5.8.3"
   }
 }

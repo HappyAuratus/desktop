@@ -9,21 +9,23 @@ import { Button } from "../primitive/button";
 import { MoonStarIcon } from "../icons/moon-star-icon";
 import { SunIcon } from "../icons/sun-icon";
 
+/** Reads the current document / OS color scheme. Used as the ThemeToggle initial state. */
+function readInitialDarkMode(): boolean {
+  if (typeof document === "undefined") return false;
+  return (
+    !!document.querySelector('meta[name="color-scheme"][content="dark"]') ||
+    window.matchMedia("(prefers-color-scheme: dark)").matches
+  );
+}
+
 export function ThemeToggle() {
-  const [isDarkMode, setIsDarkMode] = React.useState<boolean>(false);
+  const [isDarkMode, setIsDarkMode] = React.useState(readInitialDarkMode);
 
   React.useEffect(() => {
     const mediaQuery = window.matchMedia("(prefers-color-scheme: dark)");
     const handleChange = () => setIsDarkMode(mediaQuery.matches);
     mediaQuery.addEventListener("change", handleChange);
     return () => mediaQuery.removeEventListener("change", handleChange);
-  }, []);
-
-  React.useEffect(() => {
-    const initialDarkMode =
-      !!document.querySelector('meta[name="color-scheme"][content="dark"]') ||
-      window.matchMedia("(prefers-color-scheme: dark)").matches;
-    setIsDarkMode(initialDarkMode);
   }, []);
 
   React.useEffect(() => {

@@ -18,7 +18,7 @@ interface TOCProps {
   editor?: Editor | null;
   scrollRef?: React.RefObject<HTMLDivElement | null>;
   scrollContainerId?: string;
-  dependency?: any;
+  dependency?: unknown;
   className?: string;
 }
 
@@ -34,6 +34,12 @@ export const TableOfContents: React.FC<TOCProps> = ({
 
   const [items, setItems] = useState<TOCItem[]>([]);
   const [activeId, setActiveId] = useState<string>("");
+  const [loadKey, setLoadKey] = useState({ editor, dependency });
+  if (loadKey.editor !== editor || loadKey.dependency !== dependency) {
+    setLoadKey({ editor, dependency });
+    setItems([]);
+    setActiveId("");
+  }
   const activeIdRef = useRef(activeId);
   const [isHovered, setIsHovered] = useState(false);
   const isHoveredRef = useRef(isHovered);
@@ -54,10 +60,6 @@ export const TableOfContents: React.FC<TOCProps> = ({
   // from ProseMirrorState.create (IndexedDB) and normal edits.
   useLayoutEffect(() => {
     if (!editor) return;
-
-    // Reset on dependency change so stale items don't linger
-    setItems([]);
-    setActiveId("");
 
     let cancelled = false;
     let retryTimer: ReturnType<typeof setTimeout>;

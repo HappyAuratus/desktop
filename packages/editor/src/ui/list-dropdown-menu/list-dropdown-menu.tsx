@@ -22,8 +22,6 @@ import {
   DropdownMenuItem,
 } from "../../primitive/dropdown-menu";
 import { Card, CardBody } from "../../primitive/card";
-import { UserLangEnum } from "../../types";
-import { useEditorLanguage } from "../../context";
 
 export interface ListDropdownMenuProps extends Omit<ButtonProps, "type"> {
   /**
@@ -58,7 +56,6 @@ export function ListDropdownMenu({
   portal = false,
   ...props
 }: ListDropdownMenuProps) {
-  const language = useEditorLanguage();
   const { editor } = useTiptapEditor(providedEditor);
   const [isOpen, setIsOpen] = React.useState(false);
 
@@ -93,7 +90,7 @@ export function ListDropdownMenu({
           disabled={!canToggle}
           data-disabled={!canToggle}
           aria-label="List options"
-          tooltip={i18nText[language].list}
+          tooltip="List"
           {...props}
         >
           <Icon className="tiptap-button-icon" />
@@ -110,11 +107,7 @@ export function ListDropdownMenu({
                   <ListButton
                     editor={editor}
                     type={option.type}
-                    text={
-                      i18nText[language][
-                        option.label as keyof (typeof i18nText)[typeof language]
-                      ]
-                    }
+                    text={option.label}
                     showTooltip={false}
                   />
                 </DropdownMenuItem>
@@ -126,20 +119,5 @@ export function ListDropdownMenu({
     </DropdownMenu>
   );
 }
-
-const i18nText = {
-  [UserLangEnum.ZHCN]: {
-    list: "列表",
-    "Bullet List": "无序列表",
-    "Ordered List": "有序列表",
-    "Task List": "任务列表",
-  },
-  [UserLangEnum.ENUS]: {
-    list: "List",
-    "Bullet List": "Bullet List",
-    "Ordered List": "Ordered List",
-    "Task List": "Task List",
-  },
-};
 
 export default ListDropdownMenu;

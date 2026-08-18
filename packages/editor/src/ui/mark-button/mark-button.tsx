@@ -14,8 +14,6 @@ import { MARK_SHORTCUT_KEYS, useMark } from "../mark-button";
 import type { ButtonProps } from "../../primitive/button";
 import { Button } from "../../primitive/button";
 import { Badge } from "../../primitive/badge";
-import { UserLangEnum } from "../../types";
-import { useEditorLanguage } from "../../context";
 
 export interface MarkButtonProps
   extends Omit<ButtonProps, "type">, UseMarkConfig {
@@ -60,7 +58,6 @@ export const MarkButton = React.forwardRef<HTMLButtonElement, MarkButtonProps>(
     },
     ref,
   ) => {
-    const language = useEditorLanguage();
     const { editor } = useTiptapEditor(providedEditor);
     const {
       isVisible,
@@ -101,9 +98,7 @@ export const MarkButton = React.forwardRef<HTMLButtonElement, MarkButtonProps>(
         tabIndex={-1}
         aria-label={label}
         aria-pressed={isActive}
-        tooltip={
-          i18nText[language][label as keyof (typeof i18nText)[typeof language]]
-        }
+        tooltip={label}
         onClick={handleClick}
         {...buttonProps}
         ref={ref}
@@ -121,28 +116,5 @@ export const MarkButton = React.forwardRef<HTMLButtonElement, MarkButtonProps>(
     );
   },
 );
-
-const i18nText = {
-  [UserLangEnum.ZHCN]: {
-    Bold: "加粗",
-    Italic: "斜体",
-    Underline: "下划线",
-    Strike: "删除线",
-    Code: "代码",
-    Highlight: "高亮",
-    Superscript: "上标",
-    Subscript: "下标",
-  },
-  [UserLangEnum.ENUS]: {
-    Bold: "Bold",
-    Italic: "Italic",
-    Underline: "Underline",
-    Strike: "Strike",
-    Code: "Code",
-    Highlight: "Highlight",
-    Superscript: "Superscript",
-    Subscript: "Subscript",
-  },
-};
 
 MarkButton.displayName = "MarkButton";

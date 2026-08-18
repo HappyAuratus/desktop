@@ -14,8 +14,6 @@ import { CODE_BLOCK_SHORTCUT_KEY, useCodeBlock } from "../code-block-button";
 import type { ButtonProps } from "../../primitive/button";
 import { Button } from "../../primitive/button";
 import { Badge } from "../../primitive/badge";
-import { UserLangEnum } from "../../types";
-import { useEditorLanguage } from "../../context";
 
 export interface CodeBlockButtonProps
   extends Omit<ButtonProps, "type">, UseCodeBlockConfig {
@@ -60,7 +58,6 @@ export const CodeBlockButton = React.forwardRef<
     },
     ref,
   ) => {
-    const language = useEditorLanguage();
     const { editor } = useTiptapEditor(providedEditor);
     const {
       isVisible,
@@ -100,7 +97,7 @@ export const CodeBlockButton = React.forwardRef<
         tabIndex={-1}
         aria-label={label}
         aria-pressed={isActive}
-        tooltip={i18nText[language].tooltip}
+        tooltip={label}
         onClick={handleClick}
         {...buttonProps}
         ref={ref}
@@ -118,14 +115,5 @@ export const CodeBlockButton = React.forwardRef<
     );
   },
 );
-
-const i18nText = {
-  [UserLangEnum.ZHCN]: {
-    tooltip: "代码块",
-  },
-  [UserLangEnum.ENUS]: {
-    tooltip: "Code Block",
-  },
-};
 
 CodeBlockButton.displayName = "CodeBlockButton";

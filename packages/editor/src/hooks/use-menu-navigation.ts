@@ -64,6 +64,13 @@ export function useMenuNavigation<T>({
   const [selectedIndex, setSelectedIndex] = React.useState<number>(
     autoSelectFirstItem ? 0 : -1,
   );
+  const [prevQuery, setPrevQuery] = React.useState(query);
+  if (query !== prevQuery) {
+    setPrevQuery(query);
+    if (query) {
+      setSelectedIndex(autoSelectFirstItem ? 0 : -1);
+    }
+  }
 
   React.useEffect(() => {
     const handleKeyboardNavigation = (event: KeyboardEvent) => {
@@ -182,12 +189,6 @@ export function useMenuNavigation<T>({
     onClose,
     orientation,
   ]);
-
-  React.useEffect(() => {
-    if (query) {
-      setSelectedIndex(autoSelectFirstItem ? 0 : -1);
-    }
-  }, [query, autoSelectFirstItem]);
 
   return {
     selectedIndex: items.length ? selectedIndex : undefined,

@@ -14,8 +14,6 @@ import { UNDO_REDO_SHORTCUT_KEYS, useUndoRedo } from "../undo-redo-button";
 import type { ButtonProps } from "../../primitive/button";
 import { Button } from "../../primitive/button";
 import { Badge } from "../../primitive/badge";
-import { UserLangEnum } from "../../types";
-import { useEditorLanguage } from "../../context";
 
 export interface UndoRedoButtonProps
   extends Omit<ButtonProps, "type">, UseUndoRedoConfig {
@@ -63,7 +61,6 @@ export const UndoRedoButton = React.forwardRef<
     },
     ref,
   ) => {
-    const language = useEditorLanguage();
     const { editor } = useTiptapEditor(providedEditor);
     const { isVisible, handleAction, label, canExecute, Icon, shortcutKeys } =
       useUndoRedo({
@@ -95,7 +92,7 @@ export const UndoRedoButton = React.forwardRef<
         role="button"
         tabIndex={-1}
         aria-label={label}
-        tooltip={i18nText[language][action === "undo" ? "Undo" : "Redo"]}
+        tooltip={label}
         onClick={handleClick}
         {...buttonProps}
         ref={ref}
@@ -116,16 +113,5 @@ export const UndoRedoButton = React.forwardRef<
     );
   },
 );
-
-const i18nText = {
-  [UserLangEnum.ZHCN]: {
-    Undo: "撤销",
-    Redo: "重做",
-  },
-  [UserLangEnum.ENUS]: {
-    Undo: "Undo",
-    Redo: "Redo",
-  },
-};
 
 UndoRedoButton.displayName = "UndoRedoButton";

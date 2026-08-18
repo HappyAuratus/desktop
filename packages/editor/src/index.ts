@@ -1,11 +1,3 @@
-// --- Context ---
-export { EditorProvider, useEditorLanguage } from "./context";
-export type { EditorProviderProps } from "./context";
-
-// --- Types ---
-export { UserLangEnum } from "./types";
-export type { UserLang } from "./types";
-
 // --- Utils ---
 export {
   cn,
@@ -32,10 +24,6 @@ export { useTiptapEditor } from "./hooks/use-tiptap-editor";
 export { useIsMobile } from "./hooks/use-mobile";
 export { useMenuNavigation } from "./hooks/use-menu-navigation";
 
-// --- Emoji data ---
-export { wechatEmojis } from "./emoji/wechat-emoji";
-export type { WechatEmoji } from "./emoji/wechat-emoji";
-
 // --- Icons ---
 export { AlignCenterIcon } from "./icons/align-center-icon";
 export { AlignJustifyIcon } from "./icons/align-justify-icon";
@@ -50,7 +38,6 @@ export { CloseIcon } from "./icons/close-icon";
 export { CodeBlockIcon } from "./icons/code-block-icon";
 export { Code2Icon } from "./icons/code2-icon";
 export { CornerDownLeftIcon } from "./icons/corner-down-left-icon";
-export { EmojiIcon } from "./icons/emoji-icon";
 export { ExternalLinkIcon } from "./icons/external-link-icon";
 export { HeadingFiveIcon } from "./icons/heading-five-icon";
 export { HeadingFourIcon } from "./icons/heading-four-icon";
@@ -91,7 +78,6 @@ export * from "./primitive/tooltip";
 
 // --- Nodes ---
 export * from "./node/diff-node";
-export * from "./node/emoji-node";
 export * from "./node/image-upload-node";
 export * from "./node/toc-node";
 export * from "./node/video-node";
@@ -115,19 +101,11 @@ export {
   ColorHighlightPopoverButton,
 } from "./ui/color-highlight-popover/color-highlight-popover";
 
-export { useEmoji, EMOJI_LIST } from "./ui/emoji-button/use-emoji";
-
-export { EmojiPopover } from "./ui/emoji-popover/emoji-popover";
-
 export { HeadingButton } from "./ui/heading-button/heading-button";
 export { useHeading } from "./ui/heading-button/use-heading";
 
 export { HeadingDropdownMenu } from "./ui/heading-dropdown-menu/heading-dropdown-menu";
 export { useHeadingDropdownMenu } from "./ui/heading-dropdown-menu/use-heading-dropdown-menu";
-
-export { ImageUploadButton } from "./ui/image-upload-button/image-upload-button";
-export { useImageUpload } from "./ui/image-upload-button/use-image-upload";
-export type { UseImageUploadConfig } from "./ui/image-upload-button/use-image-upload";
 
 export {
   LinkPopover,
@@ -150,22 +128,6 @@ export { useTextAlign } from "./ui/text-align-button/use-text-align";
 
 export { UndoRedoButton } from "./ui/undo-redo-button/undo-redo-button";
 export { useUndoRedo } from "./ui/undo-redo-button/use-undo-redo";
-
-export {
-  VideoUploadButton,
-  VideoShortcutBadge,
-} from "./ui/video-upload-button/video-upload-button";
-export {
-  useVideoUpload,
-  insertVideo,
-  canInsertVideo,
-  isVideoActive,
-  VIDEO_UPLOAD_SHORTCUT_KEY,
-} from "./ui/video-upload-button/use-video-upload";
-export type {
-  UseVideoUploadConfig,
-  VideoUploadFunction,
-} from "./ui/video-upload-button/use-video-upload";
 
 // --- Editor ---
 export { ThemeToggle } from "./editor/theme-toggle";

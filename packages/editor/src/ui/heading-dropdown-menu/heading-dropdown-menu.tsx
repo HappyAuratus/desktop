@@ -21,8 +21,6 @@ import {
   DropdownMenuItem,
 } from "../../primitive/dropdown-menu";
 import { Card, CardBody } from "../../primitive/card";
-import { UserLangEnum, type UserLang } from "../../types";
-import { useEditorLanguage } from "../../context";
 
 export interface HeadingDropdownMenuProps
   extends Omit<ButtonProps, "type">, UseHeadingDropdownMenuConfig {
@@ -57,7 +55,6 @@ export const HeadingDropdownMenu = React.forwardRef<
     },
     ref,
   ) => {
-    const language = useEditorLanguage();
     const { editor } = useTiptapEditor(providedEditor);
     const [isOpen, setIsOpen] = React.useState(false);
     const { isVisible, isActive, canToggle, Icon } = useHeadingDropdownMenu({
@@ -92,7 +89,7 @@ export const HeadingDropdownMenu = React.forwardRef<
             data-disabled={!canToggle}
             aria-label="Format text as heading"
             aria-pressed={isActive}
-            tooltip={i18nText[language]["Heading"]}
+            tooltip="Heading"
             {...buttonProps}
             ref={ref}
           >
@@ -110,7 +107,7 @@ export const HeadingDropdownMenu = React.forwardRef<
                     <HeadingButton
                       editor={editor}
                       level={level}
-                      text={headingText(level, language)}
+                      text={`Heading ${level}`}
                       showTooltip={false}
                     />
                   </DropdownMenuItem>
@@ -125,24 +122,5 @@ export const HeadingDropdownMenu = React.forwardRef<
 );
 
 HeadingDropdownMenu.displayName = "HeadingDropdownMenu";
-
-const i18nText = {
-  [UserLangEnum.ZHCN]: {
-    Heading: "标题",
-  },
-  [UserLangEnum.ENUS]: {
-    Heading: "Heading",
-  },
-};
-
-const headingText = (level: number, language: UserLang) => {
-  if (language === UserLangEnum.ZHCN) {
-    if (level === 1) return "一级标题";
-    if (level === 2) return "二级标题";
-    if (level === 3) return "三级标题";
-    if (level === 4) return "四级标题";
-  }
-  return `Heading ${level}`;
-};
 
 export default HeadingDropdownMenu;
