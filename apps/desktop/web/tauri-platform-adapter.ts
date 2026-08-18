@@ -9,24 +9,16 @@ import {
   type PlatformAdapter,
   type SelectPathOptions,
   type SaveTextFileOptions,
-  type WindowControlsCapability,
-  type WindowManagerOs,
   type SkillMarketplaceCapability,
   type SkillMarketplaceProvider,
   type SkillMarketplaceStatus,
-} from "../types";
-import { createSingleWindowOwnership } from "../app-window-ownership";
+  type WindowControlsCapability,
+  type WindowManagerOs,
+} from "@ora/app-shell/platform";
 
 const SKILL_MARKETPLACE_STATUS_EVENT = "skill-marketplace://status";
 
-/**
- * Reads the host OS from the webview user agent.
- *
- * Tauri paints the same webview on every platform, so the user agent is the one
- * synchronous signal available when the adapter is constructed - no async plugin
- * round-trip, which keeps `windowControls` a plain field the shell can read on
- * first render.
- */
+/** Reads the host OS from the webview user agent without an async Tauri call. */
 function detectWindowManagerOs(): WindowManagerOs | null {
   if (typeof navigator === "undefined") return null;
   const ua = navigator.userAgent;
@@ -36,18 +28,10 @@ function detectWindowManagerOs(): WindowManagerOs | null {
   return null;
 }
 
-/**
- * Decides whether the frameless desktop window paints its own controls.
- *
- * macOS keeps its native traffic lights, so it - like the Web host - reports
- * `none`. Windows and Linux ship without any native chrome (the window is
- * created with `decorations: false`), so they get the imperative commands the
- * custom title bar drives.
- */
+/** Creates the window-control capability used by the frameless Desktop shell. */
 function createTauriWindowControls(): WindowControlsCapability {
-  // Guards the test/SSR paths: the adapter is instantiated in jsdom, where the
-  // Tauri IPC bridge is absent and `getCurrentWindow()` would throw reaching for
-  // it. Outside a real Tauri window there is nothing to control.
+  // The adapter is also instantiated by jsdom tests, where the Tauri IPC bridge
+  // is absent and no native window controls can be exposed.
   if (typeof window === "undefined" || !("__TAURI_INTERNALS__" in window)) {
     return { kind: "none" };
   }
@@ -68,7 +52,6 @@ function createTauriWindowControls(): WindowControlsCapability {
     subscribeMaximized: (listener) => {
       let active = true;
       // Tauri has no dedicated maximize event, so every resize re-reads the flag.
-      // The `active` guard stops a late async read from firing after unsubscribe.
       const unlisten = appWindow.onResized(() => {
         void appWindow.isMaximized().then((maximized) => {
           if (active) listener(maximized);
@@ -82,20 +65,9 @@ function createTauriWindowControls(): WindowControlsCapability {
   };
 }
 
-/**
- * Wires the location handoff commands, but only inside a real Tauri window.
- *
- * Unlike the window controls, this stays `supported` on macOS too - macOS keeps its
- * native traffic lights (so it paints no window controls) yet still launches Finder,
- * Terminal, and VS Code. The jsdom/SSR guard mirrors the window-control path.
- */
+/** Wires the location handoff commands exposed by the Desktop runtime. */
 function createTauriLocationActions(): LocationActionsCapability {
-  if (typeof window === "undefined" || !("__TAURI_INTERNALS__" in window)) {
-    return { kind: "unsupported" };
-  }
-
   return {
-    kind: "supported",
     resolveTaskCwd: (taskId) =>
       invoke<{ path: string }>("resolve_task_cwd", {
         request: { taskId },
@@ -105,9 +77,8 @@ function createTauriLocationActions(): LocationActionsCapability {
   };
 }
 
-/** Delegates path selection to the desktop operating system's native open dialog. */
+/** Implements the app-shell host capabilities with Tauri APIs and commands. */
 export class TauriPlatformAdapter implements PlatformAdapter {
-  readonly appWindowOwnership = createSingleWindowOwnership();
   private selectionInProgress = false;
 
   readonly windowControls: WindowControlsCapability =
@@ -117,7 +88,6 @@ export class TauriPlatformAdapter implements PlatformAdapter {
     createTauriLocationActions();
 
   readonly skillMarketplace: SkillMarketplaceCapability = {
-    kind: "supported",
     open: (provider: SkillMarketplaceProvider) =>
       invoke("open_skill_marketplace", { request: { provider } }),
     onStatus: (listener) =>
@@ -130,7 +100,6 @@ export class TauriPlatformAdapter implements PlatformAdapter {
   };
 
   readonly worktreeStorage = {
-    kind: "configurable" as const,
     getRoot: async (): Promise<string> => {
       const config = await invoke<{ worktreeRoot: string }>(
         "get_desktop_config",
@@ -190,7 +159,7 @@ export class TauriPlatformAdapter implements PlatformAdapter {
   }
 }
 
-/** Creates the desktop adapter without runtime platform auto-detection. */
+/** Creates the Desktop host adapter without runtime platform auto-detection. */
 export function createTauriPlatformAdapter(): TauriPlatformAdapter {
   return new TauriPlatformAdapter();
 }

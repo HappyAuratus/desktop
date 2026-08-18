@@ -1,5 +1,4 @@
 export { PlatformProvider } from "./platform-context";
-export { PlatformHost } from "./platform-host";
 export { usePlatform } from "./use-platform";
 export {
   PathSelectionInProgressError,
@@ -7,7 +6,6 @@ export {
   type LocationTarget,
   type PathSelectionKind,
   type PlatformAdapter,
-  type PlatformLocale,
   type SaveTextFileOptions,
   type SelectPathOptions,
   type SkillMarketplaceCapability,
@@ -17,7 +15,3 @@ export {
   type WindowManagerOs,
   type WorktreeStorageCapability,
 } from "./types";
-export type {
-  AppWindowOwnershipCapability,
-  AppWindowOwnershipLease,
-} from "./app-window-ownership";

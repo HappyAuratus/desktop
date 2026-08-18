@@ -2,7 +2,7 @@ import type { ReactNode } from "react";
 import { PlatformContext } from "./platform-context-value";
 import type { PlatformAdapter } from "./types";
 
-/** Makes the explicitly injected platform adapter available to application feature components. */
+/** Makes the explicitly injected host adapter available to application features. */
 export function PlatformProvider({
   adapter,
   children,

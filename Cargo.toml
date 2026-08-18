@@ -1,6 +1,6 @@
 [workspace]
 members = [
-    "apps/web/server",
+    "apps/desktop/src-tauri",
     "crates/application",
     "crates/acp",
     "crates/backend",
@@ -21,7 +21,27 @@ members = [
     "crates/utils",
     "xtask",
 ]
-exclude = ["apps/desktop/src-tauri"]
+default-members = [
+    "crates/application",
+    "crates/acp",
+    "crates/backend",
+    "crates/contracts",
+    "crates/db",
+    "crates/domain",
+    "crates/fs",
+    "crates/gitlancer",
+    "crates/history",
+    "crates/logging",
+    "crates/plugin-manifest",
+    "crates/plugin-manager",
+    "crates/plugin-runtime",
+    "crates/process",
+    "crates/pty",
+    "crates/scheduler",
+    "crates/skill-package",
+    "crates/utils",
+    "xtask",
+]
 resolver = "2"
 
 [workspace.package]
@@ -89,7 +109,6 @@ toml = "1"
 tracing = "0.1"
 tracing-appender = "0.2"
 tracing-subscriber = { version = "0.3", features = ["fmt", "registry"] }
-tower-http = { version = "0.6", features = ["cors", "request-id"] }
 ts-rs = "12.0"
 uuid = { version = "1", features = ["serde", "v4"] }
 unicode-normalization = "0.1"

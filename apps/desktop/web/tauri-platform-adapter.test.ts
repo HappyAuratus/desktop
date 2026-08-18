@@ -2,8 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { open, save } from "@tauri-apps/plugin-dialog";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { hasPlatformHostRenderer } from "../platform-host-renderer";
-import { PathSelectionInProgressError } from "../types";
+import { PathSelectionInProgressError } from "@ora/app-shell/platform";
 import { createTauriPlatformAdapter } from "./tauri-platform-adapter";
 
 vi.mock("@tauri-apps/plugin-dialog", () => ({ open: vi.fn(), save: vi.fn() }));
@@ -33,9 +32,6 @@ describe("TauriPlatformAdapter", () => {
     });
     const adapter = createTauriPlatformAdapter();
     const marketplace = adapter.skillMarketplace;
-    if (marketplace.kind !== "supported") {
-      throw new Error("expected Tauri marketplace capability");
-    }
 
     await marketplace.open("huaweiAgentCenter");
     const unsubscribe = await marketplace.onStatus(listener);
@@ -117,12 +113,6 @@ describe("TauriPlatformAdapter", () => {
         content: '{"id":"workflow"}\n',
       },
     });
-  });
-
-  it("does not expose the Web-only React path picker host", () => {
-    const adapter = createTauriPlatformAdapter();
-
-    expect(hasPlatformHostRenderer(adapter)).toBe(false);
   });
 
   it("returns null on cancellation and rejects concurrent native dialogs", async () => {

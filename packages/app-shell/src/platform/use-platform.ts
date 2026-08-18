@@ -2,7 +2,7 @@ import { useContext } from "react";
 import { PlatformContext } from "./platform-context-value";
 import type { PlatformAdapter } from "./types";
 
-/** Returns the active platform adapter and rejects missing host composition early. */
+/** Returns the injected host adapter and rejects missing composition early. */
 export function usePlatform(): PlatformAdapter {
   const adapter = useContext(PlatformContext);
   if (adapter === null) {

@@ -32,14 +32,6 @@ pub enum ApplicationError {
         #[source]
         source: RepositoryError,
     },
-    #[error("skill upload contained no files")]
-    SkillUploadEmpty,
-    #[error("skill upload exceeds the {max_files}-file limit")]
-    SkillUploadTooManyFiles { max_files: usize },
-    #[error("skill upload contains an unsafe path")]
-    SkillUploadPathInvalid,
-    #[error("skill upload contains a duplicate path")]
-    SkillUploadPathDuplicate,
     #[error("skill upload is missing a root SKILL.md manifest")]
     SkillManifestMissing,
     #[error("skill manifest is invalid")]
@@ -417,9 +409,6 @@ impl PartialEq for ApplicationError {
 
         match (self, other) {
             (SkillNameBlank, SkillNameBlank)
-            | (SkillUploadEmpty, SkillUploadEmpty)
-            | (SkillUploadPathInvalid, SkillUploadPathInvalid)
-            | (SkillUploadPathDuplicate, SkillUploadPathDuplicate)
             | (SkillManifestMissing, SkillManifestMissing)
             | (SkillManifestInvalid { .. }, SkillManifestInvalid { .. })
             | (SkillManifestNameBlank, SkillManifestNameBlank)
@@ -458,10 +447,6 @@ impl PartialEq for ApplicationError {
             | (WorkflowRepository { .. }, WorkflowRepository { .. })
             | (TaskFilesystem { .. }, TaskFilesystem { .. }) => true,
             (SkillNotFound { skill_id: left }, SkillNotFound { skill_id: right }) => left == right,
-            (
-                SkillUploadTooManyFiles { max_files: left },
-                SkillUploadTooManyFiles { max_files: right },
-            ) => left == right,
             (SkillFolderConflict { name: left }, SkillFolderConflict { name: right }) => {
                 left == right
             }

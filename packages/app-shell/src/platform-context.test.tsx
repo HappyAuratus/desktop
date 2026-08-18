@@ -1,5 +1,5 @@
 import { renderHook } from "@testing-library/react";
-import { usePlatform } from "./use-platform";
+import { usePlatform } from "./platform/use-platform";
 
 it("rejects platform hooks outside an explicit provider", () => {
   expect(() => renderHook(usePlatform)).toThrow(
