@@ -79,6 +79,9 @@ jobs:
         with:
           node-version: 24
           cache: pnpm
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.9.5
       # test:frontend regenerates TS contracts via `cargo xtask export-contracts`
       # and also runs the Desktop frontend tests.
       - uses: dtolnay/rust-toolchain@stable
@@ -119,6 +122,8 @@ jobs:
             libxdo-dev \
             libssl-dev \
             build-essential
+      - name: Set up sidecar binaries
+        run: node scripts/setup-binary.mjs
       - run: task test:crates
 
   # Aggregate gate: the single check to mark as "required" in branch
