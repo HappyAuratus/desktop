@@ -91,16 +91,10 @@ export function useLinkHandler(props: LinkHandlerProps) {
   const { editor, onSetLink } = props;
   const [url, setUrl] = React.useState<string | null>(null);
 
-  React.useEffect(() => {
-    if (!editor) return;
-
-    // Get URL immediately on mount
+  if (editor && url === null && isLinkActive(editor)) {
     const { href } = editor.getAttributes("link");
-
-    if (isLinkActive(editor) && url === null) {
-      setUrl(href || "");
-    }
-  }, [editor, url]);
+    setUrl(href || "");
+  }
 
   React.useEffect(() => {
     if (!editor) return;

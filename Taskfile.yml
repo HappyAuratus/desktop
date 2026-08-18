@@ -139,6 +139,7 @@ tasks:
       - pnpm --filter @ora/desktop test
       - pnpm --filter @ora/contracts test
       - pnpm --filter @ora/chat test
+      - pnpm --filter @ora/editor test
       - pnpm --filter @ora/workflow-runtime test
       - pnpm --filter @ora/app-shell test
       - pnpm --filter @ora-space/plugin-sdk test

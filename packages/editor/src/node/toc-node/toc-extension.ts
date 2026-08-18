@@ -3,6 +3,7 @@ import { Plugin, PluginKey } from "@tiptap/pm/state";
 import { Decoration, DecorationSet } from "@tiptap/pm/view";
 import type { Node as ProsemirrorNode } from "@tiptap/pm/model";
 import type { Transaction } from "@tiptap/pm/state";
+import type { Editor } from "@tiptap/core";
 
 export interface TOCItem {
   id: string;
@@ -151,7 +152,7 @@ export const TOCExtension = Extension.create<TOCOptions>({
 });
 
 /** Read TOC items from the editor's plugin state */
-export function getTOCItems(editor: any): TOCItem[] {
+export function getTOCItems(editor: Editor | null | undefined): TOCItem[] {
   if (!editor) return [];
   const pluginState = tocPluginKey.getState(editor.state);
   return pluginState?.items || [];

@@ -177,8 +177,10 @@ export const TooltipTrigger = React.forwardRef<
       "data-tooltip-state": context.open ? "open" : "closed",
     };
 
+    // Floating UI merges the reference ref inside getReferenceProps.
     return React.cloneElement(
       children,
+      // eslint-disable-next-line react-hooks/refs -- cloneElement + floating-ui requires passing the merged ref here
       context.getReferenceProps({
         ref,
         ...props,

@@ -31,8 +31,6 @@ import {
   pickHighlightColorsByValue,
   useColorHighlight,
 } from "../color-highlight-button";
-import { UserLangEnum } from "../../types";
-import { useEditorLanguage } from "../../context";
 
 export interface ColorHighlightPopoverContentProps {
   /**
@@ -64,7 +62,6 @@ export const ColorHighlightPopoverButton = React.forwardRef<
   HTMLButtonElement,
   ButtonProps
 >(({ className, children, ...props }, ref) => {
-  const language = useEditorLanguage();
   return (
     <Button
       type="button"
@@ -74,7 +71,7 @@ export const ColorHighlightPopoverButton = React.forwardRef<
       role="button"
       tabIndex={-1}
       aria-label="Highlight text"
-      tooltip={i18nText[language]["Highlight"]}
+      tooltip="Highlight"
       ref={ref}
       {...props}
     >
@@ -95,7 +92,6 @@ export function ColorHighlightPopoverContent({
     "var(--tt-color-highlight-yellow)",
   ]),
 }: ColorHighlightPopoverContentProps) {
-  const language = useEditorLanguage();
   const { handleRemoveHighlight } = useColorHighlight({ editor });
   const isMobile = useIsMobile();
   const containerRef = React.useRef<HTMLDivElement>(null);
@@ -134,11 +130,7 @@ export function ColorHighlightPopoverContent({
                 key={color.value}
                 editor={editor}
                 highlightColor={color.value}
-                tooltip={
-                  i18nText[language][
-                    color.label as keyof (typeof i18nText)[typeof language]
-                  ]
-                }
+                tooltip={color.label}
                 aria-label={`${color.label} highlight color`}
                 tabIndex={index === selectedIndex ? 0 : -1}
                 data-highlighted={selectedIndex === index}
@@ -150,7 +142,7 @@ export function ColorHighlightPopoverContent({
             <Button
               onClick={handleRemoveHighlight}
               aria-label="Remove highlight"
-              tooltip={i18nText[language]["Remove highlight"]}
+              tooltip="Remove highlight"
               tabIndex={selectedIndex === colors.length ? 0 : -1}
               type="button"
               role="menuitem"
@@ -179,7 +171,6 @@ export function ColorHighlightPopover({
   onApplied,
   ...props
 }: ColorHighlightPopoverProps) {
-  const language = useEditorLanguage();
   const { editor } = useTiptapEditor(providedEditor);
   const [isOpen, setIsOpen] = React.useState(false);
   const { isVisible, canColorHighlight, isActive, label, Icon } =
@@ -200,11 +191,7 @@ export function ColorHighlightPopover({
           data-disabled={!canColorHighlight}
           aria-pressed={isActive}
           aria-label={label}
-          tooltip={
-            i18nText[language][
-              label as keyof (typeof i18nText)[typeof language]
-            ]
-          }
+          tooltip={label}
           {...props}
         >
           <Icon className="tiptap-button-icon" />
@@ -216,26 +203,5 @@ export function ColorHighlightPopover({
     </Popover>
   );
 }
-
-const i18nText = {
-  [UserLangEnum.ZHCN]: {
-    Highlight: "高亮",
-    "Green background": "绿背景色",
-    "Blue background": "蓝背景色",
-    "Red background": "红背景色",
-    "Purple background": "紫背景色",
-    "Yellow background": "黄背景色",
-    "Remove highlight": "移除高亮",
-  },
-  [UserLangEnum.ENUS]: {
-    Highlight: "Highlight",
-    "Green background": "Green background",
-    "Blue background": "Blue background",
-    "Red background": "Red background",
-    "Purple background": "Purple background",
-    "Yellow background": "Yellow background",
-    "Remove highlight": "Remove highlight",
-  },
-};
 
 export default ColorHighlightPopover;
