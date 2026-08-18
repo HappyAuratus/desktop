@@ -27,7 +27,7 @@ describe("createMockWorkflowNode", () => {
           description: "交给模型自主执行",
           agentConfig: {
             schemaVersion: 3,
-            executor: { agentCli: "code_agent_cli", modelId: "gpt-5" },
+            executor: { agentCli: "ora-space.codeagentcli", modelId: "gpt-5" },
             roleId: "Architect",
             skills: [],
             mcps: [],
@@ -117,26 +117,30 @@ describe("createMockWorkflowNode", () => {
       ],
       agentModels: [
         {
-          agentCli: "code_agent_cli",
+          agentCli: "ora-space.codeagentcli",
           modelId: "gpt-5",
           label: "CodeAgentCLI · GPT-5",
         },
         {
-          agentCli: "open_code",
+          agentCli: "ora-space.opencode",
           modelId: "opencode/sonnet",
           label: "OpenCode · Sonnet",
         },
         {
-          agentCli: "open_code",
+          agentCli: "ora-space.opencode",
           modelId: "deepseek/deepseek-v4-flash",
           label: "OpenCode · deepseek/deepseek-v4-flash",
         },
         {
-          agentCli: "open_code",
+          agentCli: "ora-space.opencode",
           modelId: "deepseek/deepseek-v4-pro",
           label: "OpenCode · deepseek/deepseek-v4-pro",
         },
-        { agentCli: "nga", modelId: "nga/default", label: "NGA · Default" },
+        {
+          agentCli: "ora-space.nga",
+          modelId: "nga/default",
+          label: "NGA · Default",
+        },
       ],
       roles: [
         { value: "Architect", label: "架构师" },
@@ -211,7 +215,7 @@ describe("createMockWorkflowNode", () => {
       defaultModel: "GPT-5",
       defaultAgentConfig: {
         schemaVersion: 3,
-        executor: { agentCli: "code_agent_cli", modelId: "gpt-5" },
+        executor: { agentCli: "ora-space.codeagentcli", modelId: "gpt-5" },
         roleId: "Architect",
         skills: [],
         mcps: [],

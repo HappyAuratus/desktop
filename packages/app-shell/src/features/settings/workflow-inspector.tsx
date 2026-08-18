@@ -9,7 +9,7 @@ import {
   IconSettings,
   IconTrash,
 } from "@tabler/icons-react";
-import type { AgentCli } from "@ora/contracts";
+import type { KnownAgentCli } from "../chat/model-catalog";
 import {
   Button,
   Command,
@@ -56,8 +56,8 @@ interface WorkflowInspectorProps {
   agentModelsLoading?: boolean;
   agentModelsError?: boolean;
   onRetryAgentModels?: () => void;
-  modelsByCli?: ReadonlyMap<AgentCli, WorkflowAgentModel[]>;
-  cliStatus?: Readonly<Record<AgentCli, WorkflowAgentCliStatus>>;
+  modelsByCli?: ReadonlyMap<KnownAgentCli, WorkflowAgentModel[]>;
+  cliStatus?: Readonly<Record<KnownAgentCli, WorkflowAgentCliStatus>>;
   agentCatalogsLoading?: boolean;
   agentCatalogsError?: boolean;
   onRetryAgentCatalogs?: () => void;
@@ -139,8 +139,8 @@ function WorkflowNodeInspector({
   agentModelsLoading: boolean;
   agentModelsError: boolean;
   onRetryAgentModels?: () => void;
-  modelsByCli?: ReadonlyMap<AgentCli, WorkflowAgentModel[]>;
-  cliStatus?: Readonly<Record<AgentCli, WorkflowAgentCliStatus>>;
+  modelsByCli?: ReadonlyMap<KnownAgentCli, WorkflowAgentModel[]>;
+  cliStatus?: Readonly<Record<KnownAgentCli, WorkflowAgentCliStatus>>;
   agentCatalogsLoading: boolean;
   agentCatalogsError: boolean;
   onRetryAgentCatalogs?: () => void;
@@ -328,8 +328,8 @@ function AgentConfigurationFields({
   modelsLoading: boolean;
   modelsError: boolean;
   onRetryModels?: () => void;
-  modelsByCli?: ReadonlyMap<AgentCli, WorkflowAgentModel[]>;
-  cliStatus?: Readonly<Record<AgentCli, WorkflowAgentCliStatus>>;
+  modelsByCli?: ReadonlyMap<KnownAgentCli, WorkflowAgentModel[]>;
+  cliStatus?: Readonly<Record<KnownAgentCli, WorkflowAgentCliStatus>>;
   catalogsLoading: boolean;
   catalogsError: boolean;
   onRetryCatalogs?: () => void;
@@ -342,7 +342,7 @@ function AgentConfigurationFields({
   const [mcpPickerOpen, setMcpPickerOpen] = useState(false);
   // Older drafts may omit `mcps`; normalize before any list access.
   const config = normalizeWorkflowAgentConfig(rawConfig);
-  const currentAgentCli = config.executor.agentCli as AgentCli;
+  const currentAgentCli = config.executor.agentCli as KnownAgentCli;
   const configuredModel = capabilities.agentModels.find(
     (model) =>
       model.agentCli === config.executor.agentCli &&
@@ -351,7 +351,7 @@ function AgentConfigurationFields({
   const selectedModel = configuredModel ?? {
     agentCli: config.executor.agentCli,
     modelId: config.executor.modelId,
-    label: `${AGENT_CLI_LABELS[config.executor.agentCli as AgentCli]} · ${config.executor.modelId}`,
+    label: `${AGENT_CLI_LABELS[config.executor.agentCli as KnownAgentCli]} · ${config.executor.modelId}`,
   };
   const modelsForSelectedCli =
     modelsByCli?.get(currentAgentCli) ??
@@ -460,7 +460,7 @@ function AgentConfigurationFields({
    * keeps the current id rather than inventing one — the model group then
    * shows the empty state and the pick stays visible (never reverted).
    */
-  function selectAgentCli(agentCli: AgentCli): void {
+  function selectAgentCli(agentCli: KnownAgentCli): void {
     if (agentCli === config.executor.agentCli) {
       return;
     }
@@ -990,7 +990,7 @@ function AgentConfigurationFields({
  * two-section menu shows the model name alone, matching chat.
  */
 function workflowModelDisplayName(model: WorkflowAgentModel): string {
-  const prefix = `${AGENT_CLI_LABELS[model.agentCli as AgentCli]} · `;
+  const prefix = `${AGENT_CLI_LABELS[model.agentCli as KnownAgentCli]} · `;
   return model.label.startsWith(prefix)
     ? model.label.slice(prefix.length)
     : model.label;
