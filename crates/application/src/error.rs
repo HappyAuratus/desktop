@@ -215,6 +215,10 @@ pub enum ApplicationError {
     WorkflowRunNotRestartable,
     #[error("workflow run input can only be changed while the run is pending")]
     WorkflowRunNotEditable,
+    #[error("workflow node not found: {node_id}")]
+    WorkflowNodeNotFound { node_id: String },
+    #[error("workflow node is not awaiting input and cannot be completed: {node_id}")]
+    WorkflowNodeNotAwaitingInput { node_id: String },
     #[error("workflow run is active and cannot be deleted")]
     WorkflowRunActive,
     #[error("workflow repository operation failed")]
@@ -588,6 +592,13 @@ impl PartialEq for ApplicationError {
             | (WorkflowRunValidation(_), WorkflowRunValidation(_))
             | (WorkflowRunNotRestartable, WorkflowRunNotRestartable)
             | (WorkflowRunNotEditable, WorkflowRunNotEditable) => true,
+            (WorkflowNodeNotFound { node_id: left }, WorkflowNodeNotFound { node_id: right }) => {
+                left == right
+            }
+            (
+                WorkflowNodeNotAwaitingInput { node_id: left },
+                WorkflowNodeNotAwaitingInput { node_id: right },
+            ) => left == right,
             (
                 WorkflowSkillNotFound { skill_id: left },
                 WorkflowSkillNotFound { skill_id: right },

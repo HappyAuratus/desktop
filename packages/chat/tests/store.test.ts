@@ -109,6 +109,136 @@ test("loads provider history and reconstructs turns from message boundaries", as
   });
 });
 
+test("publishes an active prompt incrementally while its session loads", async () => {
+  let finishStream: () => void = () => {};
+  const streamFinished = new Promise<void>((resolve) => {
+    finishStream = resolve;
+  });
+  let finishLoad: () => void = () => {};
+  const loadFinished = new Promise<void>((resolve) => {
+    finishLoad = resolve;
+  });
+  const client: ChatSessionClient = {
+    load: () => ({
+      async *[Symbol.asyncIterator]() {
+        yield textEvent("user_message_chunk", "automated prompt", "user-1");
+        yield textEvent("agent_message_chunk", "partial ", "agent-1");
+        yield textEvent("agent_message_chunk", "rep", "agent-1");
+        yield textEvent("agent_message_chunk", "ly", "agent-1");
+        await streamFinished;
+        yield textEvent("agent_message_chunk", " final", "agent-1");
+        yield { type: "turn_ended", stopReason: "end_turn" } as const;
+        await loadFinished;
+        yield { type: "completed" } as const;
+      },
+    }),
+    prompt: () => events<PromptSessionEvent>([]),
+    respondToPermission: async () => ({}),
+    setConfig: async () => ({ configOptions: [] }),
+  };
+  const store = createChatStore(client, {
+    createId: () => "local",
+    now: () => 42,
+  });
+  let livePublicationCount = 0;
+  const unsubscribe = store.subscribe((state) => {
+    if (state.conversations["ora-1"]?.isResponding) {
+      livePublicationCount += 1;
+    }
+  });
+
+  const loading = store.getState().loadSession("ora-1");
+  await new Promise<void>((resolve) => setTimeout(resolve, 25));
+
+  const live = store.getState().conversations["ora-1"];
+  assert.equal(live?.isLoaded, false);
+  assert.equal(live?.isLoading, true);
+  assert.equal(live?.isResponding, true);
+  assert.equal(live?.turns[0]?.userMessage.content, "automated prompt");
+  assert.equal(
+    live?.turns[0]?.items[0]?.kind === "message" &&
+      live.turns[0].items[0].content,
+    "partial reply",
+  );
+  assert.equal(livePublicationCount, 1);
+
+  finishStream();
+  await new Promise<void>((resolve) => setTimeout(resolve, 0));
+  const atTurnBoundary = store.getState().conversations["ora-1"];
+  assert.equal(
+    atTurnBoundary?.turns[0]?.items[0]?.kind === "message" &&
+      atTurnBoundary.turns[0].items[0].content,
+    "partial reply final",
+  );
+  assert.equal(livePublicationCount, 2);
+
+  finishLoad();
+  await loading;
+  unsubscribe();
+
+  const completed = store.getState().conversations["ora-1"];
+  assert.equal(completed?.isLoading, false);
+  assert.equal(completed?.isResponding, false);
+  assert.equal(completed?.turns[0]?.status, "completed");
+  assert.equal(completed?.turns[0]?.stopReason, "end_turn");
+});
+
+test("flushes batched replay text together with a following tool boundary", async () => {
+  let finishStream: () => void = () => {};
+  const streamFinished = new Promise<void>((resolve) => {
+    finishStream = resolve;
+  });
+  const client: ChatSessionClient = {
+    load: () => ({
+      async *[Symbol.asyncIterator]() {
+        yield textEvent("user_message_chunk", "inspect", "user-1");
+        yield textEvent("agent_message_chunk", "checking", "agent-1");
+        yield {
+          type: "session_update",
+          update: {
+            sessionUpdate: "tool_call",
+            toolCallId: "tool-1",
+            title: "Read file",
+            status: "in_progress",
+          },
+        } as const;
+        await streamFinished;
+        yield { type: "turn_ended", stopReason: "end_turn" } as const;
+        yield { type: "completed" } as const;
+      },
+    }),
+    prompt: () => events<PromptSessionEvent>([]),
+    respondToPermission: async () => ({}),
+    setConfig: async () => ({ configOptions: [] }),
+  };
+  const store = createChatStore(client, {
+    createId: () => "local",
+    now: () => 42,
+  });
+
+  const loading = store.getState().loadSession("ora-1");
+  await new Promise<void>((resolve) => setTimeout(resolve, 0));
+
+  assert.deepEqual(
+    store
+      .getState()
+      .conversations["ora-1"]?.turns[0]?.items.map((item) =>
+        item.kind === "toolCall"
+          ? [item.kind, item.title]
+          : item.kind === "message"
+            ? [item.kind, item.content]
+            : [item.kind, null],
+      ),
+    [
+      ["message", "checking"],
+      ["toolCall", "Read file"],
+    ],
+  );
+
+  finishStream();
+  await loading;
+});
+
 test("retains durable-history notices after a successful replay", async () => {
   const client: ChatSessionClient = {
     load: () =>

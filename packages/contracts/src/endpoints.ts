@@ -8,14 +8,14 @@ import type { GetGitIdentityRequest, GitIdentityResponse } from "./git.js";
 import type { ListInstalledPluginsRequest, ListInstalledPluginsResponse } from "./plugin.js";
 import type { CreateProjectRequest, CreateProjectResponse, DeleteProjectRequest, DeleteProjectResponse, GetProjectRequest, GetProjectResponse, ListProjectBranchesRequest, ListProjectBranchesResponse, ListProjectsRequest, ListProjectsResponse, UpdateProjectRequest, UpdateProjectResponse } from "./project.js";
 import type { GetRuntimeLogLevelRequest, RuntimeLogLevelStateResponse, SetRuntimeLogLevelRequest } from "./runtimeLogLevel.js";
-import type { AttachSessionRequest, AttachSessionResponse, DeleteSessionRequest, DeleteSessionResponse, GetAgentRuntimeStatusRequest, GetAgentRuntimeStatusResponse, GetSessionRequest, GetSessionResponse, ListSessionsRequest, ListSessionsResponse, LoadSessionEvent, LoadSessionRequest, PromptSessionEvent, PromptSessionRequest, RenameSessionRequest, RenameSessionResponse, RespondToPermissionRequest, RespondToPermissionResponse, ResumeSessionHistoryRequest, ResumeSessionHistoryResponse, SetSessionConfigRequest, SetSessionConfigResponse, StopSessionRequest, StopSessionResponse, SwitchSessionAgentRequest, SwitchSessionAgentResponse, WarmSessionRequest, WarmSessionResponse } from "./session.js";
+import type { AttachSessionRequest, AttachSessionResponse, CancelSessionPromptRequest, CancelSessionPromptResponse, DeleteSessionRequest, DeleteSessionResponse, GetAgentRuntimeStatusRequest, GetAgentRuntimeStatusResponse, GetSessionRequest, GetSessionResponse, ListSessionsRequest, ListSessionsResponse, LoadSessionEvent, LoadSessionRequest, PromptSessionEvent, PromptSessionRequest, RenameSessionRequest, RenameSessionResponse, RespondToPermissionRequest, RespondToPermissionResponse, ResumeSessionHistoryRequest, ResumeSessionHistoryResponse, SetSessionConfigRequest, SetSessionConfigResponse, StopSessionRequest, StopSessionResponse, SwitchSessionAgentRequest, SwitchSessionAgentResponse, WarmSessionRequest, WarmSessionResponse } from "./session.js";
 import type { CreateSkillRequest, CreateSkillResponse, DeleteSkillRequest, DeleteSkillResponse, GetSkillRequest, GetSkillResponse, ListSkillsRequest, ListSkillsResponse, UpdateSkillRequest, UpdateSkillResponse } from "./skill.js";
 import type { CancelSkillImportRequest, CancelSkillImportResponse, CommitSkillImportRequest, CommitSkillImportResponse, GetSkillImportSessionRequest, GetSkillImportSessionResponse, PrepareSkillImportRequest, PrepareSkillImportResponse } from "./skill-import.js";
 import type { GetSpecCatalogRequest, ReadSpecRequest, ReadSpecResponse, SpecCatalogResponse, WatchSpecsRequest } from "./spec.js";
 import type { CreateTaskRequest, CreateTaskResponse, DeleteTaskRequest, DeleteTaskResponse, GetTaskRequest, GetTaskResponse, GetTaskWorkspaceRequest, GetTaskWorkspaceResponse, ListTasksRequest, ListTasksResponse, UpdateTaskRequest, UpdateTaskResponse } from "./task.js";
 import type { CommitTaskChangesRequest, CommitTaskChangesResponse, CreateTaskDiffCommentRequest, CreateTaskDiffCommentResponse, GetTaskDiffRequest, GetTaskDiffResponse, ListTaskDiffCommentsRequest, ListTaskDiffCommentsResponse, PushTaskBranchRequest, PushTaskBranchResponse, ReplyTaskDiffCommentRequest, ReplyTaskDiffCommentResponse, SetTaskDiffCommentStatusRequest, SetTaskDiffCommentStatusResponse } from "./task_diff.js";
 import type { ActivateWorkflowRequest, ActivateWorkflowResponse, CreateWorkflowRequest, CreateWorkflowResponse, DeleteSnapshotRequest, DeleteSnapshotResponse, DeleteWorkflowRequest, DeleteWorkflowResponse, GetDraftRequest, GetDraftResponse, GetVersionRequest, GetVersionResponse, GetWorkflowRequest, GetWorkflowResponse, GetWorkflowSnapshotRequest, GetWorkflowSnapshotResponse, ListVersionsRequest, ListVersionsResponse, ListWorkflowsRequest, ListWorkflowsResponse, PublishWorkflowRequest, PublishWorkflowResponse, RollbackWorkflowRequest, RollbackWorkflowResponse, UpdateDraftRequest, UpdateDraftResponse, UpdateWorkflowRequest, UpdateWorkflowResponse } from "./workflow.js";
-import type { CancelWorkflowRunRequest, CancelWorkflowRunResponse, CreateWorkflowRunRequest, CreateWorkflowRunResponse, DeleteWorkflowRunRequest, DeleteWorkflowRunResponse, GetWorkflowRunRequest, GetWorkflowRunResponse, ListWorkflowNodeRunsRequest, ListWorkflowNodeRunsResponse, ListWorkflowRunsByWorkflowRequest, ListWorkflowRunsByWorkflowResponse, ListWorkflowRunsRequest, ListWorkflowRunsResponse, RestartWorkflowRunRequest, RestartWorkflowRunResponse, StartWorkflowRunRequest, StartWorkflowRunResponse, UpdateWorkflowRunInputRequest, UpdateWorkflowRunInputResponse } from "./workflowRun.js";
+import type { CancelWorkflowRunRequest, CancelWorkflowRunResponse, CompleteWorkflowNodeRequest, CompleteWorkflowNodeResponse, CreateWorkflowRunRequest, CreateWorkflowRunResponse, DeleteWorkflowRunRequest, DeleteWorkflowRunResponse, GetWorkflowRunRequest, GetWorkflowRunResponse, ListWorkflowNodeRunsRequest, ListWorkflowNodeRunsResponse, ListWorkflowRunsByWorkflowRequest, ListWorkflowRunsByWorkflowResponse, ListWorkflowRunsRequest, ListWorkflowRunsResponse, RestartWorkflowRunRequest, RestartWorkflowRunResponse, StartWorkflowRunRequest, StartWorkflowRunResponse, UpdateWorkflowRunInputRequest, UpdateWorkflowRunInputResponse } from "./workflowRun.js";
 export type FrontendEndpointDefinition = {
   operationName: string;
   namespace: string;
@@ -57,6 +57,7 @@ export type RequestByOperation = {
   loadSession: LoadSessionRequest;
   promptSession: PromptSessionRequest;
   respondToSessionPermission: RespondToPermissionRequest;
+  cancelSessionPrompt: CancelSessionPromptRequest;
   stopSession: StopSessionRequest;
   switchSessionAgent: SwitchSessionAgentRequest;
   resumeSessionHistory: ResumeSessionHistoryRequest;
@@ -113,6 +114,7 @@ export type RequestByOperation = {
   cancelWorkflowRun: CancelWorkflowRunRequest;
   restartWorkflowRun: RestartWorkflowRunRequest;
   updateWorkflowRunInput: UpdateWorkflowRunInputRequest;
+  completeWorkflowNode: CompleteWorkflowNodeRequest;
 };
 
 export type ResponseByOperation = {
@@ -147,6 +149,7 @@ export type ResponseByOperation = {
   loadSession: LoadSessionEvent;
   promptSession: PromptSessionEvent;
   respondToSessionPermission: RespondToPermissionResponse;
+  cancelSessionPrompt: CancelSessionPromptResponse;
   stopSession: StopSessionResponse;
   switchSessionAgent: SwitchSessionAgentResponse;
   resumeSessionHistory: ResumeSessionHistoryResponse;
@@ -203,6 +206,7 @@ export type ResponseByOperation = {
   cancelWorkflowRun: CancelWorkflowRunResponse;
   restartWorkflowRun: RestartWorkflowRunResponse;
   updateWorkflowRunInput: UpdateWorkflowRunInputResponse;
+  completeWorkflowNode: CompleteWorkflowNodeResponse;
 };
 
 export type EndpointOperation = keyof RequestByOperation;
@@ -454,6 +458,14 @@ export const endpoints = {
     memberName: "respondToPermission",
     requestType: "RespondToPermissionRequest",
     responseType: "RespondToPermissionResponse",
+    responseMode: "unary",
+  },
+  cancelSessionPrompt: {
+    operationName: "cancelSessionPrompt",
+    namespace: "session",
+    memberName: "cancelPrompt",
+    requestType: "CancelSessionPromptRequest",
+    responseType: "CancelSessionPromptResponse",
     responseMode: "unary",
   },
   stopSession: {
@@ -902,6 +914,14 @@ export const endpoints = {
     memberName: "updateInput",
     requestType: "UpdateWorkflowRunInputRequest",
     responseType: "UpdateWorkflowRunInputResponse",
+    responseMode: "unary",
+  },
+  completeWorkflowNode: {
+    operationName: "completeWorkflowNode",
+    namespace: "workflowRun",
+    memberName: "completeNode",
+    requestType: "CompleteWorkflowNodeRequest",
+    responseType: "CompleteWorkflowNodeResponse",
     responseMode: "unary",
   },
 } as const satisfies Record<EndpointOperation, FrontendEndpointDefinition>;

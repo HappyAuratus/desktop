@@ -922,6 +922,24 @@ function AgentConfigurationFields({
           }
         />
       </InspectorField>
+      <InspectorField
+        label={t("settings.workflow.field.interactive")}
+        htmlFor="workflow-agent-interactive"
+      >
+        <div className="flex items-center justify-between gap-3">
+          <p className="text-xs text-muted-foreground">
+            {t("settings.workflow.field.interactiveDescription")}
+          </p>
+          <Switch
+            id="workflow-agent-interactive"
+            className="shrink-0 data-checked:bg-blue-600 hover:data-checked:bg-blue-700"
+            checked={config.interactive ?? false}
+            onCheckedChange={(interactive) =>
+              onChange({ ...config, interactive })
+            }
+          />
+        </div>
+      </InspectorField>
     </>
   );
 }

@@ -118,6 +118,8 @@ export function createContractsClient(
           transport,
           options,
         ),
+      cancelPrompt: (request, options) =>
+        executeOperation("cancelSessionPrompt", request, transport, options),
       stop: (request, options) =>
         executeOperation("stopSession", request, transport, options),
       switchAgent: (request, options) =>
@@ -271,6 +273,8 @@ export function createContractsClient(
         executeOperation("restartWorkflowRun", request, transport, options),
       updateInput: (request, options) =>
         executeOperation("updateWorkflowRunInput", request, transport, options),
+      completeNode: (request, options) =>
+        executeOperation("completeWorkflowNode", request, transport, options),
     },
   };
 }

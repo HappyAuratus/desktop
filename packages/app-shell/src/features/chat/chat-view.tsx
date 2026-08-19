@@ -22,13 +22,15 @@ interface ChatViewProps {
    * A selected session's history is still streaming in. This moves the composer to
    * the thread layout right away — so clicking a session slides it down immediately
    * instead of after the load — and shows a loading indicator where the thread will
-   * be. Kept separate from `turns` because history stages off-store until it is
-   * complete, so `turns` stays empty for the whole load.
+   * be. Kept separate from `turns` because an ordinary replay can begin with no
+   * visible events, while an already-running prompt publishes partial turns as they arrive.
    */
   isLoading?: boolean;
   error: string | null;
   pendingPermissions?: SessionPermissionRequest[];
   disabled?: boolean;
+  /** Hides message composition while retaining the ordinary transcript and trailing actions. */
+  composerVisible?: boolean;
   onSend: (text: string, images?: acp.ImageContent[]) => void;
   /** Fired on Enter with an empty input; used in Spec mode to run the highlighted stage. */
   onEmptySubmit?: () => void;
@@ -48,6 +50,8 @@ interface ChatViewProps {
    * workflow state, mirroring `contextBar`.
    */
   workflowBar?: ReactNode;
+  /** Actions overlaid at the lower-right of the composer slot so the composer stays centered. */
+  composerActions?: ReactNode;
   /**
    * Why the composer is disabled, surfaced on hover. Preferred over an inline
    * message for a state the user can fix from the context bar directly above it.
@@ -80,12 +84,14 @@ export function ChatView({
   error,
   pendingPermissions = [],
   disabled = false,
+  composerVisible = true,
   onSend,
   onEmptySubmit,
   onStop,
   onRespondToPermission,
   contextBar,
   workflowBar,
+  composerActions,
   disabledHint,
   skills = [],
   availableCommands = [],
@@ -96,7 +102,7 @@ export function ChatView({
   // state. This is what makes selecting a session slide the composer down at once;
   // because `isEmpty` then flips true→false a single time and stays false through
   // load completion, the FLIP effect below fires exactly once.
-  const isEmpty = turns.length === 0 && !isLoading;
+  const isEmpty = composerVisible && turns.length === 0 && !isLoading;
   const composerSlotRef = useRef<HTMLDivElement>(null);
   // Where the composer sat at the last commit, used as the FLIP origin. Only the
   // landing layout records it, because that is the only position it moves from.
@@ -150,10 +156,12 @@ export function ChatView({
             <LandingHeading />
           </div>
         </div>
-      ) : turns.length === 0 ? (
+      ) : turns.length === 0 && isLoading ? (
         // Thread layout with no turns yet: history is still loading. The composer
         // has already slid down, so this fills the space above it until turns land.
         <HistoryLoading />
+      ) : turns.length === 0 ? (
+        <HistoryEmpty />
       ) : (
         <MessageList
           key={taskId}
@@ -169,12 +177,19 @@ export function ChatView({
         ref={composerSlotRef}
         className={
           isEmpty
-            ? "mb-auto w-full px-3 pb-10 sm:px-6"
+            ? "relative mb-auto w-full px-3 pb-10 sm:px-6"
             : // Gradient fade so the thread dissolves under the composer instead of hard-clipping.
-              "shrink-0 bg-gradient-to-t from-background via-background to-transparent px-3 pb-4 pt-6 sm:px-5"
+              "relative shrink-0 bg-gradient-to-t from-background via-background to-transparent px-3 pb-4 pt-6 sm:px-5"
         }
       >
-        <div className="mx-auto w-full max-w-[760px]">
+        {/* Keep the composer centred at its normal 760px cap. Below the width where the trailing
+            actions would overlap it, reserve the same clearance on both sides: the input narrows
+            without either shifting off-centre or sharing space with the action buttons. */}
+        <div
+          className={`mx-auto max-w-[760px] ${
+            composerActions ? "w-[calc(100%_-_13rem)]" : "w-full"
+          }`}
+        >
           {error && (
             <p
               role="alert"
@@ -238,24 +253,29 @@ export function ChatView({
               under the pointer when a thread opens, which leaves no pointerleave
               behind, so an enabled tooltip would still believe it is hovered and pop
               open the moment a hint reappears. */}
-          <Tooltip trackCursorAxis="both" disabled={disabledHint === undefined}>
-            <TooltipTrigger render={<div />}>
-              <Composer
-                taskId={taskId}
-                autoFocus
-                onSend={onSend}
-                onEmptySubmit={onEmptySubmit}
-                onStop={onStop}
-                isResponding={isResponding}
-                isStreaming={isStreaming}
-                disabled={disabled}
-                skills={skills}
-                availableCommands={availableCommands}
-              />
-            </TooltipTrigger>
-            <TooltipContent sideOffset={12}>{disabledHint}</TooltipContent>
-          </Tooltip>
-          {isEmpty && (
+          {composerVisible && (
+            <Tooltip
+              trackCursorAxis="both"
+              disabled={disabledHint === undefined}
+            >
+              <TooltipTrigger render={<div />}>
+                <Composer
+                  taskId={taskId}
+                  autoFocus
+                  onSend={onSend}
+                  onEmptySubmit={onEmptySubmit}
+                  onStop={onStop}
+                  isResponding={isResponding}
+                  isStreaming={isStreaming}
+                  disabled={disabled}
+                  skills={skills}
+                  availableCommands={availableCommands}
+                />
+              </TooltipTrigger>
+              <TooltipContent sideOffset={12}>{disabledHint}</TooltipContent>
+            </Tooltip>
+          )}
+          {composerVisible && isEmpty && (
             <LandingSuggestions
               onSend={onSend}
               isResponding={isResponding}
@@ -263,6 +283,14 @@ export function ChatView({
             />
           )}
         </div>
+        {composerActions && (
+          <div
+            data-slot="composer-actions"
+            className={`absolute z-10 flex items-center gap-2 ${isEmpty ? "bottom-10 right-3 sm:right-6" : "bottom-4 right-3 sm:right-5"}`}
+          >
+            {composerActions}
+          </div>
+        )}
       </div>
     </main>
   );
@@ -281,6 +309,16 @@ function HistoryLoading() {
         <IconLoader2 className="size-4 animate-spin" />
         <span className="text-sm">{t("chat.loadingHistory")}</span>
       </div>
+    </div>
+  );
+}
+
+/** Keeps a read-only loaded session in the thread layout when it has no recorded turns. */
+function HistoryEmpty() {
+  const { t } = useTranslation();
+  return (
+    <div className="flex min-h-0 flex-1 items-center justify-center text-sm text-muted-foreground">
+      {t("chat.emptyHistory")}
     </div>
   );
 }

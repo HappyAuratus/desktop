@@ -13,6 +13,7 @@ import { useContractsClient } from "../../contracts-client-context";
 import { isTerminalRunStatus } from "../../features/workflow-run/run-status-style";
 import { useWorkspaceSelectionStore } from "../stores/workspace-selection-store";
 import type { WorkflowRunSummary } from "@ora/contracts";
+import { activeLocale } from "../../i18n/i18n-instance";
 
 const runsByWorkflowKey = (workflowId: string) =>
   ["workflowRun", "byWorkflow", workflowId] as const;
@@ -71,7 +72,7 @@ export function useCreateWorkflowRun() {
       workflowId: string;
       name: string;
       baseBranch?: string;
-    }) => client.workflowRun.create(input),
+    }) => client.workflowRun.create({ ...input, locale: activeLocale() }),
     onSuccess: (_result, variables) => {
       void queryClient.invalidateQueries({
         queryKey: runsByProjectKey(variables.projectId),
@@ -174,6 +175,23 @@ export function useUpdateWorkflowRunInput() {
         queryKey: runDetailKey(variables.runId),
       });
     },
+  });
+}
+
+/** Completes one awaiting interactive node so the workflow advances. */
+export function useCompleteWorkflowNode() {
+  const client = useContractsClient();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (input: { runId: string; nodeId: string }) =>
+      client.workflowRun.completeNode({
+        runId: input.runId,
+        nodeId: input.nodeId,
+      }),
+    onSuccess: (_result, variables) =>
+      queryClient.invalidateQueries({
+        queryKey: runDetailKey(variables.runId),
+      }),
   });
 }
 
@@ -368,7 +386,12 @@ export function buildDisplayRun(
     name: detail.name,
     status: projectRunStatus(
       detail.run.status as
-        "pending" | "running" | "succeeded" | "failed" | "cancelled",
+        | "pending"
+        | "running"
+        | "succeeded"
+        | "failed"
+        | "cancelled"
+        | "awaitingInput",
       currentNodes,
     ),
     kickoffInput: kickoffInput ?? undefined,

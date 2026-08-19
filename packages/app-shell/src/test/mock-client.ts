@@ -298,6 +298,7 @@ export function createMockClient(state: MockClientState): ContractsClient {
         yield { type: "completed" as const, stopReason: "end_turn" as const };
       },
       respondToPermission: async () => ({}),
+      cancelPrompt: async () => ({}),
       stop: async (req) => {
         const session = state.sessions.find(
           (candidate) => candidate.id === req.sessionId,
@@ -749,6 +750,15 @@ export function createMockClient(state: MockClientState): ContractsClient {
         );
         if (record === undefined)
           throw new Error(`workflow run ${req.runId} not found`);
+        return { run: mockWorkflowRun(record) };
+      },
+      completeNode: async (req) => {
+        const record = state.workflowRuns.find(
+          (candidate) => candidate.id === req.runId,
+        );
+        if (record === undefined)
+          throw new Error(`workflow run ${req.runId} not found`);
+        record.status = "succeeded";
         return { run: mockWorkflowRun(record) };
       },
       list: async (req) => ({

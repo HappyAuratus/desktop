@@ -7,6 +7,7 @@ mod history;
 mod replay;
 mod routing;
 mod scheduling;
+mod session_followers;
 mod stream;
 mod support;
 mod title_acquisition;
@@ -35,8 +36,9 @@ use connection::{ConnectionStatus, ConnectionSupervisor, ConnectionSupervisors};
 use ora_application::{Clock, SessionRepository};
 use ora_contracts::{AgentCli as ContractAgentCli, EmptyErrorParams, PublicError};
 use ora_contracts::{
-    AttachSessionRequest, AttachSessionResponse, DeleteSessionResponse, LoadSessionEvent,
-    LoadSessionRequest, PromptSessionEvent, PromptSessionRequest, RespondToPermissionRequest,
+    AttachSessionRequest, AttachSessionResponse, CancelSessionPromptRequest,
+    CancelSessionPromptResponse, DeleteSessionResponse, LoadSessionEvent, LoadSessionRequest,
+    PromptSessionEvent, PromptSessionRequest, RespondToPermissionRequest,
     RespondToPermissionResponse, ResumeSessionHistoryRequest, ResumeSessionHistoryResponse,
     SetSessionConfigRequest, SetSessionConfigResponse, StopSessionRequest, StopSessionResponse,
     SwitchSessionAgentRequest, SwitchSessionAgentResponse, WarmSessionRequest, WarmSessionResponse,
@@ -125,6 +127,7 @@ pub(super) enum RuntimeCommand {
     Stop {
         response: oneshot::Sender<Result<StopSessionResponse, BackendError>>,
     },
+    CancelActivePrompt,
     Cancel {
         operation_id: u64,
     },
@@ -705,7 +708,7 @@ impl AgentRuntimeManager {
         resolve_task_cwd(&self.inner.pool, task_id, &self.inner.relative_path_base)
     }
 
-    /// Starts an explicit ACP load stream for one persisted Ora session.
+    /// Loads one session conversation, restoring or following its provider turn as needed.
     pub(crate) async fn load_session(
         &self,
         request: LoadSessionRequest,
@@ -807,6 +810,21 @@ impl AgentRuntimeManager {
             })
             .map_err(runtime_unavailable_with)?;
         response.await.map_err(runtime_unavailable_with)?
+    }
+
+    /// Cancels the active prompt without unloading the reusable session actor.
+    pub(crate) fn cancel_session_prompt(
+        &self,
+        request: CancelSessionPromptRequest,
+    ) -> Result<CancelSessionPromptResponse, BackendError> {
+        let session = self.find_session(&request.session_id)?;
+        if let Some(handle) = self.lookup_actor(&session.id)? {
+            handle
+                .commands
+                .send(RuntimeCommand::CancelActivePrompt)
+                .map_err(runtime_unavailable_with)?;
+        }
+        Ok(CancelSessionPromptResponse {})
     }
 
     /// Stops one logical session without terminating its shared CLI process.

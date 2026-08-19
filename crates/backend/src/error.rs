@@ -564,6 +564,16 @@ impl From<ApplicationError> for BackendError {
                 PublicError::WorkflowRunActive(EmptyErrorParams {}),
                 "workflow run is active and cannot be deleted",
             ),
+            ApplicationError::WorkflowNodeNotFound { .. } => (
+                ErrorClassification::NotFound,
+                PublicError::WorkflowNodeNotFound(EmptyErrorParams {}),
+                "workflow node not found",
+            ),
+            ApplicationError::WorkflowNodeNotAwaitingInput { .. } => (
+                ErrorClassification::InvalidRequest,
+                PublicError::WorkflowNodeNotAwaitingInput(EmptyErrorParams {}),
+                "workflow node is not awaiting input and cannot be completed",
+            ),
             ApplicationError::WorkflowRunGraphParse(_) => (
                 ErrorClassification::InvalidRequest,
                 PublicError::WorkflowRunGraphParse(EmptyErrorParams {}),
@@ -821,6 +831,20 @@ mod tests {
                 ApplicationError::WorkflowRunActive,
                 ErrorClassification::InvalidRequest,
                 PublicError::WorkflowRunActive(EmptyErrorParams {}),
+            ),
+            (
+                ApplicationError::WorkflowNodeNotFound {
+                    node_id: "node-1".to_string(),
+                },
+                ErrorClassification::NotFound,
+                PublicError::WorkflowNodeNotFound(EmptyErrorParams {}),
+            ),
+            (
+                ApplicationError::WorkflowNodeNotAwaitingInput {
+                    node_id: "node-1".to_string(),
+                },
+                ErrorClassification::InvalidRequest,
+                PublicError::WorkflowNodeNotAwaitingInput(EmptyErrorParams {}),
             ),
         ];
 

@@ -479,6 +479,21 @@ pub async fn stop_session(
     run_async_backend("stop_session", state.backend.stop_session(request)).await
 }
 
+/// Cancels the active prompt without unloading the reusable session.
+#[tauri::command]
+pub async fn cancel_session_prompt(
+    state: State<'_, DesktopState>,
+    request: CancelSessionPromptRequest,
+) -> Result<CancelSessionPromptResponse, CommandError> {
+    run_backend(
+        "cancel_session_prompt",
+        state.backend.clone(),
+        request,
+        Backend::cancel_session_prompt,
+    )
+    .await
+}
+
 /// Moves one conversation onto a different agent CLI without changing its identity.
 #[tauri::command]
 pub async fn switch_session_agent(
@@ -1129,6 +1144,21 @@ backend_command!(
     update_workflow_run_input,
     "Updates the kickoff input of one workflow run through the shared Backend."
 );
+/// Completes one awaiting interactive workflow node through the shared Backend.
+///
+/// Not a `backend_command!` because completion also stops the node's session, which is
+/// asynchronous.
+#[tauri::command]
+pub async fn complete_workflow_node(
+    state: State<'_, DesktopState>,
+    request: CompleteWorkflowNodeRequest,
+) -> Result<CompleteWorkflowNodeResponse, CommandError> {
+    state
+        .backend
+        .complete_workflow_node(request)
+        .await
+        .map_err(CommandError::from)
+}
 
 // =============================================================================
 // desktop

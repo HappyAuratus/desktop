@@ -2,40 +2,38 @@ use crate::agent_runtime::{AgentRuntimeManager, WarmOwner};
 use crate::clock::SystemClock;
 use crate::error::BackendError;
 use crate::workflow_run_prerequisites::resolve_executable_skill_name;
+use crate::workflow_run_prompt::{WorkflowPromptRequest, assemble_workflow_prompt};
+use agent_client_protocol_schema::v1::ContentBlock;
 use agent_client_protocol_schema::v1::SessionUpdate;
 use agent_client_protocol_schema::v1::StopReason;
-use agent_client_protocol_schema::v1::{ContentBlock, TextContent};
 use agent_client_protocol_schema::v1::{
     SessionConfigKind, SessionConfigOption, SessionConfigOptionCategory, SessionConfigSelectOption,
     SessionConfigSelectOptions,
 };
 use ora_application::{
     AgentDefinitionRepository, AgentSkill, Clock, ExecutionContext, FileChange,
-    FilesystemSkillStorage, NodeExecutor, RepositoryError, WorkflowGraph, WorkflowGraphNode,
-    WorkflowRunCallback, WorkflowRunEngineRepository,
+    FilesystemSkillStorage, NodeExecutor, RepositoryError, WorkflowGraphNode, WorkflowRunCallback,
+    WorkflowRunEngineRepository,
 };
 use ora_contracts::{
     AgentCli as ContractAgentCli, AttachSessionRequest, PromptSessionEvent, PromptSessionRequest,
     SetSessionConfigRequest, StopSessionRequest, WarmSessionRequest, WarmSessionTarget,
+    WorkflowRunLocale,
 };
 use ora_db::{
     RepositoryPool, SqliteAgentDefinitionRepository, SqliteSkillRepository,
     SqliteWorkflowRunEngineRepository,
 };
 use ora_domain::{
-    AgentDefinitionId, Namespace, SessionId, WorkflowNodeRun, WorkflowNodeRunId,
-    WorkflowNodeStatus, WorkflowRunId,
+    AgentDefinitionId, Namespace, SessionId, WorkflowNodeRunId, WorkflowNodeStatus, WorkflowRunId,
 };
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use similar::{ChangeTag, TextDiff};
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::Arc;
 use thiserror::Error;
-
-/// Separator between multiple transitive-predecessor outputs in an agent prompt.
-const UPSTREAM_PREDECESSOR_SEPARATOR: &str = "\n\n---\n\n";
 
 /// Executes one agent node through a real Ora session, reporting completion to the run engine.
 ///
@@ -50,6 +48,8 @@ pub struct WorkflowRunNodeExecutor {
     agent_repository: SqliteAgentDefinitionRepository,
     callback: Arc<dyn WorkflowRunCallback>,
     clock: SystemClock,
+    /// Root for the per-node worktree baseline snapshots an interactive node diffs at completion.
+    baselines_root: PathBuf,
 }
 
 impl WorkflowRunNodeExecutor {
@@ -62,6 +62,7 @@ impl WorkflowRunNodeExecutor {
         agent_repository: SqliteAgentDefinitionRepository,
         callback: Arc<dyn WorkflowRunCallback>,
         clock: SystemClock,
+        baselines_root: PathBuf,
     ) -> Self {
         Self {
             agent_runtime,
@@ -70,6 +71,7 @@ impl WorkflowRunNodeExecutor {
             agent_repository,
             callback,
             clock,
+            baselines_root,
         }
     }
 }
@@ -87,6 +89,7 @@ impl NodeExecutor for WorkflowRunNodeExecutor {
         let agent_repository = self.agent_repository.clone();
         let callback = self.callback.clone();
         let clock = self.clock;
+        let baselines_root = self.baselines_root.clone();
         let node_run_id = node_run_id.clone();
         let node = node.clone();
         let context = context.clone();
@@ -97,6 +100,7 @@ impl NodeExecutor for WorkflowRunNodeExecutor {
                 &skills_root,
                 &agent_repository,
                 &clock,
+                &baselines_root,
                 &node_run_id,
                 &node,
                 &context,
@@ -112,12 +116,16 @@ impl NodeExecutor for WorkflowRunNodeExecutor {
     }
 }
 
-/// One finished agent node turn: the accumulated conversation, the provider stop reason, and the
-/// worktree files this node incrementally changed.
-struct AgentNodeOutcome {
-    output: Option<String>,
-    stop_reason: StopReason,
-    file_changes: Vec<FileChange>,
+/// The result of one driven agent node turn.
+enum AgentNodeOutcome {
+    /// The node finished and reports completion or failure through the callback.
+    Completed {
+        output: Option<String>,
+        stop_reason: StopReason,
+        file_changes: Vec<FileChange>,
+    },
+    /// An interactive node's first turn ended naturally; it parks at `Pending` awaiting input.
+    AwaitingInput,
 }
 
 /// Failures raised while driving one agent node's session.
@@ -133,6 +141,12 @@ pub enum NodeExecutionError {
     SkillResolution { skill_id: String },
     #[error("prompt session ended without a stop reason")]
     SessionEndedWithoutStopReason,
+    #[error("failed to persist worktree baseline for node {node_id}: {source}")]
+    BaselinePersist {
+        node_id: String,
+        #[source]
+        source: std::io::Error,
+    },
     #[error("workflow run repository operation failed")]
     Repository(#[from] RepositoryError),
     #[error("session failed: {0}")]
@@ -154,7 +168,7 @@ impl NodeExecutionError {
 /// files inside a new directory (e.g. `openspec/...`) or edits an already-committed file for the
 /// first time still shows up in the before/after delta. Best-effort — when git is unavailable
 /// the snapshot is empty, so a node that cannot diff its worktree records no file changes.
-fn capture_worktree_snapshot(worktree_root: &Path) -> BTreeMap<String, Option<String>> {
+pub(crate) fn capture_worktree_snapshot(worktree_root: &Path) -> BTreeMap<String, Option<String>> {
     let Ok(output) = Command::new("git")
         .args(["ls-files", "-co", "--exclude-standard", "-z"])
         .current_dir(worktree_root)
@@ -177,7 +191,7 @@ fn capture_worktree_snapshot(worktree_root: &Path) -> BTreeMap<String, Option<St
 
 /// Diffs the worktree state captured before a node ran against the state after it finished, so
 /// only this node's incremental changes are reported.
-fn compute_file_changes(
+pub(crate) fn compute_file_changes(
     baseline: &BTreeMap<String, Option<String>>,
     current: &BTreeMap<String, Option<String>>,
 ) -> Vec<FileChange> {
@@ -222,6 +236,47 @@ fn count_lines(content: &str) -> u64 {
     content.lines().count() as u64
 }
 
+/// Whether a node's stop should park an interactive node at `Pending` instead of reporting a
+/// result. Completed and user-cancelled turns keep the conversation open for follow-up; a refusal
+/// still fails the node.
+fn pauses_interactive_node(interactive: bool, stop_reason: StopReason) -> bool {
+    interactive
+        && matches!(
+            stop_reason,
+            StopReason::EndTurn
+                | StopReason::MaxTokens
+                | StopReason::MaxTurnRequests
+                | StopReason::Cancelled
+        )
+}
+
+/// Persists the worktree snapshot captured when an interactive node started, so the completion
+/// flow can later diff only this node's changes. Lives under a dedicated baselines root, never
+/// the database or the worktree itself.
+fn persist_worktree_baseline(
+    baselines_root: &Path,
+    node_run_id: &WorkflowNodeRunId,
+    baseline: &BTreeMap<String, Option<String>>,
+) -> Result<(), NodeExecutionError> {
+    std::fs::create_dir_all(baselines_root).map_err(|source| {
+        NodeExecutionError::BaselinePersist {
+            node_id: node_run_id.to_string(),
+            source,
+        }
+    })?;
+    let path = baselines_root.join(format!("{}.json", node_run_id.as_ref()));
+    let json =
+        serde_json::to_vec(baseline).map_err(|error| NodeExecutionError::BaselinePersist {
+            node_id: node_run_id.to_string(),
+            source: error.into(),
+        })?;
+    std::fs::write(path, json).map_err(|source| NodeExecutionError::BaselinePersist {
+        node_id: node_run_id.to_string(),
+        source,
+    })?;
+    Ok(())
+}
+
 /// Runs the warm → attach → model → prompt → stop session chain for one agent node.
 #[allow(clippy::too_many_arguments)]
 async fn drive_agent_node(
@@ -230,6 +285,7 @@ async fn drive_agent_node(
     skills_root: &Path,
     agent_repository: &SqliteAgentDefinitionRepository,
     clock: &SystemClock,
+    baselines_root: &Path,
     node_run_id: &WorkflowNodeRunId,
     node: &WorkflowGraphNode,
     context: &ExecutionContext,
@@ -259,7 +315,7 @@ async fn drive_agent_node(
         .await?;
 
     // Attach the warm session to the run task and bind it to the node run immediately, so the
-    // frontend can subscribe to permission requests before the prompt starts.
+    // workflow cancel path can always find and stop it while the first prompt is being prepared.
     let attach = agent_runtime
         .attach_session(AttachSessionRequest {
             session_id: warm.session_id.clone(),
@@ -300,12 +356,18 @@ async fn drive_agent_node(
         _ => None,
     };
 
-    // Assemble the prompt: the enabled skills invoked by slash command, the node task, role
-    // instructions, then the transitive-predecessor lineage plus run input.
+    // Assemble one explicit workflow handoff while preserving leading slash-command parsing.
     let node_runs = repository.list_node_runs(&context.run.id)?;
-    let upstream = assemble_upstream(context, node, &node_runs);
     let skill_names = resolve_skill_names(pool, skills_root, &config.skills)?;
-    let prompt = assemble_prompt(node, role_content.as_deref(), &upstream, &skill_names);
+    let prompt = assemble_workflow_prompt(WorkflowPromptRequest {
+        node,
+        role_content: role_content.as_deref(),
+        graph_json: &context.graph_json,
+        run_input: context.run.input.as_deref(),
+        node_runs: &node_runs,
+        skill_names: &skill_names,
+        locale: workflow_prompt_locale(context.run.payload.as_deref()),
+    });
 
     let worktree_root = agent_runtime.task_cwd(&context.task.id)?;
 
@@ -320,9 +382,8 @@ async fn drive_agent_node(
         })
         .await?;
 
-    // Consume the prompt stream; pending permissions surface to the frontend through
-    // `load_session` while this driver keeps consuming toward `Completed` (Q1).
-    let mut accumulator = ConversationAccumulator::default();
+    // Consume the owning prompt stream while `load_session` followers receive the same live turn.
+    let mut accumulator = AssistantOutputAccumulator::default();
     let mut stop_reason = None;
     while let Some(event) = stream.recv().await {
         match event? {
@@ -340,6 +401,20 @@ async fn drive_agent_node(
     }
     let stop_reason = stop_reason.ok_or(NodeExecutionError::SessionEndedWithoutStopReason)?;
 
+    // An interactive node's first turn parks the node instead of completing it: the session stays
+    // open for follow-up turns and the baseline is persisted for completion-time diffing.
+    if pauses_interactive_node(config.interactive, stop_reason) {
+        persist_worktree_baseline(baselines_root, node_run_id, &baseline)?;
+        let now = clock.now_timestamp_millis();
+        repository.transition_node_run_status(
+            node_run_id,
+            WorkflowNodeStatus::Running,
+            WorkflowNodeStatus::Pending,
+            now,
+        )?;
+        return Ok(AgentNodeOutcome::AwaitingInput);
+    }
+
     // Stop the node's session; the Ora record stays queryable.
     agent_runtime
         .stop_session(StopSessionRequest {
@@ -351,11 +426,25 @@ async fn drive_agent_node(
     // prompt, so only this node's own changes are reported, not earlier nodes' work.
     let file_changes = compute_file_changes(&baseline, &capture_worktree_snapshot(&worktree_root));
 
-    Ok(AgentNodeOutcome {
-        output: accumulator.into_json(),
+    Ok(AgentNodeOutcome::Completed {
+        output: accumulator.into_output(),
         stop_reason,
         file_changes,
     })
+}
+
+/// Reads the locale frozen when the workflow run was created.
+fn workflow_prompt_locale(payload: Option<&str>) -> WorkflowRunLocale {
+    #[derive(Deserialize)]
+    struct WorkflowRunPayload {
+        locale: WorkflowRunLocale,
+    }
+
+    payload
+        .and_then(|payload| serde_json::from_str::<WorkflowRunPayload>(payload).ok())
+        .map(|payload| payload.locale)
+        // Chinese is Ora's default locale and remains the safe fallback for damaged old data.
+        .unwrap_or(WorkflowRunLocale::ZhCn)
 }
 
 /// Reports one finished turn to the engine according to the confirmed stop-reason mapping.
@@ -365,36 +454,46 @@ fn report_outcome(
     node_run_id: &WorkflowNodeRunId,
     outcome: AgentNodeOutcome,
 ) {
-    match outcome.stop_reason {
+    let AgentNodeOutcome::Completed {
+        output,
+        stop_reason,
+        file_changes,
+    } = outcome
+    else {
+        // An interactive node parked at `Pending` reports nothing; the human drives completion.
+        return;
+    };
+    match stop_reason {
         StopReason::EndTurn => callback.complete_node(
             run_id,
             node_run_id,
-            outcome.output,
+            output,
             Some("end_turn".to_string()),
-            outcome.file_changes,
+            file_changes,
         ),
         StopReason::MaxTokens => callback.complete_node(
             run_id,
             node_run_id,
-            outcome.output,
+            output,
             Some("max_tokens".to_string()),
-            outcome.file_changes,
+            file_changes,
         ),
         StopReason::MaxTurnRequests => callback.complete_node(
             run_id,
             node_run_id,
-            outcome.output,
+            output,
             Some("max_turn_requests".to_string()),
-            outcome.file_changes,
+            file_changes,
         ),
         StopReason::Refusal => callback.fail_node(
             run_id,
             node_run_id,
             "agent refused the request".to_string(),
-            outcome.output,
+            output,
         ),
         StopReason::Cancelled => {
-            // A cancelled turn belongs to the cancel flow; the driver must not complete the node.
+            // Non-interactive cancellation belongs to the run cancel flow; interactive turns
+            // already returned through the awaiting-input branch above.
         }
         // A newer ACP stop reason has semantics this executor cannot safely map to a
         // successful workflow transition.
@@ -402,7 +501,7 @@ fn report_outcome(
             run_id,
             node_run_id,
             "agent stopped for a reason this Ora version does not recognize".to_string(),
-            outcome.output,
+            output,
         ),
     }
 }
@@ -499,165 +598,28 @@ fn resolve_skill_names(
     Ok(names)
 }
 
-/// Builds the prompt content blocks: the slash-command skill invocation with the node task, role
-/// instructions, and upstream context.
-///
-/// When the node enables skills, the invocation leads the message so the agent CLI parses it as a
-/// slash command; otherwise the role instructions lead, preserving the original ordering.
-fn assemble_prompt(
-    node: &WorkflowGraphNode,
-    role_content: Option<&str>,
-    upstream: &str,
-    skill_names: &[String],
-) -> Vec<ContentBlock> {
-    let node_prompt = node
-        .agent_config
-        .as_ref()
-        .map(|config| config.prompt.as_str())
-        .unwrap_or("");
-    let invocation = skill_invocation_prefix(skill_names);
-
-    let mut blocks = Vec::new();
-    if invocation.is_empty() {
-        if let Some(role) = role_content {
-            blocks.push(system_instructions_block(role));
-        }
-        if !node_prompt.is_empty() {
-            blocks.push(ContentBlock::Text(TextContent::new(
-                node_prompt.to_string(),
-            )));
-        }
-    } else {
-        // The `/name` invocation must be the first token the agent reads; the role instructions
-        // follow in the same turn rather than leading the message.
-        let text = if node_prompt.is_empty() {
-            invocation
-        } else {
-            format!("{invocation} {node_prompt}")
-        };
-        blocks.push(ContentBlock::Text(TextContent::new(text)));
-        if let Some(role) = role_content {
-            blocks.push(system_instructions_block(role));
-        }
-    }
-    if !upstream.is_empty() {
-        blocks.push(ContentBlock::Text(TextContent::new(upstream)));
-    }
-    blocks
-}
-
-/// Renders the enabled skill names as a `/name1 /name2` invocation prefix, empty when none.
-fn skill_invocation_prefix(skill_names: &[String]) -> String {
-    skill_names
-        .iter()
-        .map(|name| format!("/{name}"))
-        .collect::<Vec<_>>()
-        .join(" ")
-}
-
-/// Wraps role content in the system-instructions tag used by the session driver.
-fn system_instructions_block(role: &str) -> ContentBlock {
-    ContentBlock::Text(TextContent::new(format!(
-        "<system_instructions>\n{role}\n</system_instructions>"
-    )))
-}
-
-/// Concatenates the transitive predecessors' final assistant messages plus `run.input`.
-fn assemble_upstream(
-    context: &ExecutionContext,
-    node: &WorkflowGraphNode,
-    node_runs: &[WorkflowNodeRun],
-) -> String {
-    let Ok(graph) = WorkflowGraph::parse(&context.graph_json) else {
-        return String::new();
-    };
-    let mut parts: Vec<String> = graph
-        .transitive_predecessors(&node.id)
-        .iter()
-        .map(|predecessor| {
-            node_runs
-                .iter()
-                .find(|node_run| {
-                    node_run.node_id == predecessor.id
-                        && node_run.status == WorkflowNodeStatus::Succeeded
-                })
-                .map(|node_run| last_assistant_message(node_run.output.as_deref()))
-                .unwrap_or_default()
-        })
-        .filter(|part| !part.is_empty())
-        .collect();
-    if let Some(input) = context.run.input.as_deref()
-        && !input.is_empty()
-    {
-        parts.push(input.to_string());
-    }
-    parts.join(UPSTREAM_PREDECESSOR_SEPARATOR)
-}
-
-/// One message in a node conversation array.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-struct ConversationEntry {
-    role: String,
+/// Accumulates only the final assistant response produced by the node's prompt turn.
+#[derive(Debug, Default)]
+struct AssistantOutputAccumulator {
     text: String,
 }
 
-/// Accumulates the multi-turn conversation from prompt stream updates.
-///
-/// Text chunks are grouped by role into messages; the conversation ends with the accumulated
-/// array, which the engine writes to `node_run.output` at session end.
-#[derive(Debug, Default)]
-struct ConversationAccumulator {
-    entries: Vec<ConversationEntry>,
-    current_role: Option<&'static str>,
-    current_text: String,
-}
-
-impl ConversationAccumulator {
-    /// Records one stream update, keeping user and assistant text messages.
+impl AssistantOutputAccumulator {
+    /// Records assistant text while leaving the session history responsible for full conversation.
     fn consume(&mut self, update: &SessionUpdate) {
-        match update {
-            SessionUpdate::UserMessageChunk(chunk) => self.consume_text("user", &chunk.content),
-            SessionUpdate::AgentMessageChunk(chunk) => {
-                self.consume_text("assistant", &chunk.content)
-            }
-            _ => {}
+        if let SessionUpdate::AgentMessageChunk(chunk) = update
+            && let Some(text) = chunk_text(&chunk.content)
+        {
+            self.text.push_str(text);
         }
     }
 
-    /// Appends one text block to the current message, starting a new one on a role change.
-    fn consume_text(&mut self, role: &'static str, block: &ContentBlock) {
-        let Some(text) = chunk_text(block) else {
-            return;
-        };
-        if self.current_role == Some(role) {
-            self.current_text.push_str(text);
-        } else {
-            self.flush();
-            self.current_role = Some(role);
-            self.current_text.push_str(text);
-        }
-    }
-
-    /// Closes the in-flight message, discarding empty ones.
-    fn flush(&mut self) {
-        if let Some(role) = self.current_role {
-            if !self.current_text.is_empty() {
-                self.entries.push(ConversationEntry {
-                    role: role.to_string(),
-                    text: std::mem::take(&mut self.current_text),
-                });
-            }
-            self.current_role = None;
-        }
-    }
-
-    /// Serializes the accumulated conversation, or returns `None` when nothing was produced.
-    fn into_json(mut self) -> Option<String> {
-        self.flush();
-        if self.entries.is_empty() {
+    /// Returns the assistant's scalar output, or `None` when no assistant text was produced.
+    fn into_output(self) -> Option<String> {
+        if self.text.is_empty() {
             return None;
         }
-        serde_json::to_string(&self.entries).ok()
+        Some(self.text)
     }
 }
 
@@ -669,26 +631,11 @@ fn chunk_text(block: &ContentBlock) -> Option<&str> {
     }
 }
 
-/// Extracts the final assistant message from a node conversation array.
-fn last_assistant_message(output: Option<&str>) -> String {
-    let Some(output) = output else {
-        return String::new();
-    };
-    let Ok(conversation) = serde_json::from_str::<Vec<ConversationEntry>>(output) else {
-        return String::new();
-    };
-    conversation
-        .iter()
-        .rev()
-        .find_map(|entry| (entry.role == "assistant").then_some(entry.text.clone()))
-        .unwrap_or_default()
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use agent_client_protocol_schema::v1::{
-        SessionConfigId, SessionConfigSelect, SessionConfigValueId,
+        ContentChunk, SessionConfigId, SessionConfigSelect, SessionConfigValueId, TextContent,
     };
     use pretty_assertions::assert_eq;
 
@@ -726,6 +673,67 @@ mod tests {
                     path: "src/b.ts".to_string(),
                     additions: 0,
                     deletions: 1
+                },
+                FileChange {
+                    path: "src/new.ts".to_string(),
+                    additions: 1,
+                    deletions: 0
+                },
+            ]
+        );
+    }
+
+    /// Verifies completed and user-cancelled turns park an interactive node.
+    #[test]
+    fn pauses_interactive_node_parks_completed_and_cancelled_turns() {
+        assert!(pauses_interactive_node(true, StopReason::EndTurn));
+        assert!(pauses_interactive_node(true, StopReason::MaxTokens));
+        assert!(pauses_interactive_node(true, StopReason::MaxTurnRequests));
+        // A refusal still fails the node, while an explicit prompt cancellation yields control.
+        assert!(!pauses_interactive_node(true, StopReason::Refusal));
+        assert!(pauses_interactive_node(true, StopReason::Cancelled));
+        // Non-interactive nodes keep the existing complete-on-EndTurn behavior.
+        assert!(!pauses_interactive_node(false, StopReason::EndTurn));
+    }
+
+    /// Verifies a persisted worktree baseline round-trips through its side file.
+    #[test]
+    fn persist_worktree_baseline_round_trips() {
+        let temp = tempfile::TempDir::new().unwrap();
+        let mut baseline = BTreeMap::new();
+        baseline.insert("src/a.ts".to_string(), Some("one\n".to_string()));
+        baseline.insert("src/b.ts".to_string(), None);
+        persist_worktree_baseline(temp.path(), &WorkflowNodeRunId::new("node-1"), &baseline)
+            .unwrap();
+        let loaded: BTreeMap<String, Option<String>> =
+            serde_json::from_slice(&std::fs::read(temp.path().join("node-1.json")).unwrap())
+                .unwrap();
+        assert_eq!(loaded, baseline);
+    }
+
+    /// Verifies the completion-time diff against a baseline loaded from its side file reports
+    /// only the node's own changes since the node started.
+    #[test]
+    fn compute_file_changes_against_a_loaded_baseline() {
+        let temp = tempfile::TempDir::new().unwrap();
+        let mut baseline = BTreeMap::new();
+        baseline.insert("src/a.ts".to_string(), Some("one\n".to_string()));
+        persist_worktree_baseline(temp.path(), &WorkflowNodeRunId::new("node-1"), &baseline)
+            .unwrap();
+        let loaded: BTreeMap<String, Option<String>> =
+            serde_json::from_slice(&std::fs::read(temp.path().join("node-1.json")).unwrap())
+                .unwrap();
+
+        let mut current = baseline;
+        current.insert("src/a.ts".to_string(), Some("one\ntwo\n".to_string()));
+        current.insert("src/new.ts".to_string(), Some("fresh\n".to_string()));
+        assert_eq!(
+            compute_file_changes(&loaded, &current),
+            vec![
+                FileChange {
+                    path: "src/a.ts".to_string(),
+                    additions: 1,
+                    deletions: 0
                 },
                 FileChange {
                     path: "src/new.ts".to_string(),
@@ -848,126 +856,26 @@ mod tests {
     }
 
     #[test]
-    fn assemble_prompt_orders_role_node_and_upstream() {
-        let node = WorkflowGraphNode {
-            id: "a".to_string(),
-            node_type: ora_application::NodeType::Agent,
-            title: String::new(),
-            description: String::new(),
-            instruction: None,
-            agent_config: Some(ora_application::AgentConfig {
-                executor: ora_application::AgentExecutor {
-                    agent_cli: "open_code".to_string(),
-                    model_id: "m".to_string(),
-                },
-                role_id: Some("Researcher".to_string()),
-                skills: Vec::new(),
-                prompt: "do the task".to_string(),
-            }),
-        };
-        let blocks = assemble_prompt(&node, Some("role text"), "upstream text", &[]);
-        assert_eq!(blocks.len(), 3);
-        match &blocks[0] {
-            ContentBlock::Text(text) => {
-                assert!(text.text.contains("<system_instructions>"));
-                assert!(text.text.contains("role text"));
-            }
-            _ => panic!("expected text block"),
-        }
-        match &blocks[1] {
-            ContentBlock::Text(text) => assert_eq!(text.text, "do the task"),
-            _ => panic!("expected text block"),
-        }
-        match &blocks[2] {
-            ContentBlock::Text(text) => assert_eq!(text.text, "upstream text"),
-            _ => panic!("expected text block"),
-        }
+    fn assistant_output_accumulator_keeps_only_assistant_text() {
+        let mut accumulator = AssistantOutputAccumulator::default();
+        accumulator.consume(&SessionUpdate::UserMessageChunk(ContentChunk::new(
+            ContentBlock::Text(TextContent::new("ignored")),
+        )));
+        accumulator.consume(&SessionUpdate::AgentMessageChunk(ContentChunk::new(
+            ContentBlock::Text(TextContent::new("hello ")),
+        )));
+        accumulator.consume(&SessionUpdate::AgentMessageChunk(ContentChunk::new(
+            ContentBlock::Text(TextContent::new("world")),
+        )));
+        assert_eq!(accumulator.into_output(), Some("hello world".to_string()));
     }
 
     #[test]
-    fn assemble_prompt_leads_with_the_slash_command_invocation() {
-        let node = WorkflowGraphNode {
-            id: "a".to_string(),
-            node_type: ora_application::NodeType::Agent,
-            title: String::new(),
-            description: String::new(),
-            instruction: None,
-            agent_config: Some(ora_application::AgentConfig {
-                executor: ora_application::AgentExecutor {
-                    agent_cli: "open_code".to_string(),
-                    model_id: "m".to_string(),
-                },
-                role_id: Some("Researcher".to_string()),
-                skills: Vec::new(),
-                prompt: "do the task".to_string(),
-            }),
-        };
-        let blocks = assemble_prompt(
-            &node,
-            Some("role text"),
-            "upstream text",
-            &["sfmea-review".to_string(), "openspec-explore".to_string()],
-        );
-        assert_eq!(blocks.len(), 3);
-        // The invocation must open the message so the agent CLI parses the slash commands.
-        match &blocks[0] {
-            ContentBlock::Text(text) => {
-                assert_eq!(text.text, "/sfmea-review /openspec-explore do the task")
-            }
-            _ => panic!("expected text block"),
-        }
-        match &blocks[1] {
-            ContentBlock::Text(text) => assert!(text.text.contains("role text")),
-            _ => panic!("expected text block"),
-        }
-    }
-
-    #[test]
-    fn assemble_prompt_sends_the_invocation_alone_for_an_empty_node_prompt() {
-        let node = WorkflowGraphNode {
-            id: "a".to_string(),
-            node_type: ora_application::NodeType::Agent,
-            title: String::new(),
-            description: String::new(),
-            instruction: None,
-            agent_config: Some(ora_application::AgentConfig {
-                executor: ora_application::AgentExecutor {
-                    agent_cli: "open_code".to_string(),
-                    model_id: "m".to_string(),
-                },
-                role_id: None,
-                skills: Vec::new(),
-                prompt: String::new(),
-            }),
-        };
-        let blocks = assemble_prompt(&node, None, "", &["sfmea-review".to_string()]);
-        assert_eq!(blocks.len(), 1);
-        match &blocks[0] {
-            ContentBlock::Text(text) => assert_eq!(text.text, "/sfmea-review"),
-            _ => panic!("expected text block"),
-        }
-    }
-
-    #[test]
-    fn conversation_accumulator_groups_text_chunks_by_role() {
-        let mut accumulator = ConversationAccumulator::default();
-        accumulator.consume_text("user", &ContentBlock::Text(TextContent::new("hello ")));
-        accumulator.consume_text("user", &ContentBlock::Text(TextContent::new("world")));
-        accumulator.consume_text(
-            "assistant",
-            &ContentBlock::Text(TextContent::new("hi there")),
-        );
-        let json = accumulator.into_json().unwrap();
+    fn workflow_prompt_locale_reads_the_locale_frozen_on_the_run() {
         assert_eq!(
-            json,
-            r#"[{"role":"user","text":"hello world"},{"role":"assistant","text":"hi there"}]"#
+            workflow_prompt_locale(Some(r#"{"locale":"en-US"}"#)),
+            WorkflowRunLocale::EnUs
         );
-    }
-
-    #[test]
-    fn last_assistant_message_returns_the_final_assistant() {
-        let output = r#"[{"role":"user","text":"p"},{"role":"assistant","text":"one"},{"role":"user","text":"p2"},{"role":"assistant","text":"two"}]"#;
-        assert_eq!(last_assistant_message(Some(output)), "two");
-        assert_eq!(last_assistant_message(None), "");
+        assert_eq!(workflow_prompt_locale(None), WorkflowRunLocale::ZhCn);
     }
 }

@@ -208,7 +208,7 @@ pub struct ListSessionsResponse {
     pub sessions: Vec<Session>,
 }
 
-/// Identifies a stopped session whose provider history should be replayed.
+/// Identifies the session conversation a client wants to load.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export_to = "session.ts")]
@@ -249,12 +249,11 @@ pub enum SessionHistoryNotice {
     UnrecordedContent { reason: String },
 }
 
-/// Replays Ora's recorded history while keeping JSON-RPC framing private to the backend.
+/// Loads Ora's recorded conversation and follows an active turn when one is already running.
 ///
-/// The stream carries assembled updates read back from Ora's own record, not the
-/// provider's replay. `TurnEnded` has no ACP equivalent and exists because a
-/// cancelled turn would otherwise be indistinguishable from a completed one —
-/// information provider replay never carried.
+/// The stream begins with assembled updates from Ora's own record. If the session already has an
+/// active prompt, later provider updates continue on the same stream. `TurnEnded` has no ACP
+/// equivalent and preserves the recorded outcome of completed and cancelled turns.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
 #[serde(tag = "type", rename_all = "snake_case")]
 #[ts(export_to = "session.ts")]
@@ -308,6 +307,20 @@ pub struct RespondToPermissionRequest {
 #[serde(rename_all = "camelCase")]
 #[ts(export_to = "session.ts")]
 pub struct RespondToPermissionResponse {}
+
+/// Identifies a session whose currently active prompt should be cancelled.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export_to = "session.ts")]
+pub struct CancelSessionPromptRequest {
+    pub session_id: String,
+}
+
+/// Confirms that cancellation was routed to the session actor.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export_to = "session.ts")]
+pub struct CancelSessionPromptResponse {}
 
 /// Identifies a running session whose child process should be stopped.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
@@ -440,6 +453,8 @@ pub(crate) fn export(config: &ts_rs::Config) -> Result<(), ts_rs::ExportError> {
     PromptSessionEvent::export(config)?;
     RespondToPermissionRequest::export(config)?;
     RespondToPermissionResponse::export(config)?;
+    CancelSessionPromptRequest::export(config)?;
+    CancelSessionPromptResponse::export(config)?;
     StopSessionRequest::export(config)?;
     StopSessionResponse::export(config)?;
     DeleteSessionRequest::export(config)?;

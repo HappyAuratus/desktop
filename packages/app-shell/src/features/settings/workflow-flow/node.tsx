@@ -15,7 +15,10 @@ import {
   WORKFLOW_NODE_WIDTH,
   type WorkflowNodeData,
 } from "@ora/workflow-mock";
-import { WorkflowNodeCardShell } from "../../workflow-node-chrome";
+import {
+  AgentExecutionModeMark,
+  WorkflowNodeCardShell,
+} from "../../workflow-node-chrome";
 import { useWorkflowConnectionState } from "./use-connection-state";
 import { WorkflowNodeParameterSummary } from "./node-parameter-summary";
 
@@ -54,6 +57,13 @@ export const WorkflowFlowNodeView = memo(function WorkflowFlowNodeView({
       density="editor"
       selected={selected}
       width={WORKFLOW_NODE_WIDTH}
+      titleAccessory={
+        data.kind === "agent" ? (
+          <AgentExecutionModeMark
+            interactive={data.agentConfig?.interactive === true}
+          />
+        ) : undefined
+      }
       ariaLabel={`${t("settings.workflow.nodeSuffix", { type: nodeKindLabel })}: ${data.title}`}
       frameClassName={cn(
         isConnectionCandidate && "border-ring/60 shadow-md ring-2 ring-ring/10",

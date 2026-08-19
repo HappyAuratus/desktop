@@ -237,6 +237,29 @@ export function createChatStore(
       const controller = new AbortController();
       const staged = new HistoryBuilder(createId, now);
       let completed = false;
+      let pendingPreviewTimer: ReturnType<typeof setTimeout> | null = null;
+
+      /** Publishes the active replay turn without repainting once per provider text token. */
+      const flushPendingPreview = () => {
+        if (pendingPreviewTimer !== null) {
+          clearTimeout(pendingPreviewTimer);
+          pendingPreviewTimer = null;
+        }
+        const preview = staged.preview(previous.configOptions);
+        if (preview.isResponding) {
+          updateConversation(set, oraSessionId, () => preview);
+        }
+      };
+
+      /** Matches live prompt rendering by limiting text-only replay updates to one per frame. */
+      const schedulePendingPreview = () => {
+        if (pendingPreviewTimer !== null) return;
+        pendingPreviewTimer = setTimeout(() => {
+          pendingPreviewTimer = null;
+          flushPendingPreview();
+        }, 16);
+      };
+
       operations.set(oraSessionId, controller);
       updateConversation(set, oraSessionId, () => ({
         ...previous,
@@ -249,6 +272,7 @@ export function createChatStore(
           { sessionId: oraSessionId },
           { signal: controller.signal },
         )) {
+          let batchPreview = false;
           if (event.type === "session_update") {
             // Session-scoped updates are split out before the turn accumulator
             // sees them; they describe the conversation, not any one turn.
@@ -257,15 +281,29 @@ export function createChatStore(
               staged.configOptions = configOptions;
             } else {
               staged.applyUpdate(event.update);
+              batchPreview =
+                (event.update.sessionUpdate === "user_message_chunk" ||
+                  event.update.sessionUpdate === "agent_message_chunk" ||
+                  event.update.sessionUpdate === "agent_thought_chunk") &&
+                event.update.content.type === "text";
             }
           } else if (event.type === "permission_request") {
             staged.addPermission(event);
           } else if (event.type === "turn_ended") {
+            // Preserve the final text batch while the turn is still live; ending it first would
+            // make preview deliberately decline to publish a non-responding intermediate state.
+            if (pendingPreviewTimer !== null) flushPendingPreview();
             staged.endTurn(event.stopReason);
           } else if (event.type === "history_notice") {
             staged.addHistoryNotice(event.notice);
           } else {
             completed = true;
+          }
+          if (!completed) {
+            // A workflow-owned prompt may already be active when load starts. Publish only that
+            // open turn incrementally; completed-history loads remain staged until completion.
+            if (batchPreview) schedulePendingPreview();
+            else flushPendingPreview();
           }
         }
         if (!completed) {
@@ -288,6 +326,10 @@ export function createChatStore(
         }));
         if (!isAbortError(error)) throw error;
       } finally {
+        if (pendingPreviewTimer !== null) {
+          clearTimeout(pendingPreviewTimer);
+          pendingPreviewTimer = null;
+        }
         operations.delete(oraSessionId);
         updateConversation(set, oraSessionId, (conversation) => ({
           ...conversation,
@@ -715,12 +757,26 @@ class HistoryBuilder {
     };
   }
 
+  /** Materializes safe partial replay state while a load stream is still producing events. */
+  preview(
+    fallbackConfigOptions: acp.SessionConfigOption[],
+  ): SessionConversation {
+    return {
+      ...this.snapshot(),
+      configOptions: this.configOptions ?? fallbackConfigOptions,
+      modelChanges: [],
+      pendingPermissions: [...this.permissions],
+      isLoading: true,
+      isResponding: this.hasOpenTurn,
+    };
+  }
+
   /** Materializes replay metadata so it can share live-update normalization. */
   private snapshot(): SessionConversation {
     return {
       ...EMPTY_CONVERSATION,
-      turns: this.turns,
-      historyNotices: this.historyNotices,
+      turns: [...this.turns],
+      historyNotices: [...this.historyNotices],
       availableCommands: this.availableCommands,
       sessionTitle: this.sessionTitle,
       sessionUpdatedAt: this.sessionUpdatedAt,

@@ -312,6 +312,12 @@ export const contractErrorSchema = z.object({
     }), z.object({
         "code": z.literal("workflow_run_not_editable"),
         "params": emptyErrorParamsSchema
+    }), z.object({
+        "code": z.literal("workflow_node_not_found"),
+        "params": emptyErrorParamsSchema
+    }), z.object({
+        "code": z.literal("workflow_node_not_awaiting_input"),
+        "params": emptyErrorParamsSchema
     })]));
 
 export const publicErrorSchema = z.union([z.object({
@@ -604,5 +610,11 @@ export const publicErrorSchema = z.union([z.object({
         "params": emptyErrorParamsSchema
     }), z.object({
         "code": z.literal("workflow_run_not_editable"),
+        "params": emptyErrorParamsSchema
+    }), z.object({
+        "code": z.literal("workflow_node_not_found"),
+        "params": emptyErrorParamsSchema
+    }), z.object({
+        "code": z.literal("workflow_node_not_awaiting_input"),
         "params": emptyErrorParamsSchema
     })]);

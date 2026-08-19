@@ -298,6 +298,8 @@ fn contract_module_for_type(type_name: &str) -> &'static str {
         | "ListSessionsResponse"
         | "PromptSessionRequest"
         | "PromptSessionEvent"
+        | "CancelSessionPromptRequest"
+        | "CancelSessionPromptResponse"
         | "RespondToPermissionRequest"
         | "RespondToPermissionResponse"
         | "ResumeSessionHistoryRequest"
@@ -408,7 +410,10 @@ fn contract_module_for_type(type_name: &str) -> &'static str {
         | "RestartWorkflowRunRequest"
         | "RestartWorkflowRunResponse"
         | "UpdateWorkflowRunInputRequest"
-        | "UpdateWorkflowRunInputResponse" => "workflowRun",
+        | "UpdateWorkflowRunInputResponse"
+        | "NodeCompletionRequester"
+        | "CompleteWorkflowNodeRequest"
+        | "CompleteWorkflowNodeResponse" => "workflowRun",
         // fileSystem
         "ListWorkspaceDirectoryRequest"
         | "ListWorkspaceDirectoryResponse"

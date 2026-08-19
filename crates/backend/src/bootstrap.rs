@@ -92,6 +92,8 @@ pub struct Backend {
     workflow: Arc<WorkflowApi>,
     workflow_run: Arc<WorkflowRunApi>,
     workflow_run_engine: Arc<ConcreteWorkflowRunControl>,
+    sessions_root: PathBuf,
+    baselines_root: PathBuf,
     app_events: Arc<AppEventHub>,
     git_cleanup: crate::git_cleanup::GitCleanupHandle,
     relative_path_base: PathBuf,
@@ -130,6 +132,8 @@ impl Backend {
         let scheduler = Scheduler::new(paths.timezone);
         let worktree_root = Arc::new(RwLock::new(paths.worktree_root));
         let sessions_root = paths.sessions_root;
+        // Side files holding the worktree baseline an interactive node diffs at completion.
+        let baselines_root = sessions_root.join("node-baselines");
         let relative_path_base = paths.relative_path_base;
         let agent_runtime = Arc::new(
             AgentRuntimeManager::new(
@@ -157,6 +161,7 @@ impl Backend {
             agent_runtime.clone(),
             pool.clone(),
             paths.skills_root.clone(),
+            baselines_root.clone(),
             clock,
         )
         .control;
@@ -166,7 +171,7 @@ impl Backend {
             task: Arc::new(TaskApi::new(
                 pool.clone(),
                 worktree_root.clone(),
-                sessions_root,
+                sessions_root.clone(),
                 repository_gates.clone(),
                 clock,
             )),
@@ -201,6 +206,8 @@ impl Backend {
                 clock,
             )),
             workflow_run_engine,
+            sessions_root,
+            baselines_root,
             app_events,
             git_cleanup,
             pool,
@@ -347,6 +354,59 @@ impl Backend {
                 );
             }
         }
+    }
+
+    /// Completes one awaiting interactive workflow node as a human request.
+    ///
+    /// The backend validates the node, reads its final assistant output and file diff from persisted
+    /// state, stops the node's session (best-effort, history retained so the node is read-only),
+    /// and commits through the engine so the next ready nodes are scheduled.
+    pub async fn complete_workflow_node(
+        &self,
+        request: CompleteWorkflowNodeRequest,
+    ) -> Result<CompleteWorkflowNodeResponse, BackendError> {
+        let run_id = ora_domain::WorkflowRunId::new(&request.run_id);
+        let run_id_for_prepare = run_id.clone();
+        let pool = self.pool.clone();
+        let sessions_root = self.sessions_root.clone();
+        let baselines_root = self.baselines_root.clone();
+        let agent_runtime = self.agent_runtime.clone();
+        let node_id = request.node_id.clone();
+        let prepared = spawn_repository_work(move || {
+            crate::workflow_node_completion::prepare_completion(
+                &pool,
+                &sessions_root,
+                &baselines_root,
+                &agent_runtime,
+                &run_id_for_prepare,
+                &node_id,
+            )
+        })
+        .await?;
+        if let Some(session_id) = prepared.session_id.as_ref() {
+            let _ = self
+                .agent_runtime
+                .stop_session(StopSessionRequest {
+                    session_id: session_id.to_string(),
+                })
+                .await;
+        }
+        let engine = self.workflow_run_engine.clone();
+        let node_run_id = prepared.node_run_id.clone();
+        let output = prepared.output.clone();
+        let file_changes = prepared.file_changes.clone();
+        spawn_repository_work(move || {
+            engine
+                .complete_node(
+                    &run_id,
+                    &node_run_id,
+                    output,
+                    Some("end_turn".to_string()),
+                    file_changes,
+                )
+                .map_err(BackendError::from)
+        })
+        .await
     }
 
     /// Restarts a finished workflow run.
@@ -691,7 +751,6 @@ impl Backend {
     ) -> Result<ListSessionsResponse, BackendError> {
         self.session.list(request).map_err(BackendError::from)
     }
-
     /// Renames one session, locks agent title acquisition, then notifies subscribers.
     pub async fn rename_session(
         &self,
@@ -713,7 +772,7 @@ impl Backend {
             .try_publish(AppEvent::SessionTitleUpdated { session_id });
         Ok(response)
     }
-    /// Streams the provider-owned history for one persisted session.
+    /// Loads one session conversation and continues its active turn when present.
     pub async fn load_session(
         &self,
         request: LoadSessionRequest,
@@ -727,11 +786,36 @@ impl Backend {
     }
 
     /// Streams one structured ACP prompt turn for a running session.
+    ///
+    /// When the session belongs to an awaiting interactive workflow node, the node flips to
+    /// `Running` for the duration of the turn and back to `Pending` when the turn ends or the
+    /// stream is dropped, so the node's awaiting status tracks the agent's generating state.
     pub async fn prompt_session(
         &self,
         request: PromptSessionRequest,
     ) -> Result<SessionEventStream<PromptSessionEvent>, BackendError> {
-        self.agent_runtime.prompt_session(request).await
+        let node_run_id =
+            crate::workflow_node_session::begin_human_turn(&self.pool, &request.session_id).await?;
+        let stream = match self.agent_runtime.prompt_session(request).await {
+            Ok(stream) => stream,
+            Err(error) => {
+                // The turn never started; put the awaiting node back where it was.
+                if let Some(node_run_id) = node_run_id.as_ref() {
+                    let _ =
+                        crate::workflow_node_session::end_human_turn(&self.pool, node_run_id).await;
+                }
+                return Err(error);
+            }
+        };
+        let Some(node_run_id) = node_run_id else {
+            return Ok(stream);
+        };
+        let pool = self.pool.clone();
+        Ok(stream.attach_cleanup(move || {
+            tokio::spawn(async move {
+                let _ = crate::workflow_node_session::end_human_turn(&pool, &node_run_id).await;
+            });
+        }))
     }
 
     /// Delivers one validated permission response to the owning session actor.
@@ -748,6 +832,14 @@ impl Backend {
         request: StopSessionRequest,
     ) -> Result<StopSessionResponse, BackendError> {
         self.agent_runtime.stop_session(request).await
+    }
+
+    /// Cancels one active prompt while keeping its session available for another turn.
+    pub fn cancel_session_prompt(
+        &self,
+        request: CancelSessionPromptRequest,
+    ) -> Result<CancelSessionPromptResponse, BackendError> {
+        self.agent_runtime.cancel_session_prompt(request)
     }
 
     /// Moves one existing conversation onto a different agent CLI.

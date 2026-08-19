@@ -2,13 +2,14 @@ use crate::task::branch::branch_name_for_task;
 use crate::task::{
     PROVISIONING_LEASE_DURATION_MS, ProvisioningLeaseRenewal, WorktreeProvisioningLeaseStore,
 };
+use serde_json::json;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use uuid::Uuid;
 
 use crate::task::{CreateTaskWorktreeRequest, TaskIdGenerator, TaskWorktreeProvisioner};
 use crate::workflow::WorkflowRepository;
-use crate::workflow_run::mapper::{map_node_run, map_run, map_run_summary};
+use crate::workflow_run::mapper::{map_node_run, map_run, map_run_awaiting, map_run_summary};
 use crate::workflow_run::{
     DeleteWorkflowRunResult, WorkflowRunCreateOutcome, WorkflowRunIdGenerator,
     WorkflowRunRepository, WorkflowRunWorktreeInitializer,
@@ -22,9 +23,9 @@ use ora_contracts::{
     ListWorkflowRunsByWorkflowResponse, ListWorkflowRunsRequest, ListWorkflowRunsResponse,
 };
 use ora_domain::{
-    AuditFields, ProjectId, Task, TaskId, Workflow, WorkflowId, WorkflowRun, WorkflowRunId,
-    WorkflowRunStatus, WorkflowSnapshot, WorkflowSnapshotId, Worktree, WorktreeActivity,
-    WorktreeBaseline, WorktreeProvisioningLease, WorktreeProvisioningLeaseId,
+    AuditFields, ProjectId, Task, TaskId, Workflow, WorkflowId, WorkflowNodeStatus, WorkflowRun,
+    WorkflowRunId, WorkflowRunStatus, WorkflowSnapshot, WorkflowSnapshotId, Worktree,
+    WorktreeActivity, WorktreeBaseline, WorktreeProvisioningLease, WorktreeProvisioningLeaseId,
 };
 
 const DRAFT_VERSION: &str = "draft";
@@ -273,7 +274,7 @@ where
             request.kickoff_input,
             None,
             None,
-            None,
+            Some(json!({ "locale": request.locale }).to_string()),
             None,
             None,
             AuditFields::new(now, now, /*is_deleted*/ false),
@@ -384,12 +385,16 @@ where
                 run_id: run_id.to_string(),
             })?;
 
+        let nodes = detail.nodes;
+        let has_awaiting_node = nodes
+            .iter()
+            .any(|node_run| node_run.status == WorkflowNodeStatus::Pending);
         Ok(GetWorkflowRunResponse {
-            run: map_run(detail.run),
+            run: map_run_awaiting(detail.run, has_awaiting_node),
             name: detail.name,
             project_id: detail.project_id.to_string(),
             task_id: detail.task_id.to_string(),
-            nodes: detail.nodes.into_iter().map(map_node_run).collect(),
+            nodes: nodes.into_iter().map(map_node_run).collect(),
         })
     }
 }

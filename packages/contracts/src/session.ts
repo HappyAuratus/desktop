@@ -37,6 +37,16 @@ export type AttachSessionResponse = {
 };
 
 /**
+ * Identifies a session whose currently active prompt should be cancelled.
+ */
+export type CancelSessionPromptRequest = { sessionId: string };
+
+/**
+ * Confirms that cancellation was routed to the session actor.
+ */
+export type CancelSessionPromptResponse = Record<symbol, never>;
+
+/**
  * Identifies which Ora session record to remove.
  */
 export type DeleteSessionRequest = { sessionId: string };
@@ -79,12 +89,11 @@ export type ListSessionsRequest = Record<symbol, never>;
 export type ListSessionsResponse = { sessions: Array<Session> };
 
 /**
- * Replays Ora's recorded history while keeping JSON-RPC framing private to the backend.
+ * Loads Ora's recorded conversation and follows an active turn when one is already running.
  *
- * The stream carries assembled updates read back from Ora's own record, not the
- * provider's replay. `TurnEnded` has no ACP equivalent and exists because a
- * cancelled turn would otherwise be indistinguishable from a completed one —
- * information provider replay never carried.
+ * The stream begins with assembled updates from Ora's own record. If the session already has an
+ * active prompt, later provider updates continue on the same stream. `TurnEnded` has no ACP
+ * equivalent and preserves the recorded outcome of completed and cancelled turns.
  */
 export type LoadSessionEvent =
   | {
@@ -100,7 +109,7 @@ export type LoadSessionEvent =
   | { "type": "completed" };
 
 /**
- * Identifies a stopped session whose provider history should be replayed.
+ * Identifies the session conversation a client wants to load.
  */
 export type LoadSessionRequest = { sessionId: string };
 

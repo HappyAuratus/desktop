@@ -112,6 +112,9 @@ export const translationResources = {
     "errors.workflow_run_start_failed": "启动工作流运行失败。",
     "errors.workflow_run_not_restartable": "该工作流运行无法重新启动。",
     "errors.workflow_run_not_editable": "该工作流运行当前不可编辑。",
+    "errors.workflow_node_not_found": "未找到该工作流节点。",
+    "errors.workflow_node_not_awaiting_input":
+      "该节点当前不在等待人工输入，无法完成。",
     "errors.unknown": "发生未知错误。请提供请求编号 {{requestId}} 以便排查。",
     "errors.transport.tauri_invoke_failure": "桌面命令调用失败。",
     "errors.transport.malformed_response": "Ora 返回了无法识别的响应。",
@@ -203,10 +206,13 @@ export const translationResources = {
     "workflowRun.theater.parallelNext": "下一个并行节点",
     "workflowRun.theater.parallelCount": "{{count}} 并行",
     "workflowRun.theater.focusAct": "聚焦到 {{name}}",
-    "workflowRun.theater.parallelDragHint": "左右拖拽切换 · 轻点打开详情",
+    "workflowRun.theater.parallelDragHint": "左右拖拽切换",
     "workflowRun.theater.returnOverviewHint": "按 Esc 返回全图",
-    "workflowRun.theater.inspectorHint": "点击卡片查看阶段详情",
-    "workflowRun.theater.hitlHint": "收起参与面板后可点击卡片查看阶段详情",
+    "workflowRun.theater.inspectorHint": "点击卡片右上角按钮查看阶段详情",
+    "workflowRun.theater.hitlHint": "点击卡片右上角按钮查看阶段详情",
+    "workflowRun.theater.openInspector": "打开节点详情",
+    "workflowNode.agentExecutionMode.interactive": "人工交互节点",
+    "workflowNode.agentExecutionMode.automatic": "自动执行节点",
     "workflowRun.conversation.label": "节点会话",
     "workflowRun.conversation.open": "查看节点会话",
     "workflowRun.conversation.backToAct": "返回阶段摘要",
@@ -276,6 +282,9 @@ export const translationResources = {
     "workflowRun.status.pending": "未运行",
     "workflowRun.status.running": "运行中",
     "workflowRun.status.awaiting_input": "等待参与",
+    "workflowRun.completeNode.action": "完成当前节点",
+    "workflowRun.completeNode.disabledHint":
+      "请等待节点回复完成后再完成当前节点。",
     "workflowRun.hitl.panelLabel": "需要你的参与",
     "workflowRun.hitl.title": "确认本步理解",
     "workflowRun.hitl.hint": "填写后提交，工作流才会继续。",
@@ -556,6 +565,9 @@ export const translationResources = {
     "settings.workflow.toggleMcp": "启用或禁用 {{name}}",
     "settings.workflow.removeMcp": "移除 {{name}}",
     "settings.workflow.field.prompt": "自定义 Prompt",
+    "settings.workflow.field.interactive": "交互模式",
+    "settings.workflow.field.interactiveDescription":
+      "开启后节点首轮结束会停在等待人工输入，可在节点内持续对话。",
     "settings.workflow.deleteNode": "删除节点",
     "settings.workflow.previewInput": "检查当前工作区的未提交改动",
     "settings.workflow.mockNotice": "仅使用 mock 数据，不会执行真实工具",
@@ -1235,6 +1247,7 @@ export const translationResources = {
       "单张图片不能超过 5 MB，总大小不能超过 10 MB。",
     "chat.attachments.readFailed": "无法读取所选图片，请重试。",
     "chat.loadingHistory": "正在加载历史记录…",
+    "chat.emptyHistory": "尚无消息",
     "chat.typing": "助手正在运行",
     "chat.runningWords":
       "思考中…|冥思中…|构思中…|酝酿中…|推演中…|琢磨中…|捣鼓中…|开动脑筋…|苦思冥想…|灵光闪现…|运转中…|加载脑洞…|盘算中…|推敲中…|排查中…|摸索中…|绞尽脑汁…|拼命运转…|一顿操作…|正在思索…|脑力全开…|深度思考…",
@@ -1544,6 +1557,9 @@ export const translationResources = {
       "The workflow run cannot be restarted.",
     "errors.workflow_run_not_editable":
       "The workflow run is not editable right now.",
+    "errors.workflow_node_not_found": "Workflow node not found.",
+    "errors.workflow_node_not_awaiting_input":
+      "This node is not awaiting input and cannot be completed.",
     "errors.unknown":
       "An unknown error occurred. Provide request ID {{requestId}} for support.",
     "errors.transport.tauri_invoke_failure": "The Desktop command failed.",
@@ -1639,12 +1655,15 @@ export const translationResources = {
     "workflowRun.theater.parallelNext": "Next parallel node",
     "workflowRun.theater.parallelCount": "{{count}} parallel",
     "workflowRun.theater.focusAct": "Focus {{name}}",
-    "workflowRun.theater.parallelDragHint":
-      "Drag sideways to switch · tap to open details",
+    "workflowRun.theater.parallelDragHint": "Drag sideways to switch",
     "workflowRun.theater.returnOverviewHint": "Press Esc for Overview",
-    "workflowRun.theater.inspectorHint": "Click the card to open act details",
+    "workflowRun.theater.inspectorHint":
+      "Use the button in the card's top-right corner to open act details",
     "workflowRun.theater.hitlHint":
-      "Collapse the input panel to open act details from the card",
+      "Use the button in the card's top-right corner to open act details",
+    "workflowRun.theater.openInspector": "Open node details",
+    "workflowNode.agentExecutionMode.interactive": "Interactive Agent node",
+    "workflowNode.agentExecutionMode.automatic": "Automatic Agent node",
     "workflowRun.conversation.label": "Node conversation",
     "workflowRun.conversation.open": "View node conversation",
     "workflowRun.conversation.backToAct": "Return to the act summary",
@@ -1719,6 +1738,9 @@ export const translationResources = {
     "workflowRun.status.pending": "Pending",
     "workflowRun.status.running": "Running",
     "workflowRun.status.awaiting_input": "Awaiting input",
+    "workflowRun.completeNode.action": "Complete current node",
+    "workflowRun.completeNode.disabledHint":
+      "Wait for the node to finish replying before completing it.",
     "workflowRun.hitl.panelLabel": "Your input is required",
     "workflowRun.hitl.title": "Confirm this step",
     "workflowRun.hitl.hint": "Submit to continue the workflow.",
@@ -2016,6 +2038,9 @@ export const translationResources = {
     "settings.workflow.toggleMcp": "Enable or disable {{name}}",
     "settings.workflow.removeMcp": "Remove {{name}}",
     "settings.workflow.field.prompt": "Custom prompt",
+    "settings.workflow.field.interactive": "Interactive mode",
+    "settings.workflow.field.interactiveDescription":
+      "When enabled the node pauses for human input after its first turn, so you can keep conversing inside the node.",
     "settings.workflow.deleteNode": "Delete node",
     "settings.workflow.previewInput":
       "Review uncommitted changes in the current workspace",
@@ -2771,6 +2796,7 @@ export const translationResources = {
     "chat.attachments.readFailed":
       "The selected image could not be read. Try again.",
     "chat.loadingHistory": "Loading history…",
+    "chat.emptyHistory": "No messages yet",
     "chat.typing": "Assistant is working",
     "chat.runningWords":
       "Thinking…|Pondering…|Imagining…|Conjuring…|Percolating…|Noodling…|Tinkering…|Brewing…|Musing…|Summoning…|Cooking…|Computing…|Ruminating…|Scheming…|Mulling…|Sifting…|Untangling…|Crunching…|Puzzling…|Deliberating…|Synthesizing…|Weighing options…",

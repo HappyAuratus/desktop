@@ -57,6 +57,8 @@ interface WorkspaceReviewLayoutProps {
   children: ReactNode;
   /** Fires when the side/expanded review panel opens or closes (not on expand-only). */
   onOpenChange?: (open: boolean) => void;
+  /** Keeps stateful workspace children mounted while the review panel opens. */
+  preserveWorkspaceOnReviewOpen?: boolean;
 }
 
 type ReviewPanel = "changes" | "files";
@@ -66,6 +68,7 @@ export function WorkspaceReviewLayout({
   context,
   children,
   onOpenChange,
+  preserveWorkspaceOnReviewOpen = false,
 }: WorkspaceReviewLayoutProps) {
   const { t } = useTranslation();
   const [open, setOpen] = useState(false);
@@ -398,11 +401,11 @@ export function WorkspaceReviewLayout({
       />
     );
 
-  // The group stays mounted while open (even under the expanded overlay) so the
-  // review panel keeps its settled width; only its content yields to the overlay
-  // to avoid mounting the same diff/file surface twice.
+  // Keep the primary workspace under the same panel for the lifetime of a review
+  // context. Switching from a bare child to this group would remount the workspace
+  // when Changes opens and discard local UI state such as the workflow inspector.
   const workspaceContent =
-    context.kind === "none" || !open ? (
+    context.kind === "none" || (!open && !preserveWorkspaceOnReviewOpen) ? (
       children
     ) : (
       <ResizablePanelGroup
@@ -419,7 +422,8 @@ export function WorkspaceReviewLayout({
           withHandle
           aria-label={t("diff.resizePanel")}
           title={t("diff.resizePanel")}
-          className="z-10 transition-colors hover:bg-ring focus-visible:bg-ring"
+          aria-hidden={!open || undefined}
+          className={`z-10 transition-colors hover:bg-ring focus-visible:bg-ring ${open ? "" : "pointer-events-none invisible"}`}
           onPointerDown={() => cancelPanelWidthAnimation(panelAnimationRef)}
         />
         <ResizablePanel
@@ -438,14 +442,14 @@ export function WorkspaceReviewLayout({
             // Scripted slides report intermediate sizes; only settle on stable ones.
             if (panelAnimationRef.current !== null) return;
             panelCurrentWidthRef.current = size.inPixels;
-            if (size.inPixels === 0) close();
+            if (size.inPixels === 0 && open) close();
             else if (size.inPixels >= MIN_REVIEW_WIDTH) {
               panelWidthTouchedRef.current = true;
               panelWidthRef.current = size.inPixels;
             }
           }}
         >
-          {expanded ? null : panelContent}
+          {open && !expanded ? panelContent : null}
         </ResizablePanel>
       </ResizablePanelGroup>
     );

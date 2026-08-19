@@ -957,46 +957,55 @@ function ProjectWorkflowRunRows({
   const runs = runsQuery.data ?? [];
   return (
     <>
-      {runs.map((run) => (
-        <TreeRow
-          key={run.id}
-          depth={1}
-          active={activeRunId === run.id}
-          icon={
-            <span className="relative flex size-[18px] items-center justify-center">
-              <IconRoute className="size-4 text-muted-foreground" aria-hidden />
-              <span
-                className={`absolute -right-0.5 -top-0.5 size-1.5 rounded-full ${runStatusClass(run.status)}`}
-                aria-label={t(`workflowRun.status.${run.status}`)}
-              />
-            </span>
-          }
-          label={run.name}
-          onClick={() => onSelectRun(run.id)}
-          action={<ArchiveButton />}
-          onRename={(name) =>
-            renameWorkflowRun.mutateAsync({
-              runId: run.id,
-              name,
-              projectId,
-            })
-          }
-          commands={[
-            {
-              label: t("sidebar.archive"),
-              icon: <IconArchive />,
-              onSelect: () => toast(t("sidebar.archiveSoon")),
-            },
-            {
-              label: t("common.delete"),
-              icon: <IconTrash />,
-              variant: "destructive",
-              separatorBefore: true,
-              onSelect: () => onDeleteRun({ id: run.id, name: run.name }),
-            },
-          ]}
-        />
-      ))}
+      {runs.map((run) => {
+        // The backend derives `awaitingInput` on the wire while the display model spells it
+        // `awaiting_input`; normalize so the sidebar dot and label match the run detail.
+        const displayStatus: GraphWorkflowRunStatus =
+          run.status === "awaitingInput" ? "awaiting_input" : run.status;
+        return (
+          <TreeRow
+            key={run.id}
+            depth={1}
+            active={activeRunId === run.id}
+            icon={
+              <span className="relative flex size-[18px] items-center justify-center">
+                <IconRoute
+                  className="size-4 text-muted-foreground"
+                  aria-hidden
+                />
+                <span
+                  className={`absolute -right-0.5 -top-0.5 size-1.5 rounded-full ${runStatusClass(displayStatus)}`}
+                  aria-label={t(`workflowRun.status.${displayStatus}`)}
+                />
+              </span>
+            }
+            label={run.name}
+            onClick={() => onSelectRun(run.id)}
+            action={<ArchiveButton />}
+            onRename={(name) =>
+              renameWorkflowRun.mutateAsync({
+                runId: run.id,
+                name,
+                projectId,
+              })
+            }
+            commands={[
+              {
+                label: t("sidebar.archive"),
+                icon: <IconArchive />,
+                onSelect: () => toast(t("sidebar.archiveSoon")),
+              },
+              {
+                label: t("common.delete"),
+                icon: <IconTrash />,
+                variant: "destructive",
+                separatorBefore: true,
+                onSelect: () => onDeleteRun({ id: run.id, name: run.name }),
+              },
+            ]}
+          />
+        );
+      })}
     </>
   );
 }

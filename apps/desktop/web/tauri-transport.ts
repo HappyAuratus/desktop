@@ -80,6 +80,7 @@ const tauriCommands = {
   switchSessionAgent: "switch_session_agent",
   resumeSessionHistory: "resume_session_history",
   respondToSessionPermission: "respond_to_session_permission",
+  cancelSessionPrompt: "cancel_session_prompt",
   stopSession: "stop_session",
   deleteSession: "delete_session",
   renameSession: "rename_session",
@@ -153,7 +154,6 @@ const tauriCommands = {
   cancelWorkflowRun: "cancel_workflow_run",
   restartWorkflowRun: "restart_workflow_run",
   updateWorkflowRunInput: "update_workflow_run_input",
-
   // =============================================================================
   // developerMode
   // =============================================================================
@@ -165,6 +165,7 @@ const tauriCommands = {
   // =============================================================================
   getRuntimeLogLevel: "get_runtime_log_level",
   setRuntimeLogLevel: "set_runtime_log_level",
+  completeWorkflowNode: "complete_workflow_node",
 } as const satisfies Record<SupportedTauriOperation, string>;
 
 /** Creates the Desktop contracts transport backed by unary commands and Tauri IPC channels. */

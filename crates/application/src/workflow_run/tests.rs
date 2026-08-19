@@ -25,7 +25,7 @@ use ora_contracts::{
     GetWorkflowRunRequest, GetWorkflowRunResponse, ListWorkflowNodeRunsRequest,
     ListWorkflowNodeRunsResponse, ListWorkflowRunsByWorkflowRequest,
     ListWorkflowRunsByWorkflowResponse, ListWorkflowRunsRequest, ListWorkflowRunsResponse,
-    WorkflowRunStatus as ContractRunStatus,
+    WorkflowRunLocale, WorkflowRunStatus as ContractRunStatus,
 };
 use ora_domain::Namespace;
 use ora_domain::{
@@ -67,6 +67,7 @@ fn creates_run_with_explicit_snapshot() {
         .handle(CreateWorkflowRunRequest {
             project_id: "project-1".to_string(),
             workflow_id: "workflow-a".to_string(),
+            locale: WorkflowRunLocale::ZhCn,
             snapshot_id: Some("snapshot-a".to_string()),
             kickoff_input: Some("kickoff".to_string()),
             name: None,
@@ -85,7 +86,7 @@ fn creates_run_with_explicit_snapshot() {
             Some("kickoff".to_string()),
             None,
             None,
-            None,
+            Some(r#"{"locale":"zh-CN"}"#.to_string()),
             None,
             None,
             AuditFields::new(30, 30, /*is_deleted*/ false),
@@ -133,6 +134,7 @@ fn fails_creation_and_releases_lease_when_worktree_initialization_fails() {
         .handle(CreateWorkflowRunRequest {
             project_id: "project-1".to_string(),
             workflow_id: "workflow-a".to_string(),
+            locale: WorkflowRunLocale::ZhCn,
             snapshot_id: Some("snapshot-a".to_string()),
             kickoff_input: None,
             name: None,
@@ -174,6 +176,7 @@ fn uses_published_snapshot_when_no_explicit_id() {
         .handle(CreateWorkflowRunRequest {
             project_id: "project-1".to_string(),
             workflow_id: "workflow-a".to_string(),
+            locale: WorkflowRunLocale::ZhCn,
             snapshot_id: None,
             kickoff_input: None,
             name: Some("Manual name".to_string()),
@@ -207,6 +210,7 @@ fn rejects_workflow_without_published_snapshot() {
         .handle(CreateWorkflowRunRequest {
             project_id: "project-1".to_string(),
             workflow_id: "workflow-a".to_string(),
+            locale: WorkflowRunLocale::ZhCn,
             snapshot_id: None,
             kickoff_input: None,
             name: None,
@@ -241,6 +245,7 @@ fn rejects_draft_snapshot() {
         .handle(CreateWorkflowRunRequest {
             project_id: "project-1".to_string(),
             workflow_id: "workflow-a".to_string(),
+            locale: WorkflowRunLocale::ZhCn,
             snapshot_id: Some("draft-1".to_string()),
             kickoff_input: None,
             name: None,
@@ -274,6 +279,7 @@ fn rejects_snapshot_not_in_workflow() {
         .handle(CreateWorkflowRunRequest {
             project_id: "project-1".to_string(),
             workflow_id: "workflow-a".to_string(),
+            locale: WorkflowRunLocale::ZhCn,
             snapshot_id: Some("snapshot-missing".to_string()),
             kickoff_input: None,
             name: None,
@@ -320,6 +326,7 @@ fn releases_lease_when_persistence_fails() {
         .handle(CreateWorkflowRunRequest {
             project_id: "project-1".to_string(),
             workflow_id: "workflow-a".to_string(),
+            locale: WorkflowRunLocale::ZhCn,
             snapshot_id: Some("snapshot-a".to_string()),
             kickoff_input: None,
             name: None,
@@ -367,6 +374,7 @@ fn reports_provisioning_failure() {
         .handle(CreateWorkflowRunRequest {
             project_id: "project-1".to_string(),
             workflow_id: "workflow-a".to_string(),
+            locale: WorkflowRunLocale::ZhCn,
             snapshot_id: Some("snapshot-a".to_string()),
             kickoff_input: None,
             name: None,
@@ -444,6 +452,7 @@ fn lists_runs_by_project() {
         project_id: ProjectId::new("project-1"),
         workflow_id: WorkflowId::new("workflow-a"),
         status: WorkflowRunStatus::Pending,
+        has_awaiting_node: false,
         started_at: None,
         finished_at: None,
         created_at: 30,
@@ -475,6 +484,7 @@ fn lists_runs_by_workflow() {
         project_id: ProjectId::new("project-1"),
         workflow_id: WorkflowId::new("workflow-a"),
         status: WorkflowRunStatus::Pending,
+        has_awaiting_node: false,
         started_at: None,
         finished_at: None,
         created_at: 30,

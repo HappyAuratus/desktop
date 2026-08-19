@@ -91,6 +91,7 @@ impl RuntimeActor {
                             // A prompt stream sends this after its Completed event is consumed;
                             // it is not a cancellation of the independent title fallback.
                         }
+                        RuntimeCommand::CancelActivePrompt => {}
                         RuntimeCommand::PreemptTitlePolling { response } => {
                             self.channel = Some(channel);
                             self.title_acquisition.preempt_attempt(attempt);

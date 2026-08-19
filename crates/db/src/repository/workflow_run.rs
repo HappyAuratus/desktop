@@ -180,13 +180,15 @@ impl WorkflowRunRepository for SqliteWorkflowRunRepository {
         self.pool
             .with_connection(|connection| {
                 let mut statement = connection.prepare(
-                    "SELECT wr.id, t.title AS name, t.project_id, wr.workflow_id, wr.run_status, wr.started_at, wr.finished_at, wr.created_at
+                    "SELECT wr.id, t.title AS name, t.project_id, wr.workflow_id, wr.run_status, wr.started_at, wr.finished_at, wr.created_at,
+                       EXISTS(SELECT 1 FROM workflow_node_runs n WHERE n.run_id = wr.id AND n.status = ?2 AND n.is_deleted = 0) AS has_awaiting_node
                      FROM workflow_runs wr
                      JOIN tasks t ON t.workflow_run_id = wr.id AND t.is_deleted = 0
                      WHERE t.project_id = ?1 AND wr.is_deleted = 0
                      ORDER BY wr.created_at ASC, wr.id ASC",
                 )?;
-                let mut rows = statement.query(params![project_id.as_ref()])?;
+                let mut rows = statement
+                    .query(params![project_id.as_ref(), WorkflowNodeStatus::Pending.database_value()])?;
                 let mut summaries = Vec::new();
                 while let Some(row) = rows.next()? {
                     summaries.push(WorkflowRunSummary {
@@ -195,6 +197,7 @@ impl WorkflowRunRepository for SqliteWorkflowRunRepository {
                         project_id: ProjectId::new(row.get::<_, String>("project_id")?),
                         workflow_id: WorkflowId::new(row.get::<_, String>("workflow_id")?),
                         status: WorkflowRunStatus::from_database_value(row.get("run_status")?)?,
+                        has_awaiting_node: row.get("has_awaiting_node")?,
                         started_at: row.get("started_at")?,
                         finished_at: row.get("finished_at")?,
                         created_at: row.get("created_at")?,
@@ -212,13 +215,17 @@ impl WorkflowRunRepository for SqliteWorkflowRunRepository {
         self.pool
             .with_connection(|connection| {
                 let mut statement = connection.prepare(
-                    "SELECT wr.id, t.title AS name, t.project_id, wr.workflow_id, wr.run_status, wr.started_at, wr.finished_at, wr.created_at
+                    "SELECT wr.id, t.title AS name, t.project_id, wr.workflow_id, wr.run_status, wr.started_at, wr.finished_at, wr.created_at,
+                       EXISTS(SELECT 1 FROM workflow_node_runs n WHERE n.run_id = wr.id AND n.status = ?2 AND n.is_deleted = 0) AS has_awaiting_node
                      FROM workflow_runs wr
                      JOIN tasks t ON t.workflow_run_id = wr.id AND t.is_deleted = 0
                      WHERE wr.workflow_id = ?1 AND wr.is_deleted = 0
                      ORDER BY wr.created_at ASC, wr.id ASC",
                 )?;
-                let mut rows = statement.query(params![workflow_id.as_ref()])?;
+                let mut rows = statement.query(params![
+                    workflow_id.as_ref(),
+                    WorkflowNodeStatus::Pending.database_value()
+                ])?;
                 let mut summaries = Vec::new();
                 while let Some(row) = rows.next()? {
                     summaries.push(WorkflowRunSummary {
@@ -227,6 +234,7 @@ impl WorkflowRunRepository for SqliteWorkflowRunRepository {
                         project_id: ProjectId::new(row.get::<_, String>("project_id")?),
                         workflow_id: WorkflowId::new(row.get::<_, String>("workflow_id")?),
                         status: WorkflowRunStatus::from_database_value(row.get("run_status")?)?,
+                        has_awaiting_node: row.get("has_awaiting_node")?,
                         started_at: row.get("started_at")?,
                         finished_at: row.get("finished_at")?,
                         created_at: row.get("created_at")?,

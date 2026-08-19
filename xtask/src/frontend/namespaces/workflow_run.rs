@@ -75,4 +75,11 @@ pub(super) const ENDPOINTS: &[FrontendEndpoint] = &[
         request_type: "UpdateWorkflowRunInputRequest",
         response_type: "UpdateWorkflowRunInputResponse",
     },
+    FrontendEndpoint {
+        operation_name: "completeWorkflowNode",
+        namespace: NAMESPACE,
+        member_name: "completeNode",
+        request_type: "CompleteWorkflowNodeRequest",
+        response_type: "CompleteWorkflowNodeResponse",
+    },
 ];

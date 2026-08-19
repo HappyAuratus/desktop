@@ -59,6 +59,10 @@ Unlike project and task, workflow deletion follows the standard CRUD handler pat
 
 A workflow run freezes one published snapshot and executes it against a dedicated run-task and Git worktree. The run CRUD layer is graph-agnostic. The execution engine owns start/restart/HITL on top of the same repository; `ora-backend` implements `NodeExecutor` as `WorkflowRunNodeExecutor` and composes it at `Backend::open`.
 
+Before an agent node is prompted, the backend turns the frozen graph and current node-run rows into a structured workflow handoff. The message identifies the current step and its direct neighbors, labels the resolved role as behavioral constraints, lists every node in deterministic topological order with its current status, separates the original run request from predecessor output, and includes the final assistant message from each successful transitive predecessor in that same execution order. Ora's active display locale is frozen when the run is created, so every generated handoff in that run uses consistent Chinese or English copy even if the interface language later changes. User-authored node content and predecessor output remain verbatim. Enabled skill slash commands remain at the beginning of the first text block because agent CLIs parse them positionally.
+
+The session history is the sole source of a node's complete conversation. `workflow_node_runs.output` stores only that node's final assistant text, which is the scalar handoff consumed by downstream nodes and the run output calculation.
+
 ### Entities and tables
 
 | Domain type       | Backing table        |

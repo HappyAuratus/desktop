@@ -13,13 +13,17 @@ export function normalizeWorkflowAgentConfig(
     ...config,
     skills,
     mcps,
+    // Missing `interactive` defaults to false so existing graphs stay fully automatic.
+    interactive: config.interactive ?? false,
   };
 }
 
 /** Normalizes every Agent node in a definition graph envelope. */
-export function normalizeWorkflowNodeAgentConfigs<T extends {
-  data: WorkflowNodeData;
-}>(nodes: T[]): T[] {
+export function normalizeWorkflowNodeAgentConfigs<
+  T extends {
+    data: WorkflowNodeData;
+  },
+>(nodes: T[]): T[] {
   return nodes.map((node) => {
     if (node.data.kind !== "agent" || node.data.agentConfig === undefined) {
       return node;

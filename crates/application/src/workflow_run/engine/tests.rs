@@ -108,9 +108,55 @@ fn parses_agent_config_into_the_model() {
                 enabled: true,
             }],
             prompt: "do a".to_string(),
+            // The linear_chain fixture omits `interactive`, so the default must be false.
+            interactive: false,
         }),
     };
     assert_eq!(*graph.node("a").unwrap(), expected);
+}
+
+#[test]
+fn parses_interactive_agent_flag_with_a_default_of_false() {
+    let graph = parse(json!({
+        "nodes": [
+            { "id": "start", "data": { "kind": "start" } },
+            { "id": "a", "data": { "kind": "agent", "agentConfig": {
+                "executor": { "agentCli": "open_code", "modelId": "m" },
+                "roleId": "R", "skills": [], "prompt": "a", "interactive": true
+            } } },
+            { "id": "b", "data": { "kind": "agent", "agentConfig": {
+                "executor": { "agentCli": "open_code", "modelId": "m" },
+                "roleId": "R", "skills": [], "prompt": "b"
+            } } },
+            { "id": "out", "data": { "kind": "output" } }
+        ],
+        "edges": [
+            { "source": "start", "target": "a" },
+            { "source": "a", "target": "b" },
+            { "source": "b", "target": "out" }
+        ]
+    }))
+    .unwrap();
+    assert_eq!(
+        graph
+            .node("a")
+            .unwrap()
+            .agent_config
+            .as_ref()
+            .unwrap()
+            .interactive,
+        true
+    );
+    assert_eq!(
+        graph
+            .node("b")
+            .unwrap()
+            .agent_config
+            .as_ref()
+            .unwrap()
+            .interactive,
+        false
+    );
 }
 
 #[test]
@@ -283,6 +329,15 @@ fn transitive_predecessors_follow_upstream_first_order() {
     assert_eq!(
         ids(&graph.transitive_predecessors("output-1")),
         vec!["start", "a", "b"]
+    );
+}
+
+#[test]
+fn all_nodes_follow_topological_execution_order() {
+    let graph = parse(linear_chain()).unwrap();
+    assert_eq!(
+        ids(&graph.nodes_in_topological_order()),
+        vec!["start", "a", "b", "output-1"]
     );
 }
 

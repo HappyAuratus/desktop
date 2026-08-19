@@ -91,7 +91,7 @@ describe("createTauriTransport", () => {
     [
       "createWorkflowRun",
       "create_workflow_run",
-      { workflowId: "wf-1", projectId: "project-1" },
+      { workflowId: "wf-1", projectId: "project-1", locale: "zh-CN" },
     ],
     ["listWorkflowNodeRuns", "list_workflow_node_runs", { runId: "run-1" }],
   ] as const)(

@@ -99,6 +99,7 @@ pub(crate) fn build_workflow_run_engine(
     agent_runtime: Arc<AgentRuntimeManager>,
     pool: RepositoryPool,
     skills_root: PathBuf,
+    baselines_root: PathBuf,
     clock: SystemClock,
 ) -> WorkflowRunEngineAssembly {
     let callback = Arc::new(WorkflowRunEngineCallback::new());
@@ -109,6 +110,7 @@ pub(crate) fn build_workflow_run_engine(
         SqliteAgentDefinitionRepository::new(pool.clone()),
         callback.clone(),
         clock,
+        baselines_root,
     );
     let engine = Arc::new(WorkflowRunEngine::new(
         SqliteWorkflowRunEngineRepository::new(pool.clone()),

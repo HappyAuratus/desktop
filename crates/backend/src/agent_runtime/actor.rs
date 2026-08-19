@@ -6,6 +6,7 @@ use super::handoff::{AgentPrompt, prompt_for_agent};
 use super::replay::recorded_replay;
 use super::routing::{SessionControl, SessionEvent};
 use super::scheduling::{ActiveInput, ActiveInputState};
+use super::session_followers::SessionFollowers;
 use super::title_acquisition::PollAttempt;
 use super::*;
 #[path = "title_polling.rs"]
@@ -26,7 +27,7 @@ use tokio::time::{Instant, timeout};
 
 /// How far replaying Ora's record got before it stopped.
 ///
-/// Only `Delivered` may complete the load. The other two are kept apart because
+/// Only `Delivered` may complete the load stream. The other two are kept apart because
 /// they differ in who still has to be told: an unreadable history owes the
 /// client an error, while an abandoned one has no client left to send it to.
 enum Replay {
@@ -131,6 +132,7 @@ impl RuntimeActor {
                         session: contract_session(self.session.clone()),
                     }));
                 }
+                RuntimeCommand::CancelActivePrompt => {}
                 RuntimeCommand::Cancel { .. } => {}
                 RuntimeCommand::PreemptTitlePolling { response } => {
                     let _ = response.send(());
@@ -364,6 +366,7 @@ impl RuntimeActor {
                     }));
                     return;
                 }
+                ActiveInput::Command(RuntimeCommand::CancelActivePrompt) => {}
                 ActiveInput::Command(
                     RuntimeCommand::Prompt { accepted, .. } | RuntimeCommand::Load { accepted, .. },
                 ) => {
@@ -503,6 +506,7 @@ impl RuntimeActor {
             self.settle_record(outcome);
         }
         let mut permissions = HashMap::new();
+        let mut followers = SessionFollowers::new();
         let mut input_state = ActiveInputState::default();
         loop {
             match input_state
@@ -520,11 +524,13 @@ impl RuntimeActor {
                     let update = update.update;
                     let outcome = self.recorder.record_update(&update);
                     self.settle_record(outcome);
+                    followers.send_update(&update);
                     if events
                         .try_send(Ok(PromptSessionEvent::SessionUpdate { update }))
                         .is_err()
                     {
                         self.end_turn(StopReason::Cancelled);
+                        followers.finish(StopReason::Cancelled);
                         self.cancel(&client, &permissions).await;
                         self.isolate_channel(channel).await;
                         return;
@@ -551,6 +557,7 @@ impl RuntimeActor {
                     let Some(option_id) = auto_option_id else {
                         ora_warn!(session_id = %self.session.id, request_id = %public_id, "permission request offered no allow option");
                         self.end_turn(StopReason::Cancelled);
+                        followers.finish(StopReason::Cancelled);
                         self.cancel(&client, &permissions).await;
                         self.isolate_channel(channel).await;
                         return;
@@ -568,6 +575,7 @@ impl RuntimeActor {
                     if let Err(error) = auto_response {
                         ora_warn!(session_id = %self.session.id, error = %error, "failed to auto-allow permission request");
                         self.end_turn(StopReason::Cancelled);
+                        followers.finish(StopReason::Cancelled);
                         self.cancel(&client, &permissions).await;
                         self.isolate_channel(channel).await;
                         return;
@@ -581,6 +589,7 @@ impl RuntimeActor {
                         Ok(response) => {
                             ora_debug!(session_id = %self.session.id, stop_reason = ?response.stop_reason, "prompt completed");
                             self.end_turn(response.stop_reason);
+                            followers.finish(response.stop_reason);
                             self.maybe_start_title_acquisition(response.stop_reason);
                             if events
                                 .try_send(Ok(PromptSessionEvent::Completed {
@@ -597,6 +606,7 @@ impl RuntimeActor {
                             let reusable = matches!(&error, ora_acp::AcpError::RequestFailed(_));
                             ora_debug!(session_id = %self.session.id, error = %error, reusable = reusable, "prompt failed");
                             self.end_turn(StopReason::Cancelled);
+                            followers.finish(StopReason::Cancelled);
                             let delivered = events.try_send(Err(map_acp_error(error))).is_ok();
                             if reusable && delivered {
                                 self.channel = Some(channel);
@@ -609,11 +619,13 @@ impl RuntimeActor {
                 }
                 ActiveInput::Control(SessionControl::ConnectionLost(error)) => {
                     self.end_turn(StopReason::Cancelled);
+                    followers.finish(StopReason::Cancelled);
                     self.fail_prompt(&events, error);
                     return;
                 }
                 ActiveInput::Control(SessionControl::QueueOverflow) => {
                     self.end_turn(StopReason::Cancelled);
+                    followers.finish(StopReason::Cancelled);
                     self.cancel(&client, &permissions).await;
                     let _ = events.try_send(Err(runtime_internal(
                         "agent_event_overflow",
@@ -624,6 +636,7 @@ impl RuntimeActor {
                 }
                 ActiveInput::EventsClosed | ActiveInput::ControlsClosed => {
                     self.end_turn(StopReason::Cancelled);
+                    followers.finish(StopReason::Cancelled);
                     self.fail_prompt(&events, runtime_unavailable());
                     return;
                 }
@@ -633,39 +646,74 @@ impl RuntimeActor {
                 }
                 ActiveInput::Command(RuntimeCommand::Cancel {
                     operation_id: cancelled,
-                }) if cancelled == operation_id => {
+                }) if followers.remove(cancelled) => {}
+                ActiveInput::Command(command)
+                    if matches!(&command, RuntimeCommand::CancelActivePrompt)
+                        || matches!(
+                            &command,
+                            RuntimeCommand::Cancel {
+                                operation_id: cancelled
+                            } if *cancelled == operation_id
+                        ) =>
+                {
+                    let notify_owner = matches!(command, RuntimeCommand::CancelActivePrompt);
                     self.cancel(&client, &permissions).await;
                     let settled = timeout(
                         CANCELLATION_GRACE,
                         settle_cancelled_prompt(self, &mut channel, &client, pending, &events),
                     )
                     .await;
-                    match settled {
-                        Ok(Some(Ok(_))) | Ok(Some(Err(ora_acp::AcpError::RequestFailed(_)))) => {
-                            self.end_turn(StopReason::Cancelled);
-                            self.channel = Some(channel);
-                        }
-                        Ok(Some(Err(_))) | Ok(None) | Err(_) => {
-                            drain_queued_prompt_events(self, &mut channel, &client, &events).await;
-                            self.end_turn(StopReason::Cancelled);
-                            self.isolate_channel(channel).await;
-                        }
+                    let reusable = matches!(
+                        settled,
+                        Ok(Some(Ok(_))) | Ok(Some(Err(ora_acp::AcpError::RequestFailed(_))))
+                    );
+                    if !reusable {
+                        drain_queued_prompt_events(self, &mut channel, &client, &events).await;
+                    }
+                    self.end_turn(StopReason::Cancelled);
+                    followers.finish(StopReason::Cancelled);
+                    let owner_notified = !notify_owner
+                        || events
+                            .try_send(Ok(PromptSessionEvent::Completed {
+                                stop_reason: StopReason::Cancelled,
+                            }))
+                            .is_ok();
+                    if reusable && owner_notified {
+                        self.channel = Some(channel);
+                    } else {
+                        self.isolate_channel(channel).await;
                     }
                     return;
                 }
                 ActiveInput::Command(RuntimeCommand::Stop { response }) => {
                     self.cancel(&client, &permissions).await;
                     self.end_turn(StopReason::Cancelled);
+                    followers.finish(StopReason::Cancelled);
                     self.isolate_channel(channel).await;
                     let _ = response.send(Ok(StopSessionResponse {
                         session: contract_session(self.session.clone()),
                     }));
                     return;
                 }
-                ActiveInput::Command(
-                    RuntimeCommand::Prompt { accepted, .. } | RuntimeCommand::Load { accepted, .. },
-                ) => {
+                ActiveInput::Command(RuntimeCommand::Prompt { accepted, .. }) => {
                     let _ = accepted.send(Err(session_busy()));
+                }
+                ActiveInput::Command(RuntimeCommand::Load {
+                    operation_id,
+                    events,
+                    accepted,
+                }) => {
+                    // Admit before replaying so the receiver can drain histories larger than the
+                    // bounded contract queue. The loaded view follows the existing prompt without
+                    // taking ownership of its turn.
+                    if accepted.send(Ok(())).is_ok()
+                        && matches!(
+                            self.replay_recorded_history(&events).await,
+                            Replay::Delivered
+                        )
+                    {
+                        followers.insert(operation_id, events);
+                    }
                 }
                 ActiveInput::Command(RuntimeCommand::PreemptTitlePolling { response }) => {
                     let _ = response.send(());
@@ -675,6 +723,7 @@ impl RuntimeActor {
                     let _ = response.send(());
                 }
                 ActiveInput::Command(RuntimeCommand::Cancel { .. }) => {}
+                ActiveInput::Command(RuntimeCommand::CancelActivePrompt) => {}
                 ActiveInput::Command(RuntimeCommand::TitlePoll {
                     attempt: PollAttempt::First,
                 }) => {
@@ -692,6 +741,7 @@ impl RuntimeActor {
                 ActiveInput::CommandsClosed => {
                     self.cancel(&client, &permissions).await;
                     self.end_turn(StopReason::Cancelled);
+                    followers.finish(StopReason::Cancelled);
                     self.isolate_channel(channel).await;
                     return;
                 }
@@ -718,7 +768,7 @@ impl RuntimeActor {
         self.persist_session_history_state(HistoryState::Degraded { reason });
     }
 
-    /// Streams Ora's recorded conversation to a client that asked to load it.
+    /// Streams Ora's recorded conversation to a client that loaded it.
     ///
     /// Sends apply backpressure rather than failing fast: a long history is far
     /// larger than the event queue, and a slow consumer is not a disconnected one.

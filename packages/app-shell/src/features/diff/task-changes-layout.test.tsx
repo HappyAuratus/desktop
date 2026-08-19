@@ -1,7 +1,7 @@
 import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { PlatformProvider } from "../../platform";
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import { describe, expect, it, vi } from "vitest";
 import { AppI18nProvider } from "../../i18n/i18n";
 import { createStubPlatform } from "../../test/stub-platform";
@@ -81,6 +81,23 @@ function OpenWorkspaceFileButton() {
     >
       Open workspace file
     </button>
+  );
+}
+
+/** Models workspace-owned UI state that must survive opening the review panel. */
+function StatefulWorkspace() {
+  const [inspectorOpen, setInspectorOpen] = useState(false);
+  const navigation = useTaskChangesNavigation();
+  return (
+    <main>
+      <button type="button" onClick={() => setInspectorOpen(true)}>
+        Open inspector
+      </button>
+      <span>{inspectorOpen ? "Inspector open" : "Inspector closed"}</span>
+      <button type="button" onClick={() => navigation?.openFile("src/main.ts")}>
+        Open changed file
+      </button>
+    </main>
   );
 }
 
@@ -203,6 +220,32 @@ describe("WorkspaceReviewLayout", () => {
     expect(screen.getByTestId("files-request")).toHaveTextContent(
       "src/lib.ts:8",
     );
+  });
+
+  it("preserves workspace state when opening Changes", async () => {
+    const user = userEvent.setup();
+    render(
+      <PlatformProvider adapter={createStubPlatform()}>
+        <AppI18nProvider>
+          <WorkspaceReviewLayout
+            context={taskContext}
+            preserveWorkspaceOnReviewOpen
+          >
+            <StatefulWorkspace />
+          </WorkspaceReviewLayout>
+        </AppI18nProvider>
+      </PlatformProvider>,
+    );
+
+    await user.click(screen.getByRole("button", { name: "Open inspector" }));
+    expect(screen.getByText("Inspector open")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Open changed file" }));
+
+    expect(screen.getByText("Inspector open")).toBeInTheDocument();
+    expect(
+      screen.getByRole("region", { name: "Task diff" }),
+    ).toBeInTheDocument();
   });
 
   it("shows only Files for a project review context", async () => {

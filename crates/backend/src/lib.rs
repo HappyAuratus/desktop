@@ -18,10 +18,13 @@ mod task;
 mod task_diff;
 mod user_config;
 mod workflow;
+mod workflow_node_completion;
+mod workflow_node_session;
 mod workflow_run;
 mod workflow_run_engine;
 mod workflow_run_executor;
 mod workflow_run_prerequisites;
+mod workflow_run_prompt;
 
 pub use agent_runtime::{SessionEventStream, SessionLocator};
 pub use app_event::AppEventHub;

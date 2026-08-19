@@ -35,8 +35,10 @@ import { useProjects } from "../../state/hooks/use-projects";
 import { useTaskDiff } from "../../state/hooks/use-task-diff";
 import { parseTaskDiffPatch } from "../diff/task-diff-data";
 import {
+  resolveCompletionAdvanceNodeId,
   resolveStageFocusNodeId,
   resolveTheaterFocus,
+  shouldAdvanceAutomaticConversation,
   shouldReleaseLivePinToFollow,
   shouldStealFocusForArtifactReveal,
   type TheaterFocusStatusSample,
@@ -97,6 +99,9 @@ export function WorkflowRunWorkspace({ runId }: WorkflowRunWorkspaceProps) {
   const [conversationNodeId, setConversationNodeId] = useState<string | null>(
     null,
   );
+  /** Node completion held until refreshed state exposes its next active node. */
+  const [completionAdvanceFromNodeId, setCompletionAdvanceFromNodeId] =
+    useState<string | null>(null);
   const [stopOpen, setStopOpen] = useState(false);
   /** One-shot: Overview node click should open Theater's act inspector. */
   const [openInspectorOnTheaterEnter, setOpenInspectorOnTheaterEnter] =
@@ -109,6 +114,10 @@ export function WorkflowRunWorkspace({ runId }: WorkflowRunWorkspaceProps) {
 
   /** Same-node status edge: live pin just finished -> resume auto-follow. */
   const focusStatusSampleRef = useRef<TheaterFocusStatusSample | null>(null);
+  /** Open automatic-session edge: its running turn just finished -> open its successor. */
+  const conversationStatusSampleRef = useRef<TheaterFocusStatusSample | null>(
+    null,
+  );
   const viewModeRef = useRef(viewMode);
   viewModeRef.current = viewMode;
 
@@ -136,6 +145,7 @@ export function WorkflowRunWorkspace({ runId }: WorkflowRunWorkspaceProps) {
       // because they happen after this clear.
       setFocusNodeId(null);
       setConversationNodeId(null);
+      setCompletionAdvanceFromNodeId(null);
       if (viewModeRef.current === "overview") {
         toast.message(t("workflowRun.result.finishedToastTitle"), {
           description: t("workflowRun.result.finishedToastDescription"),
@@ -158,16 +168,70 @@ export function WorkflowRunWorkspace({ runId }: WorkflowRunWorkspaceProps) {
     setPreviousRunId(runId);
     setFocusNodeId(null);
     setConversationNodeId(null);
+    setCompletionAdvanceFromNodeId(null);
     setStopOpen(false);
     setOpenInspectorOnTheaterEnter(false);
     setReviewPanelOpen(false);
   }
   useEffect(() => {
     focusStatusSampleRef.current = null;
+    conversationStatusSampleRef.current = null;
   }, [runId]);
+
+  // Interactive completion and automatic-session status edges share this intent. Consume it
+  // exactly when refreshed state exposes the successor, without another effect-driven render.
+  if (run !== null && completionAdvanceFromNodeId !== null) {
+    const nextNodeId = resolveCompletionAdvanceNodeId(
+      run,
+      completionAdvanceFromNodeId,
+    );
+    if (nextNodeId !== null) {
+      setCompletionAdvanceFromNodeId(null);
+      setConversationNodeId(nextNodeId);
+      setFocusNodeId(nextNodeId);
+      setOpenInspectorOnTheaterEnter(false);
+      setViewMode("theater");
+    } else if (isTerminalRunStatus(run.status)) {
+      setCompletionAdvanceFromNodeId(null);
+      setConversationNodeId(null);
+      setFocusNodeId(null);
+    }
+  }
 
   const conversationNodeIdRef = useRef<string | null>(null);
   conversationNodeIdRef.current = conversationNodeId;
+
+  // An open automatic node has no completion button to create the existing advance intent.
+  // Detect the same running -> terminal edge and feed it into that shared successor resolver.
+  useEffect(() => {
+    if (run === null || conversationNodeId === null) {
+      conversationStatusSampleRef.current = null;
+      return;
+    }
+    const currentStatus = run.nodeStates[conversationNodeId]?.status;
+    const interactive =
+      run.definitionSnapshot.nodes.find(
+        (node) => node.id === conversationNodeId,
+      )?.data.agentConfig?.interactive === true;
+    if (
+      shouldAdvanceAutomaticConversation(
+        conversationStatusSampleRef.current,
+        conversationNodeId,
+        currentStatus,
+        interactive,
+      )
+    ) {
+      conversationStatusSampleRef.current = null;
+      setCompletionAdvanceFromNodeId(conversationNodeId);
+      return;
+    }
+    if (currentStatus !== undefined) {
+      conversationStatusSampleRef.current = {
+        nodeId: conversationNodeId,
+        status: currentStatus,
+      };
+    }
+  }, [run, conversationNodeId]);
 
   /**
    * Session dock is sticky attention: pin the act and ignore auto-follow /
@@ -558,6 +622,7 @@ export function WorkflowRunWorkspace({ runId }: WorkflowRunWorkspaceProps) {
           key={runId}
           context={reviewContext}
           onOpenChange={setReviewPanelOpen}
+          preserveWorkspaceOnReviewOpen
         >
           <div
             ref={stageAreaRef}
@@ -580,6 +645,7 @@ export function WorkflowRunWorkspace({ runId }: WorkflowRunWorkspaceProps) {
                 reviewPanelOpen={reviewPanelOpen}
                 sessionConversationNodeId={conversationNodeId}
                 onSessionConversationNodeIdChange={setSessionConversationNodeId}
+                onNodeCompleted={setCompletionAdvanceFromNodeId}
                 onShowOverview={() => {
                   setOpenInspectorOnTheaterEnter(false);
                   setViewMode("overview");

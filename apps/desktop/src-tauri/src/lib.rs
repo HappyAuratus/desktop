@@ -86,6 +86,7 @@ pub fn run() {
             commands::get_session,
             commands::list_sessions,
             commands::respond_to_session_permission,
+            commands::cancel_session_prompt,
             commands::stop_session,
             commands::switch_session_agent,
             commands::resume_session_history,
@@ -164,6 +165,7 @@ pub fn run() {
             commands::cancel_workflow_run,
             commands::restart_workflow_run,
             commands::update_workflow_run_input,
+            commands::complete_workflow_node,
             // =============================================================================
             // desktop
             // =============================================================================

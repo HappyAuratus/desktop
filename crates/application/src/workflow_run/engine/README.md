@@ -8,7 +8,8 @@ real Ora session.
 
 - **Graph parsing and topology** (`graph.rs`, `node_type.rs`): deserialize a frozen React Flow
   document into a validated `petgraph` DAG, validate structural invariants, and answer topology
-  queries (successors/predecessors, transitive closures, ready set, reachability).
+  queries (full topological order, successors/predecessors, transitive closures, ready set,
+  reachability).
 - **Engine persistence port** (`ports.rs`): the `WorkflowRunEngineRepository` trait that the run
   engine uses, implemented in `ora-db`.
 - **Worktree initializer port** (`ports.rs`): the `WorkflowRunWorktreeInitializer` trait that the
@@ -47,8 +48,10 @@ test-only stub.
   one start node; all three are rejected at parse time with a `GraphError` variant.
 - Rust identifiers use `node_type` (aligned with `workflow_node_runs.node_type`); the wire source
   is React Flow's `data.kind`, read through a serde rename.
-- Transitive closures are ordered by topological rank (upstream first), giving agent prompt
-  assembly a stable input lineage.
+- Full-graph order and transitive closures use the same topological rank (upstream first), giving
+  agent prompt assembly a stable panorama and input lineage.
+- An agent node's `output` is its final assistant text. Complete conversation history belongs to
+  the Ora session and is never duplicated into `workflow_node_runs`.
 
 ## Failure semantics
 

@@ -39,6 +39,9 @@ pub struct AgentConfig {
     pub role_id: Option<String>,
     pub skills: Vec<AgentSkill>,
     pub prompt: String,
+    /// When true the node is a persistent interactive session: its first turn pauses at
+    /// `Pending` (awaiting input) instead of completing, and the user drives completion.
+    pub interactive: bool,
 }
 
 /// The agent CLI and model an `agent` node must run with.
@@ -130,6 +133,8 @@ struct WireAgentConfig {
     skills: Vec<WireAgentSkill>,
     #[serde(default)]
     prompt: Option<String>,
+    #[serde(default)]
+    interactive: Option<bool>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -181,6 +186,8 @@ impl WireAgentConfig {
                 .map(WireAgentSkill::into_model)
                 .collect(),
             prompt: self.prompt.unwrap_or_default(),
+            // Missing `interactive` defaults to false so existing graphs stay fully automatic.
+            interactive: self.interactive.unwrap_or(false),
         }
     }
 }
@@ -307,6 +314,16 @@ impl WorkflowGraph {
     /// Returns the number of edges.
     pub fn edge_count(&self) -> usize {
         self.graph.edge_count()
+    }
+
+    /// Returns every node in deterministic topological execution order.
+    pub fn nodes_in_topological_order(&self) -> Vec<&WorkflowGraphNode> {
+        let mut indices: Vec<_> = self.graph.node_indices().collect();
+        indices.sort_by_key(|index| self.topo_rank.get(index).copied().unwrap_or(usize::MAX));
+        indices
+            .into_iter()
+            .map(|index| &self.graph[index])
+            .collect()
     }
 
     /// Returns the direct successors of `id` in deterministic adjacency order.
