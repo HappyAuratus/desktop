@@ -1,4 +1,4 @@
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
 import { describe, expect, it, vi } from "vitest";
@@ -182,39 +182,37 @@ describe("RunNodeSessionChat", () => {
     chatStore.setState({
       conversations: { [sessionId]: seededConversation(false) },
     });
-    const { rerender } = render(
-      <RunNodeSessionChat sessionId={sessionId} status="running" />,
-      {
-        wrapper: createHookWrapper(client, createTestQueryClient(), chatStore),
-      },
-    );
+    render(<RunNodeSessionChat sessionId={sessionId} status="running" />, {
+      wrapper: createHookWrapper(client, createTestQueryClient(), chatStore),
+    });
 
     expect(
       screen.getByRole("status", { name: "正在加载历史记录…" }),
     ).toBeInTheDocument();
 
-    chatStore.setState({
-      conversations: {
-        [sessionId]: seededConversation(true, [
-          {
-            id: "turn-1",
-            userMessage: {
-              kind: "message",
-              id: "turn-1-user",
-              role: "user",
-              content: "Automated workflow prompt",
+    act(() => {
+      chatStore.setState({
+        conversations: {
+          [sessionId]: seededConversation(true, [
+            {
+              id: "turn-1",
+              userMessage: {
+                kind: "message",
+                id: "turn-1-user",
+                role: "user",
+                content: "Automated workflow prompt",
+                createdAt: 1,
+              },
+              items: [],
+              status: "streaming",
+              stopReason: null,
+              error: null,
               createdAt: 1,
             },
-            items: [],
-            status: "streaming",
-            stopReason: null,
-            error: null,
-            createdAt: 1,
-          },
-        ]),
-      },
+          ]),
+        },
+      });
     });
-    rerender(<RunNodeSessionChat sessionId={sessionId} status="running" />);
 
     expect(
       screen.queryByRole("status", { name: "正在加载历史记录…" }),
