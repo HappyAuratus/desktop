@@ -33,15 +33,23 @@ import {
   ChatMarkdownTableCell,
 } from "./chat-link/markdown-overrides";
 import { useChatLinkContext } from "./chat-link/context";
+import {
+  prepareUserMessageMarkdown,
+  remarkComposerHighlight,
+} from "./user-message-markdown";
 
 interface MarkdownMessageProps {
   content: string;
   streaming?: boolean;
 }
 
+export type MarkdownDensity = "default" | "compact";
+
 interface MarkdownDocumentProps {
   content: string;
   components?: Components;
+  /** Compact fits secondary user bubbles without oversized headings/margins. */
+  density?: MarkdownDensity;
 }
 
 const LANGUAGE_CLASS_PATTERN = /(?:^|\s)language-([^\s]+)/;
@@ -50,6 +58,14 @@ const highlightedCodeCache = new Map<
   string,
   Promise<ThemedTokenWithVariants[][] | null>
 >();
+
+/**
+ * Shiki language ids are lowercase (`c++`, `c#`); fence labels like `C++`
+ * are common in the composer and fail the highlighter if passed through.
+ */
+function resolveHighlightLanguage(language: string): string {
+  return language.trim().toLowerCase();
+}
 
 interface ShikiTokenStyle extends CSSProperties {
   "--shiki-dark"?: string;
@@ -81,123 +97,220 @@ interface StreamingRevealSpanProps extends ComponentPropsWithoutRef<"span"> {
   "data-stream-text-reveal"?: boolean;
 }
 
-const markdownComponents: Components = {
-  a: ({ children, ...props }) => (
-    <a
-      className="font-medium text-primary underline decoration-primary/45 underline-offset-4 transition-colors hover:decoration-primary focus-visible:rounded-sm focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
-      rel="noopener noreferrer"
-      target="_blank"
-      {...props}
-    >
-      {children}
-    </a>
-  ),
-  blockquote: ({ children, ...props }) => (
-    <blockquote
-      className="my-3 border-l-2 border-border pl-3 text-muted-foreground"
-      {...props}
-    >
-      {children}
-    </blockquote>
-  ),
-  code: ({ children, className, ...props }) => {
-    const inlineClassName =
-      className === undefined
-        ? "rounded-sm border border-border/70 bg-muted/80 px-1.5 py-[0.15em] font-mono text-[0.85em] text-foreground"
-        : className;
-    return (
-      <code className={inlineClassName} {...props}>
-        {children}
-      </code>
-    );
-  },
-  h1: ({ children, ...props }) => (
-    <h1
-      className="mb-3 mt-6 text-2xl font-semibold leading-8 first:mt-0"
-      {...props}
-    >
-      {children}
-    </h1>
-  ),
-  h2: ({ children, ...props }) => (
-    <h2
-      className="mb-2 mt-5 text-xl font-semibold leading-8 first:mt-0"
-      {...props}
-    >
-      {children}
-    </h2>
-  ),
-  h3: ({ children, ...props }) => (
-    <h3
-      className="mb-2 mt-4 text-lg font-semibold leading-7 first:mt-0"
-      {...props}
-    >
-      {children}
-    </h3>
-  ),
-  hr: (props) => <hr className="my-4 border-border" {...props} />,
-  li: ({ children, ...props }) => (
-    <li className="my-1 pl-1" {...props}>
-      {children}
-    </li>
-  ),
-  ol: ({ children, ...props }) => (
-    <ol
-      className="my-3 list-decimal space-y-1 pl-6 marker:text-muted-foreground"
-      {...props}
-    >
-      {children}
-    </ol>
-  ),
-  p: ({ children, ...props }) => (
-    <p className="my-3 first:mt-0 last:mb-0" {...props}>
-      {children}
-    </p>
-  ),
-  pre: ({ children }) => {
-    if (
-      isValidElement<{ children?: ReactNode; className?: string }>(children)
-    ) {
-      const language =
-        children.props.className?.match(LANGUAGE_CLASS_PATTERN)?.[1] ?? "text";
-      return (
-        <CodeBlock
-          code={String(children.props.children).replace(/\n$/, "")}
-          language={language}
-        />
-      );
-    }
-    return <pre>{children}</pre>;
-  },
-  table: ({ children, ...props }) => (
-    <div className="my-3 max-w-full overflow-x-auto rounded-md border border-border/70">
-      <table
-        className="w-max min-w-full border-collapse text-left text-[13px] leading-5"
+function createMarkdownComponents(density: MarkdownDensity): Components {
+  const compact = density === "compact";
+  return {
+    a: ({ children, ...props }) => (
+      <a
+        className="font-medium text-primary underline decoration-primary/45 underline-offset-4 transition-colors hover:decoration-primary focus-visible:rounded-sm focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
+        rel="noopener noreferrer"
+        target="_blank"
         {...props}
       >
         {children}
-      </table>
-    </div>
-  ),
-  td: ({ children, ...props }) => (
-    <td className="border-t border-border/70 px-3 py-2 align-top" {...props}>
-      {children}
-    </td>
-  ),
-  th: ({ children, ...props }) => (
-    <th className="bg-muted/55 px-3 py-2 font-medium" {...props}>
-      {children}
-    </th>
-  ),
-  ul: ({ children, ...props }) => (
-    <ul
-      className="my-3 list-disc space-y-1 pl-6 marker:text-muted-foreground"
-      {...props}
-    >
-      {children}
-    </ul>
-  ),
-};
+      </a>
+    ),
+    blockquote: ({ children, ...props }) => (
+      <blockquote
+        className={
+          compact
+            ? "my-1.5 border-l-2 border-border pl-2.5 text-muted-foreground"
+            : "my-3 border-l-2 border-border pl-3 text-muted-foreground"
+        }
+        {...props}
+      >
+        {children}
+      </blockquote>
+    ),
+    code: ({ children, className, ...props }) => {
+      const inlineClassName =
+        className === undefined
+          ? "rounded-sm border border-border/70 bg-muted/80 px-1.5 py-[0.15em] font-mono text-[0.85em] text-foreground"
+          : className;
+      return (
+        <code className={inlineClassName} {...props}>
+          {children}
+        </code>
+      );
+    },
+    h1: ({ children, ...props }) => (
+      <h1
+        className={
+          compact
+            ? "mb-1 mt-2 text-base font-semibold leading-6 first:mt-0"
+            : "mb-3 mt-6 text-2xl font-semibold leading-8 first:mt-0"
+        }
+        {...props}
+      >
+        {children}
+      </h1>
+    ),
+    h2: ({ children, ...props }) => (
+      <h2
+        className={
+          compact
+            ? "mb-1 mt-2 text-[15px] font-semibold leading-6 first:mt-0"
+            : "mb-2 mt-5 text-xl font-semibold leading-8 first:mt-0"
+        }
+        {...props}
+      >
+        {children}
+      </h2>
+    ),
+    h3: ({ children, ...props }) => (
+      <h3
+        className={
+          compact
+            ? "mb-1 mt-1.5 text-sm font-semibold leading-5 first:mt-0"
+            : "mb-2 mt-4 text-lg font-semibold leading-7 first:mt-0"
+        }
+        {...props}
+      >
+        {children}
+      </h3>
+    ),
+    h4: ({ children, ...props }) => (
+      <h4
+        className={
+          compact
+            ? "mb-1 mt-1.5 text-sm font-semibold leading-5 first:mt-0"
+            : "mb-2 mt-3 text-base font-semibold leading-6 first:mt-0"
+        }
+        {...props}
+      >
+        {children}
+      </h4>
+    ),
+    h5: ({ children, ...props }) => (
+      <h5
+        className={
+          compact
+            ? "mb-0.5 mt-1 text-[13px] font-semibold leading-5 first:mt-0"
+            : "mb-2 mt-3 text-sm font-semibold leading-5 first:mt-0"
+        }
+        {...props}
+      >
+        {children}
+      </h5>
+    ),
+    h6: ({ children, ...props }) => (
+      <h6
+        className={
+          compact
+            ? "mb-0.5 mt-1 text-[12px] font-semibold leading-4 first:mt-0"
+            : "mb-2 mt-3 text-sm font-semibold leading-5 first:mt-0"
+        }
+        {...props}
+      >
+        {children}
+      </h6>
+    ),
+    hr: (props) => (
+      <hr
+        className={compact ? "my-2 border-border" : "my-4 border-border"}
+        {...props}
+      />
+    ),
+    del: ({ children, ...props }) => (
+      <del className="text-muted-foreground line-through" {...props}>
+        {children}
+      </del>
+    ),
+    mark: ({ children, ...props }) => (
+      <mark
+        className="composer-user-highlight rounded-sm bg-[rgb(255,255,0)] px-0.5 text-foreground dark:bg-yellow-300/90"
+        {...props}
+      >
+        {children}
+      </mark>
+    ),
+    li: ({ children, ...props }) => (
+      <li className={compact ? "my-0.5 pl-1" : "my-1 pl-1"} {...props}>
+        {children}
+      </li>
+    ),
+    ol: ({ children, ...props }) => (
+      <ol
+        className={
+          compact
+            ? "my-1.5 list-decimal space-y-0.5 pl-5 marker:text-muted-foreground"
+            : "my-3 list-decimal space-y-1 pl-6 marker:text-muted-foreground"
+        }
+        {...props}
+      >
+        {children}
+      </ol>
+    ),
+    p: ({ children, ...props }) => (
+      <p
+        className={
+          compact ? "my-1.5 first:mt-0 last:mb-0" : "my-3 first:mt-0 last:mb-0"
+        }
+        {...props}
+      >
+        {children}
+      </p>
+    ),
+    pre: ({ children }) => {
+      if (
+        isValidElement<{ children?: ReactNode; className?: string }>(children)
+      ) {
+        const language =
+          children.props.className?.match(LANGUAGE_CLASS_PATTERN)?.[1] ??
+          "text";
+        return (
+          <CodeBlock
+            code={String(children.props.children).replace(/\n$/, "")}
+            language={language}
+            compact={compact}
+          />
+        );
+      }
+      return <pre>{children}</pre>;
+    },
+    table: ({ children, ...props }) => (
+      <div
+        className={
+          compact
+            ? "my-1.5 max-w-full overflow-x-auto rounded-md border border-border/70"
+            : "my-3 max-w-full overflow-x-auto rounded-md border border-border/70"
+        }
+      >
+        <table
+          className="w-max min-w-full border-collapse text-left text-[13px] leading-5"
+          {...props}
+        >
+          {children}
+        </table>
+      </div>
+    ),
+    td: ({ children, ...props }) => (
+      <td className="border-t border-border/70 px-3 py-2 align-top" {...props}>
+        {children}
+      </td>
+    ),
+    th: ({ children, ...props }) => (
+      <th className="bg-muted/55 px-3 py-2 font-medium" {...props}>
+        {children}
+      </th>
+    ),
+    ul: ({ children, ...props }) => (
+      <ul
+        className={
+          compact
+            ? "my-1.5 list-disc space-y-0.5 pl-5 marker:text-muted-foreground"
+            : "my-3 list-disc space-y-1 pl-6 marker:text-muted-foreground"
+        }
+        {...props}
+      >
+        {children}
+      </ul>
+    ),
+  };
+}
+
+const markdownComponents = createMarkdownComponents("default");
+const compactMarkdownComponents = createMarkdownComponents("compact");
 
 /** Stable `pre` override so index updates do not remount CodeBlock state. */
 function ChatMarkdownPreOverride({
@@ -219,24 +332,40 @@ function renderChatMarkdownCodeBlock(code: string, language: string) {
 export function MarkdownDocument({
   content,
   components,
+  density = "default",
 }: MarkdownDocumentProps) {
+  const baseComponents =
+    density === "compact" ? compactMarkdownComponents : markdownComponents;
   const mergedComponents = useMemo(
     () =>
       components === undefined
-        ? markdownComponents
-        : { ...markdownComponents, ...components },
-    [components],
+        ? baseComponents
+        : { ...baseComponents, ...components },
+    [baseComponents, components],
   );
+  const remarkPlugins = useMemo(
+    () =>
+      density === "compact"
+        ? [...markdownRemarkPlugins, remarkComposerHighlight]
+        : markdownRemarkPlugins,
+    [density],
+  );
+  const parseable =
+    density === "compact" ? prepareUserMessageMarkdown(content) : content;
   return (
     <div
       data-selectable
-      className="min-w-0 break-words text-[15px] leading-[26px] text-foreground"
+      className={
+        density === "compact"
+          ? "min-w-0 break-words text-[14px] leading-6 text-foreground [&_:first-child]:mt-0 [&_:last-child]:mb-0"
+          : "min-w-0 break-words text-[15px] leading-[26px] text-foreground"
+      }
     >
       <ReactMarkdown
-        remarkPlugins={markdownRemarkPlugins}
+        remarkPlugins={remarkPlugins}
         components={mergedComponents}
       >
-        {content}
+        {parseable}
       </ReactMarkdown>
     </div>
   );
@@ -484,7 +613,15 @@ function StreamingRevealSpan({
 }
 
 /** Wraps fenced code with persistent copy and disclosure controls. */
-function CodeBlock({ code, language }: { code: string; language: string }) {
+function CodeBlock({
+  code,
+  language,
+  compact = false,
+}: {
+  code: string;
+  language: string;
+  compact?: boolean;
+}) {
   const { t } = useTranslation();
   const [expanded, setExpanded] = useState(true);
   const [copied, setCopied] = useState(false);
@@ -500,7 +637,9 @@ function CodeBlock({ code, language }: { code: string; language: string }) {
   return (
     <div
       data-expanded={expanded}
-      className={`markdown-code-block my-3 max-w-full overflow-hidden rounded-r-md border-l-2 ${
+      className={`markdown-code-block max-w-full overflow-hidden rounded-r-md border-l-2 ${
+        compact ? "my-1.5" : "my-3"
+      } ${
         expanded
           ? "border-foreground/45 bg-white dark:border-border dark:bg-[var(--code-background)]"
           : "border-border bg-[var(--code-background)]"
@@ -569,13 +708,14 @@ function HighlightedCode({
 
   useEffect(() => {
     let active = true;
-    const cacheKey = `${language}\u0000${code}`;
+    const highlightLanguage = resolveHighlightLanguage(language);
+    const cacheKey = `${highlightLanguage}\u0000${code}`;
     let pending = highlightedCodeCache.get(cacheKey);
     if (pending === undefined) {
       pending = import("shiki")
         .then(({ codeToTokensWithThemes }) =>
           codeToTokensWithThemes(code, {
-            lang: language as BundledLanguage,
+            lang: highlightLanguage as BundledLanguage,
             themes: { light: "light-plus", dark: "dark-plus" },
           }),
         )

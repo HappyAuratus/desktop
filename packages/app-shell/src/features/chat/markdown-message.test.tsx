@@ -2,7 +2,7 @@ import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import { AppI18nProvider } from "../../i18n/i18n";
-import { MarkdownMessage } from "./markdown-message";
+import { MarkdownDocument, MarkdownMessage } from "./markdown-message";
 
 /** Renders Markdown with the production translation provider used by code controls. */
 function renderMarkdown(content: string) {
@@ -12,6 +12,101 @@ function renderMarkdown(content: string) {
     </AppI18nProvider>,
   );
 }
+
+describe("MarkdownDocument", () => {
+  it("renders compact density for user bubbles without leftover delimiters", () => {
+    render(
+      <AppI18nProvider>
+        <MarkdownDocument
+          density="compact"
+          content={"**bold** and [Docs](https://example.com)"}
+        />
+      </AppI18nProvider>,
+    );
+
+    expect(screen.getByText("bold").tagName).toMatch(/^(STRONG|B)$/);
+    expect(screen.getByRole("link", { name: "Docs" })).toHaveAttribute(
+      "href",
+      "https://example.com",
+    );
+    expect(screen.queryByText(/\*\*bold\*\*/)).toBeNull();
+  });
+
+  it("renders compact headings 1-6, strike, highlight, and lists", () => {
+    render(
+      <AppI18nProvider>
+        <MarkdownDocument
+          density="compact"
+          content={[
+            "# H1",
+            "###### H6",
+            "",
+            "~~out~~ and ==hi==",
+            "",
+            "- bullet",
+            "1. numbered",
+            "- [ ] todo",
+          ].join("\n")}
+        />
+      </AppI18nProvider>,
+    );
+
+    expect(
+      screen.getByRole("heading", { level: 1, name: "H1" }),
+    ).not.toBeNull();
+    expect(
+      screen.getByRole("heading", { level: 6, name: "H6" }),
+    ).not.toBeNull();
+    expect(screen.getByText("out").tagName).toBe("DEL");
+    expect(screen.getByText("hi").tagName).toBe("MARK");
+    expect(screen.getAllByRole("list").length).toBeGreaterThanOrEqual(2);
+  });
+
+  it("keeps TipTap single newlines as separate blocks outside fences", () => {
+    render(
+      <AppI18nProvider>
+        <MarkdownDocument density="compact" content={"first\nsecond"} />
+      </AppI18nProvider>,
+    );
+
+    const paragraphs = screen.getAllByText(/first|second/);
+    expect(paragraphs).toHaveLength(2);
+    expect(paragraphs[0]?.tagName).toBe("P");
+    expect(paragraphs[1]?.tagName).toBe("P");
+  });
+
+  it("does not expand newlines inside fenced code", async () => {
+    render(
+      <AppI18nProvider>
+        <MarkdownDocument
+          density="compact"
+          content={"```ts\nconst a = 1;\nconst b = 2;\n```"}
+        />
+      </AppI18nProvider>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText(/const a = 1;/)).toBeTruthy();
+    });
+    const code = screen.getByText(/const a = 1;/).closest("pre");
+    expect(code?.textContent).toMatch(/const a = 1;\s*const b = 2;/);
+  });
+
+  it("keeps HTML tags as text like assistant Markdown", () => {
+    render(
+      <AppI18nProvider>
+        <MarkdownDocument
+          density="compact"
+          content={'**ok** and <script>alert("x")</script>'}
+        />
+      </AppI18nProvider>,
+    );
+
+    expect(screen.getByText("ok").tagName).toMatch(/^(STRONG|B)$/);
+    expect(screen.getByText(/script/)).toBeTruthy();
+    expect(document.querySelector("script")).toBeNull();
+  });
+});
 
 describe("MarkdownMessage", () => {
   it("renders GitHub-flavored Markdown with semantic elements", () => {
@@ -424,6 +519,15 @@ describe("MarkdownMessage", () => {
     expect(screen.getByText("const")).toHaveStyle({
       "--shiki-dark": "#569CD6",
     });
+  });
+
+  it("highlights C++ fences even when the label uses uppercase pluses", async () => {
+    renderMarkdown("```C++\nint main() { return 0; }\n```");
+
+    expect(screen.getByText("C++")).toBeInTheDocument();
+    await waitFor(() =>
+      expect(screen.getByText("int")).toHaveClass("shiki-token"),
+    );
   });
 
   it("copies and collapses fenced code without losing its toolbar", async () => {
