@@ -100,6 +100,12 @@ export interface PlatformAdapter {
   readonly skillMarketplace: SkillMarketplaceCapability;
   selectPath(options: SelectPathOptions): Promise<string | null>;
   saveTextFile(options: SaveTextFileOptions): Promise<boolean>;
+  /**
+   * Opens an http(s) or mailto URL in the host browser. Prompt-box links call
+   * this so Desktop is not stuck with a webview `window.open` that never leaves
+   * the app.
+   */
+  openExternalUrl(url: string): Promise<void>;
 }
 
 /** Reports a caller bug that attempts to open two selectors on one adapter concurrently. */

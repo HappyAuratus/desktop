@@ -2,6 +2,7 @@ mod commands;
 mod config;
 mod dashboard;
 mod error;
+mod open_external;
 mod open_location;
 mod settings_commands;
 mod skill_marketplace;
@@ -177,6 +178,7 @@ pub fn run() {
             commands::set_worktree_root,
             commands::resolve_task_cwd,
             open_location::open_location,
+            open_external::open_external_url,
             commands::write_workflow_export,
             dashboard::get_dashboard_url,
             dashboard::get_dashboard_compare_url,

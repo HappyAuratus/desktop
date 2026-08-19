@@ -179,7 +179,11 @@ Keep these stacks separate — shared chrome only where noted.
   prompt may list every open gate so the user can jump (expanded HITL collapses
   when focus leaves a waiting act). Collapse is respected across later run ticks.
   Esc collapses HITL first; a second Esc returns Overview. Submit payload keys
-  match `field.name`. The focused card conversation shows node input, Agent
+  match `field.name`. Text / textarea fields reuse the chat `ComposerEditor`
+  (Enter submits, Shift+Enter newline) without chat attachments or `@` / `/`
+  menus. Drafts store `documentPlainText` and reload as the same nodes so a
+  Theater remount does not flash raw `**` / `#` markers. The focused card
+  conversation shows node input, Agent
   messages, and submitted HITL answers (mock approval gates also append a short
   assistant ack so the session visibly updates after submit); the inspector
   remains available without duplicating that transcript.

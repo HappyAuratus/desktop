@@ -117,6 +117,9 @@ importers:
       '@ora/contracts':
         specifier: workspace:*
         version: link:../contracts
+      '@ora/editor':
+        specifier: workspace:*
+        version: link:../editor
       '@ora/ui':
         specifier: workspace:*
         version: link:../ui
@@ -135,6 +138,15 @@ importers:
       '@tanstack/react-virtual':
         specifier: ^3.14.6
         version: 3.14.6(react-dom@19.2.6(react@19.2.6))(react@19.2.6)
+      '@tiptap/core':
+        specifier: ^3.0.7
+        version: 3.30.1(@tiptap/pm@3.30.1)
+      '@tiptap/pm':
+        specifier: ^3.0.7
+        version: 3.30.1
+      '@tiptap/react':
+        specifier: ^3.0.7
+        version: 3.30.1(@floating-ui/dom@1.8.0)(@tiptap/core@3.30.1(@tiptap/pm@3.30.1))(@tiptap/pm@3.30.1)(@types/react-dom@19.2.4(@types/react@19.2.14))(@types/react@19.2.14)(react-dom@19.2.6(react@19.2.6))(react@19.2.6)
       '@xyflow/react':
         specifier: ^12.11.2
         version: 12.11.2(@types/react-dom@19.2.4(@types/react@19.2.14))(@types/react@19.2.14)(immer@11.1.11)(react-dom@19.2.6(react@19.2.6))(react@19.2.6)
@@ -237,6 +249,12 @@ importers:
       '@tiptap/core':
         specifier: ^3.0.7
         version: 3.30.1(@tiptap/pm@3.30.1)
+      '@tiptap/extension-bold':
+        specifier: ^3.0.7
+        version: 3.30.1(@tiptap/core@3.30.1(@tiptap/pm@3.30.1))
+      '@tiptap/extension-code':
+        specifier: ^3.0.7
+        version: 3.30.1(@tiptap/core@3.30.1(@tiptap/pm@3.30.1))
       '@tiptap/extension-highlight':
         specifier: ^3.0.7
         version: 3.30.1(@tiptap/core@3.30.1(@tiptap/pm@3.30.1))
@@ -246,12 +264,18 @@ importers:
       '@tiptap/extension-image':
         specifier: ^3.0.7
         version: 3.30.1(@tiptap/core@3.30.1(@tiptap/pm@3.30.1))
+      '@tiptap/extension-italic':
+        specifier: ^3.0.7
+        version: 3.30.1(@tiptap/core@3.30.1(@tiptap/pm@3.30.1))
       '@tiptap/extension-link':
         specifier: ^3.26.1
         version: 3.30.1(@tiptap/core@3.30.1(@tiptap/pm@3.30.1))(@tiptap/pm@3.30.1)
       '@tiptap/extension-list':
         specifier: ^3.0.7
         version: 3.30.1(@tiptap/core@3.30.1(@tiptap/pm@3.30.1))(@tiptap/pm@3.30.1)
+      '@tiptap/extension-strike':
+        specifier: ^3.0.7
+        version: 3.30.1(@tiptap/core@3.30.1(@tiptap/pm@3.30.1))
       '@tiptap/extension-subscript':
         specifier: ^3.0.7
         version: 3.30.1(@tiptap/core@3.30.1(@tiptap/pm@3.30.1))(@tiptap/pm@3.30.1)
@@ -262,6 +286,9 @@ importers:
         specifier: ^3.0.7
         version: 3.30.1(@tiptap/core@3.30.1(@tiptap/pm@3.30.1))
       '@tiptap/extension-typography':
+        specifier: ^3.0.7
+        version: 3.30.1(@tiptap/core@3.30.1(@tiptap/pm@3.30.1))
+      '@tiptap/extension-underline':
         specifier: ^3.0.7
         version: 3.30.1(@tiptap/core@3.30.1(@tiptap/pm@3.30.1))
       '@tiptap/extensions':

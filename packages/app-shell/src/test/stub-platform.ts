@@ -24,5 +24,6 @@ export function createStubPlatform(): PlatformAdapter {
     },
     selectPath: async () => null,
     saveTextFile: async () => false,
+    openExternalUrl: async () => undefined,
   };
 }
