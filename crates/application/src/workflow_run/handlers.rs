@@ -229,6 +229,12 @@ where
                 return Err(error);
             }
         };
+        // A deployed run freezes the snapshot's Start instruction as its default input. Explicit
+        // callers still win, including an intentionally empty string, so deployment defaults do
+        // not overwrite user-provided kickoff content.
+        let kickoff_input = request
+            .kickoff_input
+            .or_else(|| graph.start_node().and_then(|node| node.instruction.clone()));
         if let Err(error) = self
             .worktree_initializer
             .initialize_worktree(&graph, &worktree_path)
@@ -271,7 +277,7 @@ where
             snapshot.id,
             WorkflowRunStatus::Pending,
             Some("{\"current_nodes\":[]}".to_string()),
-            request.kickoff_input,
+            kickoff_input,
             None,
             None,
             Some(json!({ "locale": request.locale }).to_string()),

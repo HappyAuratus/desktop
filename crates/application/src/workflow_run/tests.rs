@@ -103,6 +103,66 @@ fn creates_run_with_explicit_snapshot() {
     );
 }
 
+/// Verifies deployment inherits the frozen Start instruction when no kickoff override is supplied.
+#[test]
+fn defaults_kickoff_input_to_frozen_start_instruction() {
+    let workflow = workflow_fixture(Some("snapshot-a"));
+    let snapshot = WorkflowSnapshot::new(
+        WorkflowSnapshotId::new("snapshot-a"),
+        WorkflowId::new("workflow-a"),
+        "v1",
+        r#"{"nodes":[{"id":"start","data":{"kind":"start","title":"Start","instruction":"Review the repository"}}],"edges":[]}"#,
+        20,
+        Some(20),
+        /*is_deleted*/ false,
+    );
+    let workflow_repository = MockWorkflowRepository::with(workflow, vec![snapshot]);
+    let run_repository = MockWorkflowRunRepository::default();
+    let handler = CreateWorkflowRunHandler::new(
+        Arc::new(workflow_repository),
+        Arc::new(run_repository),
+        FixedRunIdGenerator::new("run-1"),
+        FixedTaskIdGenerator::new(TASK_ID),
+        FixedWorktreeIdGenerator::new("worktree-1"),
+        Arc::new(FakeTaskWorktreeProvisioner::default()),
+        MockWorktreeInitializer::default(),
+        FakeLeaseStore::default(),
+        PathBuf::from(REPO_ROOT),
+        PathBuf::from(WORK_DIR),
+        FixedClock::new(30),
+    );
+
+    let response = handler
+        .handle(CreateWorkflowRunRequest {
+            project_id: "project-1".to_string(),
+            workflow_id: "workflow-a".to_string(),
+            locale: WorkflowRunLocale::ZhCn,
+            snapshot_id: Some("snapshot-a".to_string()),
+            kickoff_input: None,
+            name: None,
+            base_branch: None,
+        })
+        .unwrap();
+
+    assert_eq!(
+        response.run,
+        map_run(WorkflowRun::new(
+            WorkflowRunId::new("run-1"),
+            WorkflowId::new("workflow-a"),
+            WorkflowSnapshotId::new("snapshot-a"),
+            WorkflowRunStatus::Pending,
+            Some("{\"current_nodes\":[]}".to_string()),
+            Some("Review the repository".to_string()),
+            None,
+            None,
+            Some(r#"{"locale":"zh-CN"}"#.to_string()),
+            None,
+            None,
+            AuditFields::new(30, 30, /*is_deleted*/ false),
+        ))
+    );
+}
+
 /// Verifies a failing worktree initialization aborts creation and hands the
 /// provisioned resources to durable cleanup.
 #[test]
