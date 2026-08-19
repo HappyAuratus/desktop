@@ -39,7 +39,7 @@ function useCopyMessage(content: string) {
   return { copied, copy };
 }
 
-/** A single chat message: avatar + content, with hover actions on replies. */
+/** A single chat message: avatar + content, with hover copy on both roles. */
 export function MessageBubble({
   message,
   userName,
@@ -51,6 +51,7 @@ export function MessageBubble({
   const { t } = useTranslation();
   const { copied, copy } = useCopyMessage(message.content);
   const isUser = message.role === "user";
+  const canCopy = message.content.length > 0;
 
   return (
     <div
@@ -90,13 +91,13 @@ export function MessageBubble({
 
         {!compact && (
           <div
-            className={`flex min-h-6 items-center gap-2 ${isUser ? "pr-1" : ""}`}
+            className={`flex min-h-6 items-center gap-2 ${isUser ? "flex-row-reverse pr-1" : ""}`}
           >
             <span className="text-xs text-muted-foreground">
               {formatClock(message.createdAt)}
             </span>
-            {!isUser && (
-              <div className="flex items-center gap-0.5 opacity-0 transition-opacity duration-150 group-hover/message:opacity-100 group-focus-within/message:opacity-100">
+            <div className="flex items-center gap-0.5 opacity-0 transition-opacity duration-150 group-hover/message:opacity-100 group-focus-within/message:opacity-100">
+              {canCopy && (
                 <Button
                   variant="ghost"
                   size="icon-xs"
@@ -109,22 +110,26 @@ export function MessageBubble({
                     <IconCopy className="size-3.5 text-muted-foreground" />
                   )}
                 </Button>
-                <Button
-                  variant="ghost"
-                  size="icon-xs"
-                  aria-label={t("chat.goodResponse")}
-                >
-                  <IconThumbUp className="size-3.5 text-muted-foreground" />
-                </Button>
-                <Button
-                  variant="ghost"
-                  size="icon-xs"
-                  aria-label={t("chat.badResponse")}
-                >
-                  <IconThumbDown className="size-3.5 text-muted-foreground" />
-                </Button>
-              </div>
-            )}
+              )}
+              {!isUser && (
+                <>
+                  <Button
+                    variant="ghost"
+                    size="icon-xs"
+                    aria-label={t("chat.goodResponse")}
+                  >
+                    <IconThumbUp className="size-3.5 text-muted-foreground" />
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="icon-xs"
+                    aria-label={t("chat.badResponse")}
+                  >
+                    <IconThumbDown className="size-3.5 text-muted-foreground" />
+                  </Button>
+                </>
+              )}
+            </div>
           </div>
         )}
       </div>
