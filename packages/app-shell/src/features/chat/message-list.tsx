@@ -2,7 +2,10 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { AgentActivityDots } from "../../components/agent-activity-dots";
 import { useTranslation } from "react-i18next";
 import { AnchorHighlight } from "./anchor-highlight";
-import { ConversationNavigator } from "./conversation-navigator";
+import {
+  ConversationNavigator,
+  type ConversationNavigationPresentation,
+} from "./conversation-navigator";
 import { useConversationNavigation } from "./conversation-navigation";
 import { MessageBubble } from "./message-bubble";
 import { ResponseTurn } from "./response-turn";
@@ -21,6 +24,8 @@ interface MessageListProps {
   userName: string;
   isResponding: boolean;
   taskId?: string;
+  /** Optional presentation override for chats embedded inside another surface. */
+  conversationNavigation?: ConversationNavigationPresentation;
 }
 
 /** The scrollable turn thread, kept pinned to live ACP activity unless the reader scrolls away. */
@@ -30,6 +35,7 @@ export function MessageList({
   userName,
   isResponding,
   taskId,
+  conversationNavigation,
 }: MessageListProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
@@ -146,6 +152,7 @@ export function MessageList({
           </div>
         </div>
         <ConversationNavigator
+          {...conversationNavigation}
           turns={turns}
           activeAnchorId={navigation.activeAnchorId}
           isAtTail={navigation.isAtTail}

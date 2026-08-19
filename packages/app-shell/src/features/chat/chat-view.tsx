@@ -4,6 +4,7 @@ import { IconLoader2 } from "@tabler/icons-react";
 import { Composer } from "./composer";
 import { LandingHeading, LandingSuggestions } from "./empty-state";
 import { MessageList } from "./message-list";
+import type { ConversationNavigationPresentation } from "./conversation-navigator";
 import { Button, Tooltip, TooltipContent, TooltipTrigger } from "@ora/ui";
 import type { ChatModelChange, ChatTurn } from "@ora/chat";
 import type { SessionPermissionRequest, Skill } from "@ora/contracts";
@@ -52,6 +53,8 @@ interface ChatViewProps {
   workflowBar?: ReactNode;
   /** Actions overlaid at the lower-right of the composer slot so the composer stays centered. */
   composerActions?: ReactNode;
+  /** Optional placement and visibility threshold for the shared conversation navigator. */
+  conversationNavigation?: ConversationNavigationPresentation;
   /**
    * Why the composer is disabled, surfaced on hover. Preferred over an inline
    * message for a state the user can fix from the context bar directly above it.
@@ -92,6 +95,7 @@ export function ChatView({
   contextBar,
   workflowBar,
   composerActions,
+  conversationNavigation,
   disabledHint,
   skills = [],
   availableCommands = [],
@@ -170,6 +174,7 @@ export function ChatView({
           userName={userName}
           isResponding={isResponding}
           taskId={taskId}
+          conversationNavigation={conversationNavigation}
         />
       )}
 

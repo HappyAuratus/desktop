@@ -17,6 +17,10 @@ import { useCompleteWorkflowNode } from "../../state/hooks/use-workflow-runs";
 import { ChatView } from "../chat/chat-view";
 
 const RUNNING_SESSION_RELOAD_DELAY_MS = 250;
+const NODE_SESSION_CONVERSATION_NAVIGATION = {
+  placement: "container",
+  minAnchors: 2,
+} as const;
 
 interface RunNodeSessionChatProps {
   /** The real Ora session bound to this node. */
@@ -144,6 +148,7 @@ export function RunNodeSessionChat({
         error={conversation?.error ?? null}
         pendingPermissions={conversation?.pendingPermissions ?? []}
         availableCommands={conversation?.availableCommands ?? []}
+        conversationNavigation={NODE_SESSION_CONVERSATION_NAVIGATION}
         disabled={composerDisabled}
         composerVisible={interactive}
         composerActions={

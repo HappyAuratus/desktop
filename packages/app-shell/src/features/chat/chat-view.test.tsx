@@ -1137,6 +1137,22 @@ describe("ChatView", () => {
 });
 
 describe("MessageList", () => {
+  it("keeps the ordinary conversation navigator at its viewport threshold", () => {
+    renderWithI18n(
+      <MessageList
+        turns={[
+          turn("turn-1", "First", 100, [
+            assistantItem("assistant-1", "First answer", 200),
+          ]),
+        ]}
+        userName="Eric"
+        isResponding={false}
+      />,
+    );
+
+    expect(screen.queryByTestId("conversation-anchor-list")).toBeNull();
+  });
+
   it("divides the thread where the answering model changed", () => {
     renderWithI18n(
       <MessageList

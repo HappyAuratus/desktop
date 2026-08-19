@@ -93,6 +93,43 @@ describe("RunNodeSessionChat", () => {
     expect(screen.getByPlaceholderText(/描述一个任务/)).toBeInTheDocument();
   });
 
+  it("places the shared conversation navigator inside the node session", () => {
+    renderDock("awaiting_input", false, [
+      {
+        id: "turn-1",
+        userMessage: {
+          kind: "message",
+          id: "turn-1-user",
+          role: "user",
+          content: "Inspect the workflow",
+          createdAt: 1,
+        },
+        items: [
+          {
+            kind: "message",
+            id: "turn-1-agent",
+            role: "assistant",
+            content: "Inspection complete",
+            createdAt: 2,
+          },
+        ],
+        status: "completed",
+        stopReason: "end_turn",
+        error: null,
+        createdAt: 1,
+      },
+    ]);
+
+    const anchorList = screen.getByTestId("conversation-anchor-list");
+    const navigator = anchorList.closest("nav");
+    expect(navigator).not.toBeNull();
+    expect(navigator).toHaveClass("absolute", "right-0");
+    expect(navigator).not.toHaveClass("fixed");
+    expect(
+      anchorList.querySelectorAll("[data-conversation-tick]"),
+    ).toHaveLength(2);
+  });
+
   it("loads a non-interactive node through the same surface without interaction controls", async () => {
     const loadSpy = renderReadOnlyDock();
 
