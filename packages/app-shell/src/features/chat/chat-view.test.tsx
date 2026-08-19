@@ -1185,6 +1185,76 @@ describe("MessageList", () => {
     expect(screen.queryByTestId("conversation-anchor-list")).toBeNull();
   });
 
+  it("renders sent user Markdown and copies the source string", async () => {
+    const user = userEvent.setup();
+    const writeText = vi
+      .spyOn(navigator.clipboard, "writeText")
+      .mockResolvedValue();
+    const source = "**bold** and [Docs](https://example.com)";
+    renderWithI18n(
+      <MessageList
+        turns={[turn("turn-md", source, 100)]}
+        userName="Eric"
+        isResponding={false}
+      />,
+    );
+
+    expect(screen.getByText("bold").tagName).toMatch(/^(STRONG|B)$/);
+    expect(screen.getByRole("link", { name: "Docs" })).toHaveAttribute(
+      "href",
+      "https://example.com",
+    );
+    expect(screen.queryByText(/\*\*bold\*\*/)).toBeNull();
+
+    const row = screen.getByText("bold").closest(".group\\/message");
+    expect(row).not.toBeNull();
+    await user.hover(row!);
+    await user.click(screen.getByRole("button", { name: /复制|Copy/ }));
+    expect(writeText).toHaveBeenCalledWith(source);
+    writeText.mockRestore();
+  });
+
+  it("renders user composer surfaces: highlight, multiline, and headings", () => {
+    const source = [
+      "# Title",
+      "first line",
+      "second line",
+      "==glow== and ~~gone~~",
+    ].join("\n");
+    renderWithI18n(
+      <MessageList
+        turns={[turn("turn-surface", source, 100)]}
+        userName="Eric"
+        isResponding={false}
+      />,
+    );
+
+    expect(
+      screen.getByRole("heading", { level: 1, name: "Title" }),
+    ).not.toBeNull();
+    expect(screen.getByText("first line").tagName).toBe("P");
+    expect(screen.getByText("second line").tagName).toBe("P");
+    expect(screen.getByText("glow").tagName).toBe("MARK");
+    expect(screen.getByText("gone").tagName).toBe("DEL");
+  });
+
+  it("still shows image-only user messages without a text bubble", () => {
+    const mediaTurn = turn("turn-media", "", 100);
+    mediaTurn.userMessage.structuredContent = [
+      {
+        type: "image",
+        mimeType: "image/png",
+        data: "aaaa",
+      },
+    ];
+    renderWithI18n(
+      <MessageList turns={[mediaTurn]} userName="Eric" isResponding={false} />,
+    );
+
+    expect(screen.getByRole("img")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /复制|Copy/ })).toBeNull();
+  });
+
   it("divides the thread where the answering model changed", () => {
     renderWithI18n(
       <MessageList
