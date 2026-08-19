@@ -131,3 +131,24 @@ export { useUndoRedo } from "./ui/undo-redo-button/use-undo-redo";
 
 // --- Editor ---
 export { ThemeToggle } from "./editor/theme-toggle";
+
+// --- Composer preset ---
+export {
+  COMPOSER_CAPABILITIES,
+  createComposerExtensions,
+} from "./composer/create-composer-extensions";
+export type {
+  ComposerExtensionOptions,
+  ComposerFeatureSlot,
+  ComposerPlaceholderProps,
+} from "./composer/create-composer-extensions";
+export {
+  documentPlainText,
+  plainTextToComposerContent,
+} from "./composer/composer-plain-text";
+export { PromptToken } from "./composer/prompt-token";
+export type { PromptTokenKind } from "./composer/prompt-token";
+export { ComposerNewline } from "./composer/composer-newline";
+export { ComposerLink } from "./composer/composer-link";
+export { ComposerFile } from "./composer/composer-file";
+export type { ComposerFileAttrs } from "./composer/composer-file";

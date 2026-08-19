@@ -157,6 +157,11 @@ export class TauriPlatformAdapter implements PlatformAdapter {
       this.selectionInProgress = false;
     }
   }
+
+  /** Hands an http(s)/mailto URL to the host browser instead of a new webview. */
+  async openExternalUrl(url: string): Promise<void> {
+    await invoke("open_external_url", { request: { url } });
+  }
 }
 
 /** Creates the Desktop host adapter without runtime platform auto-detection. */

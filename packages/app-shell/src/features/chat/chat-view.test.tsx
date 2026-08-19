@@ -42,6 +42,10 @@ import {
   resetComposerSendAdoptionsForTests,
 } from "../../state/session-drafts";
 
+function composerText(element: HTMLElement): string {
+  return element.dataset.composerText ?? "";
+}
+
 afterEach(() => {
   vi.unstubAllGlobals();
   resetComposerSendAdoptionsForTests();
@@ -240,7 +244,7 @@ describe("Composer", () => {
     await user.type(textarea, "  hello{Enter}");
 
     expect(onSend).toHaveBeenCalledWith("hello");
-    expect(textarea).toHaveValue("");
+    expect(composerText(textarea)).toBe("");
   });
 
   it("uses Shift+Enter for a newline without sending", async () => {
@@ -252,7 +256,7 @@ describe("Composer", () => {
     await user.type(textarea, "first{Shift>}{Enter}{/Shift}second");
 
     expect(onSend).not.toHaveBeenCalled();
-    expect(textarea).toHaveValue("first\nsecond");
+    expect(composerText(textarea)).toBe("first\nsecond");
   });
 
   it("filters available commands and inserts the keyboard selection without executing it", async () => {
@@ -275,17 +279,36 @@ describe("Composer", () => {
 
     const textarea = screen.getByRole("textbox");
     await user.type(textarea, "/");
-    expect(screen.getByRole("listbox", { name: "快捷操作" })).toBeVisible();
+    expect(
+      await screen.findByRole("listbox", { name: "快捷操作" }),
+    ).toBeVisible();
     expect(screen.getAllByRole("option")).toHaveLength(3);
 
     await user.keyboard("{ArrowDown}{Enter}");
 
-    expect(textarea).toHaveValue("/test ");
+    expect(composerText(textarea)).toBe("/test ");
     await waitFor(() => expect(textarea).toHaveFocus());
-    expect(textarea).toHaveProperty("selectionStart", 6);
-    expect(textarea).toHaveProperty("selectionEnd", 6);
     expect(screen.queryByRole("listbox")).not.toBeInTheDocument();
     expect(onSend).not.toHaveBeenCalled();
+  });
+
+  it("opens the slash menu after existing prompt text", async () => {
+    const user = userEvent.setup();
+    renderWithI18n(
+      <Composer
+        onSend={vi.fn()}
+        isResponding={false}
+        availableCommands={[
+          { name: "review", description: "Review current changes" },
+        ]}
+      />,
+    );
+
+    const textarea = screen.getByRole("textbox");
+    await user.type(textarea, "hello /");
+    expect(
+      await screen.findByRole("listbox", { name: "快捷操作" }),
+    ).toBeVisible();
   });
 
   it("keeps the keyboard-selected command inside the visible list", async () => {
@@ -307,7 +330,9 @@ describe("Composer", () => {
     );
 
     await user.type(screen.getByRole("textbox"), "/");
-    await user.click(screen.getByRole("button", { name: "显示另外 7 项" }));
+    await user.click(
+      await screen.findByRole("button", { name: "显示另外 7 项" }),
+    );
     await user.keyboard(
       "{ArrowDown}{ArrowDown}{ArrowDown}{ArrowDown}{ArrowDown}{ArrowDown}{ArrowDown}{ArrowDown}",
     );
@@ -349,7 +374,7 @@ describe("Composer", () => {
     expect(screen.getByText("Commands")).toBeVisible();
     await user.click(screen.getByRole("option", { name: "code-review" }));
 
-    expect(screen.getByRole("textbox")).toHaveValue("$code-review ");
+    expect(composerText(screen.getByRole("textbox"))).toBe("$code-review ");
     expect(screen.queryByRole("listbox")).not.toBeInTheDocument();
   });
 
@@ -429,7 +454,7 @@ describe("Composer", () => {
     expect(
       await screen.findByRole("img", { name: "clipboard.png" }),
     ).toBeVisible();
-    expect(textarea).toHaveValue("");
+    expect(composerText(textarea)).toBe("");
     expect(onSend).not.toHaveBeenCalled();
   });
 
@@ -947,7 +972,14 @@ describe("ChatView", () => {
     expect(screen.getByRole("alert")).toHaveTextContent(
       "Agent session unavailable",
     );
-    expect(screen.getByRole("textbox")).toBeDisabled();
+    expect(screen.getByRole("textbox")).toHaveAttribute(
+      "aria-disabled",
+      "true",
+    );
+    expect(screen.getByRole("textbox")).toHaveAttribute(
+      "contenteditable",
+      "false",
+    );
     expect(screen.getAllByRole("button")).toEqual(
       expect.arrayContaining([expect.objectContaining({ disabled: true })]),
     );

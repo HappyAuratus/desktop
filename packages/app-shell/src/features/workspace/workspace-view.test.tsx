@@ -231,7 +231,9 @@ describe("WorkspaceView", () => {
       </Wrapper>,
     );
 
-    expect(await screen.findByRole("textbox")).toBeDisabled();
+    const textbox = await screen.findByRole("textbox");
+    expect(textbox).toHaveAttribute("aria-disabled", "true");
+    expect(textbox).toHaveAttribute("contenteditable", "false");
   });
 
   it("does not repeat the default direct-chat mode in the composer context", async () => {

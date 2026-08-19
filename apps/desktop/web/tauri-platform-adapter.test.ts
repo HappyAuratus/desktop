@@ -115,6 +115,17 @@ describe("TauriPlatformAdapter", () => {
     });
   });
 
+  it("opens http URLs through the native host command", async () => {
+    invokeMock.mockResolvedValueOnce(undefined);
+    const adapter = createTauriPlatformAdapter();
+
+    await adapter.openExternalUrl("https://example.com");
+
+    expect(invokeMock).toHaveBeenCalledWith("open_external_url", {
+      request: { url: "https://example.com" },
+    });
+  });
+
   it("returns null on cancellation and rejects concurrent native dialogs", async () => {
     const resolvers: Array<(path: string | null) => void> = [];
     const pendingOpen = new Promise<string | null>((resolve) => {

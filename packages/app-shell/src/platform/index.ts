@@ -1,5 +1,5 @@
 export { PlatformProvider } from "./platform-context";
-export { usePlatform } from "./use-platform";
+export { usePlatform, useOptionalPlatform } from "./use-platform";
 export {
   PathSelectionInProgressError,
   type LocationActionsCapability,

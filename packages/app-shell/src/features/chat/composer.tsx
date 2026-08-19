@@ -8,7 +8,6 @@ import {
   useRef,
   useState,
 } from "react";
-import type { ClipboardEvent, KeyboardEvent } from "react";
 import {
   IconArrowUp,
   IconLoader2,
@@ -17,7 +16,15 @@ import {
   IconPlus,
   IconX,
 } from "@tabler/icons-react";
-import { Button, Textarea } from "@ora/ui";
+import { Button } from "@ora/ui";
+import {
+  ComposerEditor,
+  type ComposerEditorHandle,
+} from "../editor/composer-editor";
+import {
+  EMPTY_COMPOSER_QUERY,
+  type ComposerQueryState,
+} from "../editor/composer-query";
 import type { Skill } from "@ora/contracts";
 import { useTranslation } from "react-i18next";
 import { ModelSelector } from "./model-selector";
@@ -58,9 +65,6 @@ const CANDIDATE_PLUGINS = PLUGIN_CATALOG.filter(
 );
 /** Stable empty array so the store selector below doesn't return a fresh reference every render. */
 const EMPTY_PLUGIN_IDS: string[] = [];
-
-/** Matches an "@" mention token ending at the cursor, e.g. the "Doc" in "check @Doc". */
-const AT_TRIGGER_PATTERN = /(?<=^|\s)@([^\s]*)$/;
 
 interface ComposerProps {
   taskId?: string;
@@ -106,9 +110,9 @@ const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
 const MAX_TOTAL_IMAGE_BYTES = 10 * 1024 * 1024;
 
 /**
- * The chat composer: a rounded input shell wrapping the @ora/ui Textarea with
- * an inline send button. Enter sends, Shift+Enter inserts a newline, and the
- * textarea auto-grows up to a max height.
+ * The chat composer: a rounded input shell wrapping ComposerEditor with an
+ * inline send button. Enter sends, Shift+Enter inserts a newline, and the
+ * editor auto-grows up to a max height.
  */
 export function Composer({
   taskId,
@@ -124,7 +128,7 @@ export function Composer({
   availableCommands = [],
 }: ComposerProps) {
   const { t } = useTranslation();
-  const [value, setValue] = useState("");
+  const [query, setQuery] = useState<ComposerQueryState>(EMPTY_COMPOSER_QUERY);
   const [selectedActionIndex, setSelectedActionIndex] = useState(0);
   const [menuDismissed, setMenuDismissed] = useState(false);
   const [plusMenuOpen, setPlusMenuOpen] = useState(false);
@@ -134,7 +138,6 @@ export function Composer({
   const [attachments, setAttachmentsState] = useState<ImageAttachment[]>([]);
   const attachmentsRef = useRef<ImageAttachment[]>([]);
   const [attachmentError, setAttachmentError] = useState<string | null>(null);
-  const [caret, setCaret] = useState(0);
   const installedPluginIds = usePluginInstallStore(
     (state) => state.installedIds,
   );
@@ -184,7 +187,7 @@ export function Composer({
   const [previewedAttachment, setPreviewedAttachment] =
     useState<ImageAttachment | null>(null);
   const composerRef = useRef<HTMLDivElement>(null);
-  const textAreaRef = useRef<HTMLTextAreaElement>(null);
+  const editorRef = useRef<ComposerEditorHandle>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const footerRef = useRef<HTMLDivElement>(null);
   const leftControlsRef = useRef<HTMLDivElement>(null);
@@ -239,7 +242,7 @@ export function Composer({
     hydratedConversationKey.current = conversationKey;
     const parked = useComposerInputStore.getState().byKey[conversationKey];
     if (parked !== undefined) {
-      setValue(parked.text);
+      editorRef.current?.replaceText(parked.text);
       replaceAttachments(parked.images);
       return;
     }
@@ -247,11 +250,11 @@ export function Composer({
       const draft = useDraftSessionsStore
         .getState()
         .drafts.find((candidate) => candidate.id === draftId);
-      setValue(draft?.text ?? "");
+      editorRef.current?.replaceText(draft?.text ?? "");
       replaceAttachments(draft?.images ?? []);
       return;
     }
-    setValue("");
+    editorRef.current?.clear();
     replaceAttachments([]);
   }, [conversationKey, draftId, replaceAttachments, selectedSessionId]);
   /* eslint-enable react-hooks/set-state-in-effect */
@@ -266,32 +269,13 @@ export function Composer({
     }
 
     lastInjectedRequestId.current = pendingFileContext.id;
-    const context = [
-      t("chat.selectedFileLines"),
-      ...pendingFileContext.selections.map(
-        ({ path, startLine, endLine }) =>
-          `- \`${path}:${startLine === endLine ? startLine : `${startLine}-${endLine}`}\``,
-      ),
-    ].join("\n");
-    const prefix = value.trimEnd();
-    const next =
-      prefix.length === 0 ? `${context}\n\n` : `${prefix}\n\n${context}\n\n`;
-    setValue(next);
-    persistComposerInput(next);
+    editorRef.current?.insertFileChips(pendingFileContext.selections);
     consumeFileContext(taskId, pendingFileContext.id);
-    textAreaRef.current?.focus();
-  }, [
-    consumeFileContext,
-    pendingFileContext,
-    persistComposerInput,
-    t,
-    taskId,
-    value,
-  ]);
-  const slashQuery = value.match(/^\/([^\s]*)$/)?.[1] ?? null;
-  const atMatch = value.slice(0, caret).match(AT_TRIGGER_PATTERN);
-  const atQuery = atMatch?.[1] ?? null;
-  const atTriggerIndex = atMatch !== null ? (atMatch.index ?? null) : null;
+    editorRef.current?.focus();
+  }, [consumeFileContext, pendingFileContext, taskId]);
+  const slashQuery = query.slashQuery;
+  const atQuery = query.atQuery;
+  const atTriggerIndex = query.atTriggerIndex;
   const allActions = useMemo(
     () =>
       buildComposerActions({
@@ -330,7 +314,7 @@ export function Composer({
     !disabled &&
     !isResponding;
 
-  const hasText = value.trim().length > 0;
+  const hasText = !query.isBlank;
   // With an empty input the send affordance still fires when there is a stage to
   // launch, so pressing Enter runs the highlighted step.
   const canSend =
@@ -340,7 +324,7 @@ export function Composer({
 
   const submit = () => {
     if (isResponding || disabled) return;
-    const text = value.trim();
+    const text = (editorRef.current?.getText() ?? "").trim();
     if (text === "" && attachments.length === 0) {
       onEmptySubmit?.();
       return;
@@ -362,7 +346,7 @@ export function Composer({
       if (sentImages === undefined) await onSend(text);
       else await onSend(text, sentImages);
     })();
-    setValue("");
+    editorRef.current?.clear();
     replaceAttachments([]);
     setAttachmentError(null);
     // Drop the conversation-keyed park so a later return cannot resurrect the
@@ -416,7 +400,7 @@ export function Composer({
           } else {
             persistComposerInput(text, sentAttachments);
           }
-          setValue(text);
+          editorRef.current?.replaceText(text);
           replaceAttachments(sentAttachments);
         } finally {
           clearComposerSendAdoption(sendConversationKey);
@@ -425,40 +409,31 @@ export function Composer({
     })();
   };
 
-  /** Inserts a skill or command token for review while keeping arguments under user control. */
-  const insertPromptToken = (inserted: string) => {
-    setValue(inserted);
-    persistComposerInput(inserted);
+  /** Inserts a skill or command mention so the token stays distinct from body text. */
+  const insertPromptToken = (kind: "skill" | "command", name: string) => {
+    editorRef.current?.insertPromptToken(kind, name);
     closeActionMenu();
-    requestAnimationFrame(() => {
-      textAreaRef.current?.focus();
-      textAreaRef.current?.setSelectionRange(inserted.length, inserted.length);
-    });
+    requestAnimationFrame(() => editorRef.current?.focus());
   };
 
   /** Adds a plugin to this message's applied set and clears any "@" token that triggered it. */
   const applyPlugin = (plugin: PluginEntry) => {
     addSelectedPlugin(conversationKey, plugin.id);
     if (atTriggerIndex !== null) {
-      const nextValue = value.slice(0, atTriggerIndex) + value.slice(caret);
-      setValue(nextValue);
-      persistComposerInput(nextValue);
-      requestAnimationFrame(() => {
-        textAreaRef.current?.focus();
-        textAreaRef.current?.setSelectionRange(atTriggerIndex, atTriggerIndex);
-      });
+      editorRef.current?.removeAtToken();
     }
     closeActionMenu();
+    requestAnimationFrame(() => editorRef.current?.focus());
   };
 
   /** Executes the selected palette action through its existing product data path. */
   const selectAction = (action: ComposerAction) => {
     switch (action.group) {
       case "skills":
-        insertPromptToken(`$${action.skill.name} `);
+        insertPromptToken("skill", action.skill.name);
         return;
       case "commands":
-        insertPromptToken(`/${action.command.name} `);
+        insertPromptToken("command", action.command.name);
         return;
       case "plugins":
         applyPlugin(action.plugin);
@@ -500,64 +475,49 @@ export function Composer({
     const next = await Promise.all(selectedFiles.map(readImageAttachment));
     const combined = [...attachmentsRef.current, ...next];
     replaceAttachments(combined);
-    persistComposerInput(value, combined);
+    persistComposerInput(editorRef.current?.getText() ?? "", combined);
     setAttachmentError(null);
   };
 
   /** Adds clipboard files through the same validation path as the attachment picker. */
-  const handlePaste = (event: ClipboardEvent<HTMLTextAreaElement>) => {
-    const files = [...event.clipboardData.files];
+  const handlePasteFiles = (files: File[]) => {
     if (files.length === 0) return;
-    event.preventDefault();
     void addImages(files).catch(() =>
       setAttachmentError(t("chat.attachments.readFailed")),
     );
   };
 
-  const handleKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
-    if (showActionMenu) {
-      if (event.key === "ArrowDown" || event.key === "ArrowUp") {
-        event.preventDefault();
-        const direction = event.key === "ArrowDown" ? 1 : -1;
-        setSelectedActionIndex(
-          (current) =>
-            (current + direction + visibleActions.length) %
-            visibleActions.length,
-        );
-        return;
-      }
-      if (event.key === "Escape") {
-        event.preventDefault();
-        closeActionMenu();
-        return;
-      }
-      if (
-        (event.key === "Enter" || event.key === "Tab") &&
-        !event.nativeEvent.isComposing
-      ) {
-        event.preventDefault();
-        const action = visibleActions[selectedActionIndex];
-        if (action !== undefined) selectAction(action);
-        return;
-      }
-    }
-    if (
-      event.key === "Enter" &&
-      !event.shiftKey &&
-      !event.nativeEvent.isComposing
-    ) {
+  const handleMenuKeyDown = (event: KeyboardEvent): boolean => {
+    if (!showActionMenu) return false;
+    if (event.key === "ArrowDown" || event.key === "ArrowUp") {
       event.preventDefault();
-      submit();
+      const direction = event.key === "ArrowDown" ? 1 : -1;
+      setSelectedActionIndex(
+        (current) =>
+          (current + direction + visibleActions.length) % visibleActions.length,
+      );
+      return true;
     }
+    if (event.key === "Escape") {
+      event.preventDefault();
+      closeActionMenu();
+      return true;
+    }
+    if ((event.key === "Enter" || event.key === "Tab") && !event.isComposing) {
+      event.preventDefault();
+      const action = visibleActions[selectedActionIndex];
+      if (action !== undefined) selectAction(action);
+      return true;
+    }
+    return false;
   };
 
-  // Auto-grow the textarea to fit its content, capped at a comfortable max.
-  useEffect(() => {
-    const el = textAreaRef.current;
-    if (!el) return;
-    el.style.height = "auto";
-    el.style.height = `${Math.min(el.scrollHeight, 200)}px`;
-  }, [value]);
+  const handleDocChange = () => {
+    setPlusMenuOpen(false);
+    setMenuDismissed(false);
+    setExpandedGroups((current) => (current.size === 0 ? current : new Set()));
+    setSelectedActionIndex(0);
+  };
 
   // Hide the model picker only when the footer cannot fit both control groups.
   // The stored width lets the check continue to work after the picker is hidden.
@@ -685,7 +645,7 @@ export function Composer({
                       (item) => item.id !== attachment.id,
                     );
                     replaceAttachments(next);
-                    persistComposerInput(value, next);
+                    persistComposerInput(editorRef.current?.getText() ?? "", next);
                   }}
                   aria-label={t("chat.attachments.remove", {
                     name: attachment.name,
@@ -703,39 +663,27 @@ export function Composer({
             {attachmentError}
           </p>
         )}
-        <Textarea
-          ref={textAreaRef}
+        <ComposerEditor
+          ref={editorRef}
           autoFocus={autoFocus}
           placeholder={placeholder ?? t("chat.placeholder")}
-          value={value}
           disabled={disabled}
-          onChange={(event) => {
-            setValue(event.target.value);
-            persistComposerInput(event.target.value);
-            setCaret(event.target.selectionStart ?? event.target.value.length);
-            setPlusMenuOpen(false);
-            setMenuDismissed(false);
-            setExpandedGroups(new Set());
-            setSelectedActionIndex(0);
-          }}
-          onSelect={(event) =>
-            setCaret(event.currentTarget.selectionStart ?? 0)
-          }
-          onKeyDown={handleKeyDown}
-          onPaste={handlePaste}
-          aria-label={t("chat.messageLabel")}
-          aria-autocomplete="list"
-          aria-haspopup="listbox"
-          aria-expanded={showActionMenu}
-          aria-controls={showActionMenu ? actionMenuId : undefined}
-          aria-activedescendant={
+          ariaLabel={t("chat.messageLabel")}
+          ariaAutoComplete="list"
+          ariaHasPopup="listbox"
+          ariaExpanded={showActionMenu}
+          ariaControls={showActionMenu ? actionMenuId : undefined}
+          ariaActivedescendant={
             showActionMenu
               ? `${actionMenuId}-option-${selectedActionIndex}`
               : undefined
           }
-          // The shell already carries the surface, so the Textarea's own disabled
-          // fill would read as a grey block floating inside the card.
-          className="min-h-14 max-h-[200px] resize-none rounded-none border-0 bg-transparent px-2 py-1 text-[15px] leading-6 shadow-none focus-visible:ring-0 disabled:bg-transparent"
+          onSubmit={submit}
+          onQueryChange={setQuery}
+          onDocChange={handleDocChange}
+          onTextChange={persistComposerInput}
+          onPasteFiles={handlePasteFiles}
+          onMenuKeyDown={handleMenuKeyDown}
         />
         <div
           ref={footerRef}

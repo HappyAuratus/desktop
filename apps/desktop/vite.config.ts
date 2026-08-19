@@ -31,6 +31,20 @@ export default defineConfig({
         ),
       },
       {
+        find: /^@ora\/editor\/composer$/,
+        replacement: path.resolve(
+          __dirname,
+          "../../packages/editor/src/composer/index.ts",
+        ),
+      },
+      {
+        find: /^@ora\/editor$/,
+        replacement: path.resolve(
+          __dirname,
+          "../../packages/editor/src/index.ts",
+        ),
+      },
+      {
         find: /^@ora\/ui$/,
         replacement: path.resolve(__dirname, "../../packages/ui/src/index.ts"),
       },
