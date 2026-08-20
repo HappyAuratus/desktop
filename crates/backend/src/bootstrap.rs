@@ -3,6 +3,7 @@ use crate::agent_runtime::{AgentRuntimeManager, SessionEventStream, SessionLocat
 use crate::app_event::AppEventHub;
 use crate::clock::SystemClock;
 use crate::error::{BackendError, ErrorClassification};
+use crate::git_cleanup::KeyedResourceLocks;
 use crate::plugin::PluginApi;
 use crate::project::ProjectApi;
 use crate::session::SessionApi;
@@ -13,7 +14,9 @@ use crate::task_diff::TaskDiffApi;
 use crate::user_config::{BackendPreferredLogLevelStore, UserConfigApi};
 use crate::workflow::WorkflowApi;
 use crate::workflow_run::WorkflowRunApi;
-use crate::workflow_run_engine::{ConcreteWorkflowRunControl, build_workflow_run_engine};
+use crate::workflow_run_engine::{
+    ConcreteWorkflowRunControl, ConcreteWorkflowRunEngine, build_workflow_run_engine,
+};
 use ora_application::{ApplicationError, Clock, WorkflowRunEngineRepository};
 use ora_contracts::*;
 use ora_contracts::{EmptyErrorParams, PublicError};
@@ -92,6 +95,12 @@ pub struct Backend {
     workflow: Arc<WorkflowApi>,
     workflow_run: Arc<WorkflowRunApi>,
     workflow_run_engine: Arc<ConcreteWorkflowRunControl>,
+    /// Serializes scheduling-affecting workflow-run mutations per run across the control entry
+    /// points, the manual completion path, and the session-driver callback.
+    run_locks: Arc<KeyedResourceLocks>,
+    /// Transient set of node runs a manual completion is currently claiming; blocks a concurrent
+    /// prompt against the same node without adding any persisted status.
+    completing_node_runs: Arc<crate::workflow_node_session::CompletingNodeRuns>,
     sessions_root: PathBuf,
     baselines_root: PathBuf,
     app_events: Arc<AppEventHub>,
@@ -147,24 +156,31 @@ impl Backend {
             )
             .map_err(BackendBootstrapError::AgentRuntime)?,
         );
-        // Crash recovery: fail orphaned node runs and running runs left by a previous process
-        // before serving new commands (best-effort; a failure must not block startup).
-        run_workflow_run_boot_sweep(&pool, clock);
+        // Build the run engine before the crash sweep so recovery can resume stalled runs.
+        let workflow_run_assembly = build_workflow_run_engine(
+            agent_runtime.clone(),
+            pool.clone(),
+            paths.skills_root.clone(),
+            baselines_root.clone(),
+            clock,
+        );
+        let workflow_run_engine = workflow_run_assembly.control;
+        let run_locks = workflow_run_assembly.run_locks;
+        let workflow_engine = workflow_run_assembly.engine;
+
+        // Crash recovery: fail orphaned node runs, then reconcile stalled Running runs left by a
+        // previous process before serving new commands (best-effort; a failure must not block
+        // startup).
+        run_workflow_run_boot_sweep(&pool, &workflow_engine, &run_locks, clock);
+        // Reclaim orphaned worktree-baseline side files left by a previous process.
+        prune_orphaned_baselines(&pool, &baselines_root);
+
         // Durable Git cleanup: the worker's first pass replays every cleanup job
         // and expired provisioning lease a previous process left behind.
         let git_cleanup_worker =
             crate::git_cleanup::GitCleanupWorker::new(pool.clone(), worktree_root.clone(), clock);
         let repository_gates = git_cleanup_worker.repository_gates();
         let git_cleanup = git_cleanup_worker.spawn();
-
-        let workflow_run_engine = build_workflow_run_engine(
-            agent_runtime.clone(),
-            pool.clone(),
-            paths.skills_root.clone(),
-            baselines_root.clone(),
-            clock,
-        )
-        .control;
 
         Ok(Self {
             project: Arc::new(ProjectApi::new(pool.clone(), sessions_root.clone(), clock)),
@@ -206,6 +222,8 @@ impl Backend {
                 clock,
             )),
             workflow_run_engine,
+            run_locks,
+            completing_node_runs: Arc::new(std::sync::Mutex::new(std::collections::HashSet::new())),
             sessions_root,
             baselines_root,
             app_events,
@@ -289,6 +307,7 @@ impl Backend {
         &self,
         request: StartWorkflowRunRequest,
     ) -> Result<StartWorkflowRunResponse, BackendError> {
+        let _gate = self.run_locks.acquire_exclusive(request.run_id.clone());
         self.workflow_run_engine
             .start(request)
             .map_err(BackendError::from)
@@ -305,9 +324,14 @@ impl Backend {
     ) -> Result<CancelWorkflowRunResponse, BackendError> {
         let run_id = ora_domain::WorkflowRunId::new(&request.run_id);
         let engine = self.workflow_run_engine.clone();
-        let response =
-            spawn_repository_work(move || engine.cancel(request).map_err(BackendError::from))
-                .await?;
+        let run_locks = self.run_locks.clone();
+        let response = spawn_repository_work(move || {
+            // Serialize the `Cancelled` transition against every other mutation for the run; the
+            // async session cleanup below runs outside the gate.
+            let _gate = run_locks.acquire_exclusive(request.run_id.clone());
+            engine.cancel(request).map_err(BackendError::from)
+        })
+        .await?;
         self.stop_workflow_run_sessions(&run_id).await;
         Ok(response)
     }
@@ -358,55 +382,137 @@ impl Backend {
 
     /// Completes one awaiting interactive workflow node as a human request.
     ///
-    /// The backend validates the node, reads its final assistant output and file diff from persisted
-    /// state, stops the node's session (best-effort, history retained so the node is read-only),
-    /// and commits through the engine so the next ready nodes are scheduled.
+    /// The node is fenced first so no concurrent prompt can start, then its final assistant output
+    /// and file diff are read from persisted state, the completion is committed through the engine
+    /// under the per-run gate, and finally its session is stopped best-effort. Committing before
+    /// stopping means a failed stop can no longer leave a "stopped session but still awaiting node"
+    /// gap: once the node is terminal, prompt policy treats the session as read-only.
     pub async fn complete_workflow_node(
         &self,
         request: CompleteWorkflowNodeRequest,
     ) -> Result<CompleteWorkflowNodeResponse, BackendError> {
         let run_id = ora_domain::WorkflowRunId::new(&request.run_id);
-        let run_id_for_prepare = run_id.clone();
-        let pool = self.pool.clone();
-        let sessions_root = self.sessions_root.clone();
-        let baselines_root = self.baselines_root.clone();
-        let agent_runtime = self.agent_runtime.clone();
         let node_id = request.node_id.clone();
-        let prepared = spawn_repository_work(move || {
-            crate::workflow_node_completion::prepare_completion(
+
+        // Fence the node against concurrent prompts and completions before doing any expensive
+        // work: once claimed, a prompt is rejected and the worktree stays stable until the commit.
+        let claimed_node_run_id = {
+            let pool = self.pool.clone();
+            let run_locks = self.run_locks.clone();
+            let completing = self.completing_node_runs.clone();
+            let run_id = run_id.clone();
+            let node_id = node_id.clone();
+            spawn_repository_work(move || {
+                crate::workflow_node_completion::claim_node_for_completion(
+                    &pool,
+                    &run_locks,
+                    &completing,
+                    &run_id,
+                    &node_id,
+                )
+            })
+            .await?
+        };
+
+        // Prepare the final output and diff outside the gate; on failure release the claim so the
+        // node returns to its awaitable state.
+        let prepared = {
+            let pool = self.pool.clone();
+            let sessions_root = self.sessions_root.clone();
+            let baselines_root = self.baselines_root.clone();
+            let agent_runtime = self.agent_runtime.clone();
+            let run_id = run_id.clone();
+            let node_id = node_id.clone();
+            match spawn_repository_work(move || {
+                crate::workflow_node_completion::prepare_completion(
+                    &pool,
+                    &sessions_root,
+                    &baselines_root,
+                    &agent_runtime,
+                    &run_id,
+                    &node_id,
+                )
+            })
+            .await
+            {
+                Ok(prepared) => prepared,
+                Err(error) => {
+                    self.release_completion_claim(&claimed_node_run_id).await;
+                    return Err(error);
+                }
+            }
+        };
+
+        // Commit the node completion under the gate and release the claim in the same critical
+        // section, so a prompt cannot slip in between the commit and the release. Revalidate first:
+        // a cancel that won during prepare must abort this completion rather than report success.
+        let pool = self.pool.clone();
+        let engine = self.workflow_run_engine.clone();
+        let run_locks = self.run_locks.clone();
+        let completing = self.completing_node_runs.clone();
+        let node_run_id = prepared.node_run_id.clone();
+        let output = prepared.output.clone();
+        let stop_reason = prepared.stop_reason.clone();
+        let file_changes = prepared.file_changes.clone();
+        let response = spawn_repository_work(move || {
+            let _gate = run_locks.acquire_exclusive(run_id.as_ref());
+            let result = crate::workflow_node_completion::revalidate_completion(
                 &pool,
-                &sessions_root,
-                &baselines_root,
-                &agent_runtime,
-                &run_id_for_prepare,
-                &node_id,
+                &run_id,
+                &node_run_id,
             )
+            .and_then(|()| {
+                engine
+                    .complete_node(&run_id, &node_run_id, output, stop_reason, file_changes)
+                    .map_err(BackendError::from)
+            });
+            completing
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .remove(&node_run_id);
+            result
         })
         .await?;
-        if let Some(session_id) = prepared.session_id.as_ref() {
-            let _ = self
+
+        // The node is terminal now, so its worktree baseline is no longer needed for a diff.
+        let baseline_path = self
+            .baselines_root
+            .join(format!("{}.json", prepared.node_run_id.as_ref()));
+        let _ = spawn_repository_work(move || {
+            std::fs::remove_file(baseline_path).ok();
+            Ok(())
+        })
+        .await;
+
+        // Stop the session best-effort after the commit: the node is terminal now, so a failure
+        // here only leaves a lingering session that prompt policy already treats as read-only.
+        if let Some(session_id) = prepared.session_id.as_ref()
+            && let Err(error) = self
                 .agent_runtime
                 .stop_session(StopSessionRequest {
                     session_id: session_id.to_string(),
                 })
-                .await;
+                .await
+        {
+            ora_warn!(session_id = %session_id, error = %error, "complete: failed to stop completed node session");
         }
-        let engine = self.workflow_run_engine.clone();
-        let node_run_id = prepared.node_run_id.clone();
-        let output = prepared.output.clone();
-        let file_changes = prepared.file_changes.clone();
-        spawn_repository_work(move || {
-            engine
-                .complete_node(
-                    &run_id,
-                    &node_run_id,
-                    output,
-                    Some("end_turn".to_string()),
-                    file_changes,
-                )
-                .map_err(BackendError::from)
+
+        Ok(response)
+    }
+
+    /// Releases a completion claim after a prepare failure, returning the node to its awaitable
+    /// state. Best-effort: a poisoned or contended completing set must not mask the real error.
+    async fn release_completion_claim(&self, node_run_id: &ora_domain::WorkflowNodeRunId) {
+        let completing = self.completing_node_runs.clone();
+        let node_run_id = node_run_id.clone();
+        let _ = spawn_repository_work(move || {
+            completing
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .remove(&node_run_id);
+            Ok(())
         })
-        .await
+        .await;
     }
 
     /// Restarts a finished workflow run.
@@ -414,6 +520,7 @@ impl Backend {
         &self,
         request: RestartWorkflowRunRequest,
     ) -> Result<RestartWorkflowRunResponse, BackendError> {
+        let _gate = self.run_locks.acquire_exclusive(request.run_id.clone());
         self.workflow_run_engine
             .restart(request)
             .map_err(BackendError::from)
@@ -424,6 +531,7 @@ impl Backend {
         &self,
         request: UpdateWorkflowRunInputRequest,
     ) -> Result<UpdateWorkflowRunInputResponse, BackendError> {
+        let _gate = self.run_locks.acquire_exclusive(request.run_id.clone());
         self.workflow_run_engine
             .update_input(request)
             .map_err(BackendError::from)
@@ -794,8 +902,13 @@ impl Backend {
         &self,
         request: PromptSessionRequest,
     ) -> Result<SessionEventStream<PromptSessionEvent>, BackendError> {
-        let node_run_id =
-            crate::workflow_node_session::begin_human_turn(&self.pool, &request.session_id).await?;
+        let node_run_id = crate::workflow_node_session::begin_human_turn(
+            &self.pool,
+            &self.run_locks,
+            &self.completing_node_runs,
+            &request.session_id,
+        )
+        .await?;
         let stream = match self.agent_runtime.prompt_session(request).await {
             Ok(stream) => stream,
             Err(error) => {
@@ -1223,12 +1336,18 @@ fn ensure_directory(path: &Path) -> Result<(), BackendBootstrapError> {
     })
 }
 
-/// Fails runs interrupted by a previous process, keeping `current_nodes` intact.
+/// Fails runs interrupted by a previous process, then reconciles the survivors.
 ///
 /// Runs that were `Running` or `Failed` when the process died have their non-terminal node runs
-/// marked `Failed` with `interrupted_by_restart`; the sweep is idempotent and best-effort so a
-/// storage failure cannot block startup.
-fn run_workflow_run_boot_sweep(pool: &RepositoryPool, clock: SystemClock) {
+/// marked `Failed` with `interrupted_by_restart`. Surviving `Running` runs are then reconciled:
+/// stalled ones resume scheduling, and invalid `Pending` nodes fail closed. The sweep is
+/// idempotent and best-effort so a storage failure cannot block startup.
+fn run_workflow_run_boot_sweep(
+    pool: &RepositoryPool,
+    engine: &Arc<ConcreteWorkflowRunEngine>,
+    run_locks: &Arc<KeyedResourceLocks>,
+    clock: SystemClock,
+) {
     let repository = SqliteWorkflowRunEngineRepository::new(pool.clone());
     let run_ids = match repository.list_recoverable_runs() {
         Ok(run_ids) => run_ids,
@@ -1237,11 +1356,43 @@ fn run_workflow_run_boot_sweep(pool: &RepositoryPool, clock: SystemClock) {
             return;
         }
     };
-    if run_ids.is_empty() {
-        return;
-    }
-    if let Err(error) = repository.fail_orphaned_node_runs(&run_ids, clock.now_timestamp_millis()) {
+    if !run_ids.is_empty()
+        && let Err(error) =
+            repository.fail_orphaned_node_runs(&run_ids, clock.now_timestamp_millis())
+    {
         ora_error!(error = %error, "workflow run boot sweep failed to fail orphaned node runs");
+    }
+    crate::workflow_run_engine::reconcile_running_workflow_runs(engine, run_locks, pool);
+}
+
+/// Deletes worktree-baseline side files whose node run is missing or no longer awaiting input.
+///
+/// Baselines exist only while an interactive node awaits input; a crash between a node's terminal
+/// commit and its baseline deletion, or a node that failed without cleanup, leaves orphaned side
+/// files that this sweep reclaims at the next boot.
+fn prune_orphaned_baselines(pool: &RepositoryPool, baselines_root: &Path) {
+    let Ok(entries) = std::fs::read_dir(baselines_root) else {
+        return;
+    };
+    let repository = SqliteWorkflowRunEngineRepository::new(pool.clone());
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.extension().and_then(|extension| extension.to_str()) != Some("json") {
+            continue;
+        }
+        let Some(name) = path.file_stem().and_then(|stem| stem.to_str()) else {
+            continue;
+        };
+        let node_run_id = ora_domain::WorkflowNodeRunId::new(name);
+        let still_awaiting = repository
+            .find_node_run_by_id(&node_run_id)
+            .map(|node_run| {
+                node_run.is_some_and(|node| node.status == ora_domain::WorkflowNodeStatus::Pending)
+            })
+            .unwrap_or(false);
+        if !still_awaiting {
+            let _ = std::fs::remove_file(&path);
+        }
     }
 }
 

@@ -703,16 +703,21 @@ impl RuntimeActor {
                     events,
                     accepted,
                 }) => {
-                    // Admit before replaying so the receiver can drain histories larger than the
-                    // bounded contract queue. The loaded view follows the existing prompt without
-                    // taking ownership of its turn.
-                    if accepted.send(Ok(())).is_ok()
-                        && matches!(
-                            self.replay_recorded_history(&events).await,
-                            Replay::Delivered
-                        )
-                    {
-                        followers.insert(operation_id, events);
+                    // Capture the durable cutoff, the in-progress pending records, and the live
+                    // follower registration atomically (no await), then let the follower's relay
+                    // task stream the merged prefix before live events. The actor returns to its
+                    // select loop immediately, so a slow view can never backpressure the prompt.
+                    let cutoff = self.recorder.durable_bytes();
+                    let pending = self.recorder.pending_records();
+                    if accepted.send(Ok(())).is_ok() {
+                        followers.insert(
+                            operation_id,
+                            events,
+                            self.sessions_root.clone(),
+                            self.session.id.to_string(),
+                            cutoff,
+                            pending,
+                        );
                     }
                 }
                 ActiveInput::Command(RuntimeCommand::PreemptTitlePolling { response }) => {

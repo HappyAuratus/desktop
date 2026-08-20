@@ -84,6 +84,16 @@ impl<C: HistoryClock> SessionRecorder<C> {
         self.writer.path().to_path_buf()
     }
 
+    /// Returns the durable byte cutoff a load can replay up to without seeing later appends.
+    pub(super) fn durable_bytes(&self) -> u64 {
+        self.writer.durable_bytes()
+    }
+
+    /// Snapshots the assembler's still-open records, each carrying its assigned position.
+    pub(super) fn pending_records(&self) -> Vec<AssembledRecord> {
+        self.assembler.pending_records()
+    }
+
     /// Writes the header that opens a newly created session's history.
     pub(super) fn record_meta(&mut self, session: &Session, cwd: &Path) -> RecordOutcome {
         self.append_standalone(HistoryRecord::Meta(SessionMeta {

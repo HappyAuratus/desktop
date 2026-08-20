@@ -134,6 +134,26 @@ impl WorkflowRunEngineRepository for SqliteWorkflowRunEngineRepository {
             .map_err(engine_repository_error_from_database)
     }
 
+    fn find_node_run_by_id(
+        &self,
+        node_run_id: &WorkflowNodeRunId,
+    ) -> Result<Option<WorkflowNodeRun>, RepositoryError> {
+        self.pool
+            .with_connection(|connection| {
+                let mut statement = connection.prepare(
+                    "SELECT id, run_id, node_id, node_type, session_id, status, input, output, error, payload, started_at, finished_at, created_at, updated_at, is_deleted
+                     FROM workflow_node_runs
+                     WHERE id = ?1 AND is_deleted = 0",
+                )?;
+                let mut rows = statement.query(params![node_run_id.as_ref()])?;
+                match rows.next()? {
+                    Some(row) => Ok(Some(map_node_run_row(row)?)),
+                    None => Ok(None),
+                }
+            })
+            .map_err(engine_repository_error_from_database)
+    }
+
     fn transition_node_run_status(
         &self,
         node_run_id: &WorkflowNodeRunId,

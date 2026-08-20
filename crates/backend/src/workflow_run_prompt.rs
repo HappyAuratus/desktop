@@ -1,5 +1,5 @@
 use agent_client_protocol_schema::v1::{ContentBlock, TextContent};
-use ora_application::{WorkflowGraph, WorkflowGraphNode};
+use ora_application::{NodeType, WorkflowGraph, WorkflowGraphNode};
 use ora_contracts::WorkflowRunLocale;
 use ora_domain::{WorkflowNodeRun, WorkflowNodeStatus};
 use std::collections::HashMap;
@@ -166,6 +166,11 @@ fn render_workflow_context(
         .transitive_predecessors(&current_node.id)
         .into_iter()
         .filter_map(|predecessor| {
+            // The Start node's output is the run's kickoff input, already rendered as the original
+            // request above; it is not an upstream assistant deliverable.
+            if predecessor.node_type == NodeType::Start {
+                return None;
+            }
             let node_run = run_by_node_id.get(predecessor.id.as_str())?;
             if node_run.status != WorkflowNodeStatus::Succeeded {
                 return None;
@@ -514,5 +519,36 @@ mod tests {
         assert_eq!(context.contains("[运行中，当前节点]"), true);
         assert_eq!(context.contains("## 工作流原始请求"), true);
         assert_eq!(context.contains("Direct successors"), false);
+    }
+
+    /// The Start node's output is the run's kickoff input and must not appear under upstream
+    /// results, which are reserved for assistant deliverables.
+    #[test]
+    fn workflow_context_excludes_start_output_from_upstream() {
+        let graph = WorkflowGraph::parse(GRAPH).unwrap();
+        let current = graph.node("review").unwrap();
+        let node_runs = vec![
+            node_run("start", WorkflowNodeStatus::Succeeded, Some("kickoff")),
+            node_run(
+                "research",
+                WorkflowNodeStatus::Succeeded,
+                Some("final evidence"),
+            ),
+            node_run("review", WorkflowNodeStatus::Running, None),
+        ];
+        let context = render_workflow_context(
+            &graph,
+            current,
+            Some("kickoff"),
+            &node_runs,
+            WorkflowRunLocale::EnUs,
+        );
+        let upstream: Vec<_> = context
+            .lines()
+            .filter(|line| line.starts_with("### "))
+            .collect();
+        // Only the research node appears as an upstream result; the Start node's kickoff output is
+        // excluded even though it is a succeeded transitive predecessor.
+        assert_eq!(upstream, vec!["### 1. \"Research\" (`research`)"]);
     }
 }

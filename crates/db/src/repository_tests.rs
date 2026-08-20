@@ -1849,6 +1849,19 @@ impl WorkflowNodeRunIdGenerator for SequenceNodeRunIdGenerator {
     }
 }
 
+/// A thread-safe, cloneable ascending id generator for concurrent scheduling tests.
+#[derive(Clone, Default)]
+struct ConcurrentNodeRunIdGenerator {
+    next: Arc<std::sync::atomic::AtomicU64>,
+}
+
+impl WorkflowNodeRunIdGenerator for ConcurrentNodeRunIdGenerator {
+    fn generate_node_run_id(&self) -> WorkflowNodeRunId {
+        let current = self.next.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        WorkflowNodeRunId::new(format!("node-{current}"))
+    }
+}
+
 /// A deterministic clock for engine scheduling tests.
 #[derive(Clone, Copy)]
 struct FixedClock {
@@ -2119,6 +2132,142 @@ fn engine_keeps_an_awaiting_node_in_flight() {
         .unwrap()
         .unwrap();
     assert_eq!(run.status, WorkflowRunStatus::Running);
+}
+
+/// Verifies that serializing two concurrent predecessor completions behind one per-run gate
+/// dispatches the merged successor exactly once (#5). The gate mirrors the backend's per-run
+/// lock; without it, two scheduling waves could each see `merge` as ready and dispatch it twice.
+#[test]
+fn engine_serialized_concurrent_completion_dispatches_successor_once() {
+    let (_temp_dir, pool) = bootstrapped_repository_pool();
+    let (run_id, _, _) = create_pending_run_with_graph(&pool, fan_in_graph());
+    let executor = RecordingNodeExecutor::default();
+    let engine = WorkflowRunEngine::new(
+        SqliteWorkflowRunEngineRepository::new(pool.clone()),
+        executor.clone(),
+        ConcurrentNodeRunIdGenerator::default(),
+        FixedClock::new(40),
+    );
+    assert_eq!(
+        engine.start(&run_id).unwrap(),
+        StartWorkflowRunResult::Started
+    );
+
+    let node_runs = SqliteWorkflowRunRepository::new(pool.clone())
+        .list_node_runs(&run_id)
+        .unwrap();
+    let left = node_runs
+        .iter()
+        .find(|node_run| node_run.node_id == "l")
+        .unwrap()
+        .id
+        .clone();
+    let right = node_runs
+        .iter()
+        .find(|node_run| node_run.node_id == "r")
+        .unwrap()
+        .id
+        .clone();
+
+    let gate = Arc::new(Mutex::new(()));
+    let barrier = Arc::new(Barrier::new(2));
+
+    let run_id_left = run_id.clone();
+    let left_engine = engine.clone();
+    let left_gate = gate.clone();
+    let left_barrier = barrier.clone();
+    let left_handle = thread::spawn(move || {
+        left_barrier.wait();
+        let _guard = left_gate.lock().unwrap();
+        left_engine
+            .complete_node(
+                &run_id_left,
+                &left,
+                Some("left done".to_string()),
+                Some("end_turn".to_string()),
+                Vec::new(),
+            )
+            .unwrap();
+    });
+
+    let run_id_right = run_id.clone();
+    let right_engine = engine.clone();
+    let right_gate = gate.clone();
+    let right_barrier = barrier.clone();
+    let right_handle = thread::spawn(move || {
+        right_barrier.wait();
+        let _guard = right_gate.lock().unwrap();
+        right_engine
+            .complete_node(
+                &run_id_right,
+                &right,
+                Some("right done".to_string()),
+                Some("end_turn".to_string()),
+                Vec::new(),
+            )
+            .unwrap();
+    });
+
+    left_handle.join().unwrap();
+    right_handle.join().unwrap();
+
+    let merge_dispatches = executor
+        .dispatched
+        .lock()
+        .unwrap()
+        .iter()
+        .filter(|(_, node_id)| node_id == "merge")
+        .count();
+    assert_eq!(merge_dispatches, 1);
+}
+
+/// Verifies that resuming a `Running` run whose nodes are all terminal (the crash window between a
+/// node completion and its successor scheduling) dispatches the successor and finishes the run (#6).
+#[test]
+fn engine_resume_finishes_a_stalled_running_run() {
+    let (_temp_dir, pool) = bootstrapped_repository_pool();
+    let (run_id, _, _) = create_pending_run_with_graph(&pool, linear_graph());
+    let engine = WorkflowRunEngine::new(
+        SqliteWorkflowRunEngineRepository::new(pool.clone()),
+        RecordingNodeExecutor::default(),
+        SequenceNodeRunIdGenerator::default(),
+        FixedClock::new(40),
+    );
+    assert_eq!(
+        engine.start(&run_id).unwrap(),
+        StartWorkflowRunResult::Started
+    );
+
+    // Complete the agent at the repository level, skipping the scheduling wave: this reproduces a
+    // crash between the node's completion commit and its successor dispatch.
+    let node_runs = SqliteWorkflowRunRepository::new(pool.clone())
+        .list_node_runs(&run_id)
+        .unwrap();
+    let agent = node_runs.iter().find(|n| n.node_id == "a").unwrap();
+    SqliteWorkflowRunEngineRepository::new(pool.clone())
+        .complete_node(
+            &agent.id,
+            Some("done".to_string()),
+            Some("end_turn".to_string()),
+            Vec::new(),
+            41,
+        )
+        .unwrap();
+
+    let run = SqliteWorkflowRunRepository::new(pool.clone())
+        .find_run(&run_id)
+        .unwrap()
+        .unwrap();
+    assert_eq!(run.status, WorkflowRunStatus::Running);
+
+    engine.resume(&run_id).unwrap();
+
+    let run = SqliteWorkflowRunRepository::new(pool)
+        .find_run(&run_id)
+        .unwrap()
+        .unwrap();
+    assert_eq!(run.status, WorkflowRunStatus::Succeeded);
+    assert_eq!(run.output.as_deref(), Some("done"));
 }
 
 /// Verifies a failing agent fails the run and anchors the failed node in `current_nodes`.

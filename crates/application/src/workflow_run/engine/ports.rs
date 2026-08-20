@@ -160,6 +160,15 @@ pub trait WorkflowRunEngineRepository {
         session_id: &SessionId,
     ) -> Result<Option<WorkflowNodeRun>, RepositoryError>;
 
+    /// Finds one node run by id, if it exists and is not soft-deleted.
+    ///
+    /// Used by baseline cleanup to decide whether a node's side file is still needed: a baseline
+    /// survives only while its node is still awaiting input.
+    fn find_node_run_by_id(
+        &self,
+        node_run_id: &WorkflowNodeRunId,
+    ) -> Result<Option<WorkflowNodeRun>, RepositoryError>;
+
     /// Transitions one node run's status only when its current status is exactly `from`.
     ///
     /// Awaiting interactive nodes flip between `Pending` and `Running` around a human turn; the

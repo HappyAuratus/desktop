@@ -1,8 +1,11 @@
+use super::replay::replay_prefix;
 use super::support::runtime_internal;
 use crate::BackendError;
 use agent_client_protocol_schema::v1::{SessionUpdate, StopReason};
 use ora_contracts::LoadSessionEvent;
+use ora_history::{AssembledRecord, read_session_history_up_to};
 use std::collections::HashMap;
+use std::path::{Path, PathBuf};
 use tokio::sync::mpsc;
 
 /// Extends a loaded session conversation with the updates from its active prompt.
@@ -30,17 +33,37 @@ impl SessionFollowers {
         }
     }
 
-    /// Continues a loaded conversation after its initial recorded history was delivered.
+    /// Continues a loaded conversation after its recorded history and in-progress pending records
+    /// are delivered.
+    ///
+    /// The relay is the only writer to the contract sender: it streams the replay prefix (durable
+    /// history up to `cutoff`, merged with `pending` by position) before draining live events, so
+    /// a load hands off from disk to live without a gap, a duplicate, or an ordering violation.
     pub(super) fn insert(
         &mut self,
         operation_id: u64,
         contract_sender: mpsc::Sender<Result<LoadSessionEvent, BackendError>>,
+        sessions_root: PathBuf,
+        session_id: String,
+        cutoff: u64,
+        pending: Vec<AssembledRecord>,
     ) {
         let (events, mut event_receiver) = mpsc::channel(FOLLOWER_QUEUE_CAPACITY);
         // Overflow travels independently from the bounded event queue so a slow view receives an
         // explicit failure instead of an ambiguous end-of-stream after it falls behind.
         let (overflow, mut overflow_receiver) = mpsc::unbounded_channel();
         tokio::spawn(async move {
+            if !send_replay_prefix(
+                &contract_sender,
+                &sessions_root,
+                &session_id,
+                cutoff,
+                pending,
+            )
+            .await
+            {
+                return;
+            }
             let mut overflow_open = true;
             loop {
                 tokio::select! {
@@ -112,6 +135,42 @@ impl SessionFollowers {
     }
 }
 
+/// Streams the replay prefix — durable history up to `cutoff` merged with the in-progress pending
+/// records — to the contract sender. Returns false when the consumer went away or the history
+/// could not be read, so the caller stops without touching the live queue.
+async fn send_replay_prefix(
+    contract_sender: &mpsc::Sender<Result<LoadSessionEvent, BackendError>>,
+    sessions_root: &Path,
+    session_id: &str,
+    cutoff: u64,
+    pending: Vec<AssembledRecord>,
+) -> bool {
+    // The read is blocking filesystem I/O, so it runs off the relay's worker.
+    let root = sessions_root.to_path_buf();
+    let id = session_id.to_string();
+    let history =
+        match tokio::task::spawn_blocking(move || read_session_history_up_to(&root, &id, cutoff))
+            .await
+        {
+            Ok(Ok(history)) => history,
+            Ok(Err(_)) | Err(_) => {
+                let _ = contract_sender
+                    .send(Err(runtime_internal(
+                        "session_history_unreadable",
+                        "session history could not be read",
+                    )))
+                    .await;
+                return false;
+            }
+        };
+    for event in replay_prefix(history, pending) {
+        if contract_sender.send(Ok(event)).await.is_err() {
+            return false;
+        }
+    }
+    true
+}
+
 #[cfg(test)]
 mod tests {
     use super::{FOLLOWER_QUEUE_CAPACITY, SessionFollowers};
@@ -119,14 +178,32 @@ mod tests {
     use ora_contracts::LoadSessionEvent;
     use pretty_assertions::assert_eq;
     use serde_json::json;
+    use std::path::PathBuf;
     use tokio::sync::mpsc;
+
+    /// Registers a follower with an empty replay prefix (no durable history or pending records),
+    /// matching a load against a session that is not actively generating.
+    fn insert_idle(
+        followers: &mut SessionFollowers,
+        operation_id: u64,
+        sender: mpsc::Sender<Result<LoadSessionEvent, crate::BackendError>>,
+    ) {
+        followers.insert(
+            operation_id,
+            sender,
+            PathBuf::new(),
+            "session-1".to_string(),
+            /*cutoff*/ 0,
+            /*pending*/ Vec::new(),
+        );
+    }
 
     /// A loaded session receives live updates and the active turn's finite ending.
     #[tokio::test]
     async fn continues_a_loaded_session_through_prompt_completion() {
         let (sender, mut receiver) = mpsc::channel(4);
         let mut followers = SessionFollowers::new();
-        followers.insert(7, sender);
+        insert_idle(&mut followers, 7, sender);
         let parsed: Result<SessionUpdate, _> = serde_json::from_value(json!({
             "sessionUpdate": "agent_message_chunk",
             "content": { "type": "text", "text": "hello" }
@@ -170,8 +247,8 @@ mod tests {
         let (first, _first_receiver) = mpsc::channel(1);
         let (second, _second_receiver) = mpsc::channel(1);
         let mut followers = SessionFollowers::new();
-        followers.insert(1, first);
-        followers.insert(2, second);
+        insert_idle(&mut followers, 1, first);
+        insert_idle(&mut followers, 2, second);
 
         assert!(followers.remove(1));
         assert!(!followers.remove(1));
@@ -183,7 +260,7 @@ mod tests {
     async fn reports_follower_queue_overflow_explicitly() {
         let (sender, mut receiver) = mpsc::channel(1);
         let mut followers = SessionFollowers::new();
-        followers.insert(1, sender);
+        insert_idle(&mut followers, 1, sender);
         let parsed: Result<SessionUpdate, _> = serde_json::from_value(json!({
             "sessionUpdate": "agent_message_chunk",
             "content": { "type": "text", "text": "hello" }

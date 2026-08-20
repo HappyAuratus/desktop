@@ -224,6 +224,13 @@ where
         }
     }
 
+    /// Resumes scheduling for a `Running` run left with no active node by a crash between a node
+    /// completion and its successor scheduling. Recomputes the ready set from persisted state:
+    /// either a ready successor is dispatched or the drained run is finished.
+    pub fn resume(&self, run_id: &WorkflowRunId) -> Result<(), EngineError> {
+        self.run_schedule(run_id)
+    }
+
     /// Runs one reactive scheduling pass: complete in-flight control nodes, dispatch ready nodes,
     /// and finish the run once the graph is drained.
     fn run_schedule(&self, run_id: &WorkflowRunId) -> Result<(), EngineError> {
