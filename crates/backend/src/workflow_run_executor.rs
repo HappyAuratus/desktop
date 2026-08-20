@@ -486,7 +486,10 @@ async fn drive_agent_node(
     );
 
     Ok(AgentNodeOutcome::Completed {
-        output: accumulator.into_output(),
+        // Apply the node's output policy at the single place the completed output is produced, so
+        // both `complete_node` and the refusal/unknown failure branches reuse the same value: a
+        // `None` policy withholds the assistant deliverable on success and failure alike.
+        output: config.output_policy.apply(accumulator.into_output()),
         stop_reason,
         file_changes,
     })

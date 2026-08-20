@@ -169,16 +169,21 @@ pub(crate) fn prepare_completion(
     // completion contract also requires the frozen graph to declare it interactive.
     let graph = WorkflowGraph::parse(&context.graph_json)
         .map_err(ApplicationError::WorkflowRunGraphParse)?;
-    let interactive = graph
+    let agent_config = graph
         .node(&node_run.node_id)
-        .and_then(|node| node.agent_config.as_ref())
-        .is_some_and(|config| config.interactive);
+        .and_then(|node| node.agent_config.as_ref());
+    let interactive = agent_config.is_some_and(|config| config.interactive);
     if !interactive {
         return Err(ApplicationError::WorkflowNodeNotAwaitingInput {
             node_id: node_id.to_string(),
         }
         .into());
     }
+    // A `Pending` node run is always an interactive agent node, so `agent_config` is present here;
+    // the default keeps the manual-completion output correct even for a malformed graph.
+    let output_policy = agent_config
+        .map(|config| config.output_policy)
+        .unwrap_or_default();
 
     // The final assistant message and the stop reason of the last turn both come from the same
     // durable history, so they are read together rather than re-reading the file.
@@ -187,7 +192,8 @@ pub(crate) fn prepare_completion(
             let history = read_session_history(sessions_root, session_id.as_ref())
                 .map_err(|error| BackendError::internal("failed to read session history", error))?;
             (
-                assistant_output_from_history(&history),
+                // Apply the node's output policy so manual completion mirrors the automatic path.
+                output_policy.apply(assistant_output_from_history(&history)),
                 last_stop_reason(&history).map(stop_reason_label),
             )
         }

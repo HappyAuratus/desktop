@@ -17,7 +17,8 @@ pub use engine::{
     EngineError, NodeExecutor, WorkflowRunCallback, WorkflowRunEngine, WorkflowValidationError,
 };
 pub use graph::{
-    AgentConfig, AgentExecutor, AgentSkill, GraphError, WorkflowGraph, WorkflowGraphNode,
+    AgentConfig, AgentExecutor, AgentSkill, GraphError, OutputPolicy, WorkflowGraph,
+    WorkflowGraphNode,
 };
 pub use handlers::WorkflowRunControlHandler;
 pub use node_type::{NodeType, UnknownNodeType};

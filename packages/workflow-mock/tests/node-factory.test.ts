@@ -1,8 +1,5 @@
 import { describe, expect, it } from "vitest";
-import {
-  createMockWorkflowCapabilities,
-  createMockWorkflowNode,
-} from "../src";
+import { createMockWorkflowCapabilities, createMockWorkflowNode } from "../src";
 
 describe("createMockWorkflowNode", () => {
   it("keeps localized prototype defaults inside the mock package", () => {
@@ -35,6 +32,8 @@ describe("createMockWorkflowNode", () => {
             skills: [],
             mcps: [],
             prompt: "",
+            interactive: false,
+            outputPolicy: "none",
           },
         },
       },
@@ -117,8 +116,16 @@ describe("createMockWorkflowNode", () => {
         { value: "Local model", label: "本地模型" },
       ],
       agentModels: [
-        { agentCli: "code_agent_cli", modelId: "gpt-5", label: "CodeAgentCLI · GPT-5" },
-        { agentCli: "open_code", modelId: "opencode/sonnet", label: "OpenCode · Sonnet" },
+        {
+          agentCli: "code_agent_cli",
+          modelId: "gpt-5",
+          label: "CodeAgentCLI · GPT-5",
+        },
+        {
+          agentCli: "open_code",
+          modelId: "opencode/sonnet",
+          label: "OpenCode · Sonnet",
+        },
         {
           agentCli: "open_code",
           modelId: "deepseek/deepseek-v4-flash",
@@ -144,8 +151,14 @@ describe("createMockWorkflowNode", () => {
       skills: [
         { value: "openspec-apply-change", label: "openspec-apply-change" },
         { value: "openspec-archive-change", label: "openspec-archive-change" },
-        { value: "openspec-bulk-archive-change", label: "openspec-bulk-archive-change" },
-        { value: "openspec-continue-change", label: "openspec-continue-change" },
+        {
+          value: "openspec-bulk-archive-change",
+          label: "openspec-bulk-archive-change",
+        },
+        {
+          value: "openspec-continue-change",
+          label: "openspec-continue-change",
+        },
         { value: "openspec-explore", label: "openspec-explore" },
         { value: "openspec-ff-change", label: "openspec-ff-change" },
         { value: "openspec-new-change", label: "openspec-new-change" },
@@ -203,6 +216,8 @@ describe("createMockWorkflowNode", () => {
         skills: [],
         mcps: [],
         prompt: "",
+        interactive: false,
+        outputPolicy: "none",
       },
       defaultTool: "Terminal",
     });

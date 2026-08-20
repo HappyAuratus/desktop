@@ -568,6 +568,11 @@ export const translationResources = {
     "settings.workflow.field.interactive": "交互模式",
     "settings.workflow.field.interactiveDescription":
       "开启后节点首轮结束会停在等待人工输入，可在节点内持续对话。",
+    "settings.workflow.field.outputPolicy": "输出策略",
+    "settings.workflow.field.outputPolicyFinalAgentResponse": "Agent 最终回复",
+    "settings.workflow.field.outputPolicyNone": "不输出",
+    "settings.workflow.field.outputPolicyDescription":
+      "决定节点完成后是否将 Agent 最后一条回复作为输出提供给后续节点。",
     "settings.workflow.deleteNode": "删除节点",
     "settings.workflow.previewInput": "检查当前工作区的未提交改动",
     "settings.workflow.mockNotice": "仅使用 mock 数据，不会执行真实工具",
@@ -2041,6 +2046,12 @@ export const translationResources = {
     "settings.workflow.field.interactive": "Interactive mode",
     "settings.workflow.field.interactiveDescription":
       "When enabled the node pauses for human input after its first turn, so you can keep conversing inside the node.",
+    "settings.workflow.field.outputPolicy": "Output policy",
+    "settings.workflow.field.outputPolicyFinalAgentResponse":
+      "Final agent response",
+    "settings.workflow.field.outputPolicyNone": "None",
+    "settings.workflow.field.outputPolicyDescription":
+      "Choose whether the node's final agent response is passed to downstream nodes as its output.",
     "settings.workflow.deleteNode": "Delete node",
     "settings.workflow.previewInput":
       "Review uncommitted changes in the current workspace",

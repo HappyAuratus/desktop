@@ -15,6 +15,8 @@ export function normalizeWorkflowAgentConfig(
     mcps,
     // Missing `interactive` defaults to false so existing graphs stay fully automatic.
     interactive: config.interactive ?? false,
+    // Missing `outputPolicy` defaults to `none` so nodes withhold their output unless opted in.
+    outputPolicy: config.outputPolicy ?? "none",
   };
 }
 

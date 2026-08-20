@@ -22,6 +22,11 @@ import {
   Popover,
   PopoverContent,
   PopoverTrigger,
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
   Switch,
   Textarea,
 } from "@ora/ui";
@@ -939,6 +944,42 @@ function AgentConfigurationFields({
             }
           />
         </div>
+      </InspectorField>
+      <InspectorField
+        label={t("settings.workflow.field.outputPolicy")}
+        htmlFor="workflow-agent-output-policy"
+      >
+        <Select
+          value={config.outputPolicy ?? "none"}
+          onValueChange={(value) =>
+            onChange({
+              ...config,
+              // Only two policies exist; fold any unexpected value back to the default.
+              outputPolicy: value === "none" ? "none" : "final_agent_response",
+            })
+          }
+        >
+          <SelectTrigger id="workflow-agent-output-policy" className="w-full">
+            <SelectValue>
+              {(selected) =>
+                selected === "none"
+                  ? t("settings.workflow.field.outputPolicyNone")
+                  : t("settings.workflow.field.outputPolicyFinalAgentResponse")
+              }
+            </SelectValue>
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="final_agent_response">
+              {t("settings.workflow.field.outputPolicyFinalAgentResponse")}
+            </SelectItem>
+            <SelectItem value="none">
+              {t("settings.workflow.field.outputPolicyNone")}
+            </SelectItem>
+          </SelectContent>
+        </Select>
+        <p className="text-xs text-muted-foreground">
+          {t("settings.workflow.field.outputPolicyDescription")}
+        </p>
       </InspectorField>
     </>
   );

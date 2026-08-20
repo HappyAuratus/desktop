@@ -233,6 +233,7 @@ export function createMockWorkflowCapabilities(
       mcps: [],
       prompt: "",
       interactive: false,
+      outputPolicy: "none",
     },
     defaultTool: tools[0].value,
   };
