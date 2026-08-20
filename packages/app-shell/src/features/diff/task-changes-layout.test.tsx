@@ -94,7 +94,7 @@ function StatefulWorkspace() {
         Open inspector
       </button>
       <span>{inspectorOpen ? "Inspector open" : "Inspector closed"}</span>
-      <button type="button" onClick={() => navigation?.openFile("src/main.ts")}>
+      <button type="button" onClick={() => navigation?.openDiff("src/main.ts")}>
         Open changed file
       </button>
     </main>
