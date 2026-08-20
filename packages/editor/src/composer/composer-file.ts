@@ -4,6 +4,8 @@ export interface ComposerFileAttrs {
   path: string;
   startLine?: number;
   endLine?: number;
+  /** When `directory`, the chip renders a folder glyph; payload stays a path. */
+  kind?: "file" | "directory";
 }
 
 declare module "@tiptap/core" {
@@ -56,6 +58,7 @@ function fileContent(files: ComposerFileAttrs[]): JSONContent[] {
         path: file.path,
         startLine: file.startLine ?? null,
         endLine: file.endLine ?? null,
+        kind: file.kind ?? "file",
       },
     },
     { type: "text", text: " " },
@@ -79,11 +82,29 @@ export const ComposerFile = Node.create({
       path: { default: "" },
       startLine: { default: null },
       endLine: { default: null },
+      kind: { default: "file" },
     };
   },
 
   parseHTML() {
-    return [{ tag: "span[data-composer-file]" }];
+    return [
+      {
+        tag: "span[data-composer-file]",
+        getAttrs: (element) => {
+          if (!(element instanceof HTMLElement)) return false;
+          const kindAttr = element.getAttribute("data-kind");
+          const kind = kindAttr === "directory" ? "directory" : "file";
+          const startLine = element.getAttribute("data-start-line");
+          const endLine = element.getAttribute("data-end-line");
+          return {
+            path: element.getAttribute("data-composer-file") ?? "",
+            kind,
+            startLine: startLine === null ? null : Number(startLine),
+            endLine: endLine === null ? null : Number(endLine),
+          };
+        },
+      },
+    ];
   },
 
   renderHTML({ node, HTMLAttributes }) {
@@ -95,11 +116,19 @@ export const ComposerFile = Node.create({
           : Number(node.attrs.startLine),
       endLine:
         node.attrs.endLine === null ? undefined : Number(node.attrs.endLine),
+      kind: node.attrs.kind === "directory" ? "directory" : "file",
     };
     return [
       "span",
       mergeAttributes(HTMLAttributes, {
         "data-composer-file": attrs.path,
+        "data-kind": attrs.kind ?? "file",
+        ...(attrs.startLine === undefined
+          ? {}
+          : { "data-start-line": String(attrs.startLine) }),
+        ...(attrs.endLine === undefined
+          ? {}
+          : { "data-end-line": String(attrs.endLine) }),
         class: "composer-chip composer-chip-file",
         contenteditable: "false",
         title: composerFilePlainText(attrs).replace(/`/g, ""),
@@ -136,10 +165,7 @@ export const ComposerFile = Node.create({
               content: [{ type: "paragraph", content }],
             });
           }
-          return commands.insertContent({
-            type: "paragraph",
-            content,
-          });
+          return commands.insertContent(content);
         },
     };
   },

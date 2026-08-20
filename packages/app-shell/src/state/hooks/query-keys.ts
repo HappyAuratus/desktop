@@ -45,6 +45,10 @@ export const queryKeys = {
     ["workspace-files", taskId, "file", path] as const,
   workspaceSearch: (taskId: string, kind: string, query: string) =>
     ["workspace-files", taskId, "search", kind, query] as const,
+  projectDirectory: (projectId: string, path: string) =>
+    ["project-files", projectId, "directory", path] as const,
+  projectSearch: (projectId: string, kind: string, query: string) =>
+    ["project-files", projectId, "search", kind, query] as const,
   /**
    * Mirrors the identity the backend keys warm sessions by, so two surfaces
    * never share one cache entry and revisiting a surface reuses its session.

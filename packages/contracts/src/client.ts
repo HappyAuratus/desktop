@@ -192,6 +192,10 @@ export function createContractsClient(
         executeOperation("searchWorkspace", request, transport, options),
       watchWorkspace: (request, options) =>
         executeStreamOperation("watchWorkspace", request, transport, options),
+      listProjectDirectory: (request, options) =>
+        executeOperation("listProjectDirectory", request, transport, options),
+      searchProject: (request, options) =>
+        executeOperation("searchProject", request, transport, options),
     },
     spec: {
       catalog: (request, options) =>

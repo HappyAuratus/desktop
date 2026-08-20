@@ -1,7 +1,12 @@
 import { createRef } from "react";
-import { act, render, screen } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { Editor } from "@tiptap/core";
 import { describe, expect, it, vi } from "vitest";
+import {
+  createComposerExtensions,
+  documentPlainText,
+} from "@ora/editor/composer";
 import { PlatformProvider } from "@ora/app-shell/platform";
 import { ComposerEditor, type ComposerEditorHandle } from "./composer-editor";
 import { createStubPlatform } from "../../test/stub-platform";
@@ -81,7 +86,7 @@ describe("ComposerEditor", () => {
     expect(pasted?.textContent).not.toContain("after");
   });
 
-  it("inserts file chips that serialize to backtick path ranges", () => {
+  it("inserts file chips that serialize to backtick path ranges", async () => {
     const editorRef = createRef<ComposerEditorHandle>();
     render(
       <ComposerEditor ref={editorRef} ariaLabel="Message" onSubmit={vi.fn()} />,
@@ -94,8 +99,37 @@ describe("ComposerEditor", () => {
       ]);
     });
 
-    expect(textbox.querySelector("[data-composer-file]")).not.toBeNull();
+    await waitFor(() =>
+      expect(textbox.querySelector("[data-composer-file]")).not.toBeNull(),
+    );
     expect(composerText(textbox)).toContain("`src/app.ts:4-12`");
+  });
+
+  it("inserts a file chip at the caret without jumping to the document end", () => {
+    const editor = new Editor({
+      extensions: createComposerExtensions({ placeholder: "Type" }),
+      content: {
+        type: "doc",
+        content: [
+          {
+            type: "paragraph",
+            content: [{ type: "text", text: "head trail" }],
+          },
+        ],
+      },
+    });
+    // Position after "head " (doc position 1 is start of paragraph text).
+    editor
+      .chain()
+      .setTextSelection(1 + "head ".length)
+      .run();
+    editor.commands.insertComposerFiles([{ path: "src/mid.ts" }]);
+    editor.commands.insertContent("X");
+
+    expect(documentPlainText(editor.state.doc)).toBe(
+      "head `src/mid.ts` Xtrail",
+    );
+    editor.destroy();
   });
 
   it("restores documentPlainText as formatted nodes instead of leftover markers", () => {

@@ -599,6 +599,17 @@ impl Backend {
         )
     }
 
+    /// Resolves the project checkout root used before a task exists (draft / warm chat).
+    ///
+    /// Matches `resolve_project_cwd` for project-root mode tasks created on first send.
+    pub fn resolve_project_cwd(&self, project_id: &str) -> Result<PathBuf, BackendError> {
+        crate::task::resolve_project_cwd(
+            &self.pool,
+            &ora_domain::ProjectId::new(project_id),
+            &self.relative_path_base,
+        )
+    }
+
     // =============================================================================
     // project
     // =============================================================================

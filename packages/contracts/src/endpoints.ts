@@ -3,7 +3,7 @@ import type { CreateAgentRequest, CreateAgentResponse, DeleteAgentRequest, Delet
 import type { CommitAgentImportRequest, CommitAgentImportResponse, PrepareAgentImportRequest, PrepareAgentImportResponse } from "./agent-import.js";
 import type { AppEvent, WatchAppEventsRequest } from "./app_event.js";
 import type { DeveloperModeResponse, GetDeveloperModeRequest, SetDeveloperModeRequest } from "./developerMode.js";
-import type { ListWorkspaceDirectoryRequest, ListWorkspaceDirectoryResponse, ReadWorkspaceFileRequest, ReadWorkspaceFileResponse, SearchWorkspaceRequest, SearchWorkspaceResponse, WatchWorkspaceRequest, WorkspaceFileEventBatch } from "./file-system.js";
+import type { ListProjectDirectoryRequest, ListWorkspaceDirectoryRequest, ListWorkspaceDirectoryResponse, ReadWorkspaceFileRequest, ReadWorkspaceFileResponse, SearchProjectRequest, SearchWorkspaceRequest, SearchWorkspaceResponse, WatchWorkspaceRequest, WorkspaceFileEventBatch } from "./file-system.js";
 import type { GetGitIdentityRequest, GitIdentityResponse } from "./git.js";
 import type { ListInstalledPluginsRequest, ListInstalledPluginsResponse } from "./plugin.js";
 import type { CreateProjectRequest, CreateProjectResponse, DeleteProjectRequest, DeleteProjectResponse, GetProjectRequest, GetProjectResponse, ListProjectBranchesRequest, ListProjectBranchesResponse, ListProjectsRequest, ListProjectsResponse, UpdateProjectRequest, UpdateProjectResponse } from "./project.js";
@@ -86,6 +86,8 @@ export type RequestByOperation = {
   readWorkspaceFile: ReadWorkspaceFileRequest;
   searchWorkspace: SearchWorkspaceRequest;
   watchWorkspace: WatchWorkspaceRequest;
+  listProjectDirectory: ListProjectDirectoryRequest;
+  searchProject: SearchProjectRequest;
   getGitIdentity: GetGitIdentityRequest;
   getSpecCatalog: GetSpecCatalogRequest;
   readSpec: ReadSpecRequest;
@@ -178,6 +180,8 @@ export type ResponseByOperation = {
   readWorkspaceFile: ReadWorkspaceFileResponse;
   searchWorkspace: SearchWorkspaceResponse;
   watchWorkspace: WorkspaceFileEventBatch;
+  listProjectDirectory: ListWorkspaceDirectoryResponse;
+  searchProject: SearchWorkspaceResponse;
   getGitIdentity: GitIdentityResponse;
   getSpecCatalog: SpecCatalogResponse;
   readSpec: ReadSpecResponse;
@@ -691,6 +695,22 @@ export const endpoints = {
     requestType: "WatchWorkspaceRequest",
     responseType: "WorkspaceFileEventBatch",
     responseMode: "stream",
+  },
+  listProjectDirectory: {
+    operationName: "listProjectDirectory",
+    namespace: "fileSystem",
+    memberName: "listProjectDirectory",
+    requestType: "ListProjectDirectoryRequest",
+    responseType: "ListWorkspaceDirectoryResponse",
+    responseMode: "unary",
+  },
+  searchProject: {
+    operationName: "searchProject",
+    namespace: "fileSystem",
+    memberName: "searchProject",
+    requestType: "SearchProjectRequest",
+    responseType: "SearchWorkspaceResponse",
+    responseMode: "unary",
   },
   getGitIdentity: {
     operationName: "getGitIdentity",

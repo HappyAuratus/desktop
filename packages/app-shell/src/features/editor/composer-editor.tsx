@@ -26,11 +26,16 @@ import {
   queryStatesEqual,
   type ComposerQueryState,
 } from "./composer-query";
+import { AppComposerFile } from "./composer-file-extension";
 import "./composer-editor.css";
 
 export interface ComposerEditorHandle {
   getText: () => string;
-  focus: (options?: { preventScroll?: boolean; at?: "start" | "end" }) => void;
+  focus: (options?: {
+    preventScroll?: boolean;
+    /** Defaults to end; `keep` restores focus without moving the caret. */
+    at?: "start" | "end" | "keep";
+  }) => void;
   clear: () => void;
   replaceText: (text: string) => void;
   insertPromptToken: (kind: PromptTokenKind, name: string) => void;
@@ -124,6 +129,7 @@ export const ComposerEditor = forwardRef<
     () =>
       createComposerExtensions({
         placeholder: () => placeholderRef.current,
+        features: { fileChip: AppComposerFile },
       }),
     [],
   );
@@ -223,6 +229,14 @@ export const ComposerEditor = forwardRef<
       getText: () => documentPlainText(editor.state.doc),
       focus: (options) => {
         const at = options?.at ?? "end";
+        if (at === "keep") {
+          if (options?.preventScroll === true) {
+            editor.view.dom.focus({ preventScroll: true });
+            return;
+          }
+          editor.commands.focus();
+          return;
+        }
         if (options?.preventScroll === true) {
           editor.view.dom.focus({ preventScroll: true });
           if (at === "start") {
@@ -247,8 +261,10 @@ export const ComposerEditor = forwardRef<
         editor.commands.setPromptToken(kind, name);
       },
       insertFileChips: (files) => {
+        // Leave the caret where insertContent placed it so mid-prompt @ mentions
+        // do not jump to the document end. Callers that want the end (sidebar
+        // inject) should follow with focus({ at: "end" }).
         editor.commands.insertComposerFiles(files);
-        editor.commands.focus("end");
       },
       appendText: (text) => {
         const current = documentPlainText(editor.state.doc).trimEnd();

@@ -34,12 +34,18 @@ import { ComposerActionMenu } from "./composer-action-menu";
 import { ImagePreviewDialog } from "./image-preview-dialog";
 import {
   buildComposerActions,
+  buildComposerFileActions,
   filterComposerActions,
   visibleComposerActions,
   type ComposerAction,
   type ComposerActionGroup,
 } from "./composer-actions";
 import { SelectedPluginsButton } from "./selected-plugins-button";
+import {
+  fileMentionMenuStatus,
+  fileMentionStatusMessageKey,
+  useComposerFileMentions,
+} from "./use-composer-file-mentions";
 import { useComposerFileContextStore } from "../../state/stores/composer-file-context-store";
 import { usePluginInstallStore } from "../../state/stores/plugin-install-store";
 import { useComposerPluginSelectionStore } from "../../state/stores/composer-plugin-selection-store";
@@ -59,7 +65,7 @@ import {
   type PluginEntry,
 } from "../settings/plugin-catalog";
 
-/** Candidate plugins for the composer's "@" and "+" menus; the AI agent CLIs are chosen elsewhere. */
+/** Candidate plugins for the composer's "+" menu; the AI agent CLIs are chosen elsewhere. */
 const CANDIDATE_PLUGINS = PLUGIN_CATALOG.filter(
   (plugin) => plugin.categoryKey !== AI_AGENT_CATEGORY_KEY,
 );
@@ -68,6 +74,8 @@ const EMPTY_PLUGIN_IDS: string[] = [];
 
 interface ComposerProps {
   taskId?: string;
+  /** Project checkout used for @ mentions when no task is selected yet. */
+  projectId?: string;
   onSend: (text: string, images?: acp.ImageContent[]) => void | Promise<void>;
   /**
    * Invoked when Enter (or send) is pressed with an empty input. Used in Spec mode
@@ -116,6 +124,7 @@ const MAX_TOTAL_IMAGE_BYTES = 10 * 1024 * 1024;
  */
 export function Composer({
   taskId,
+  projectId,
   onSend,
   onEmptySubmit,
   onStop,
@@ -130,6 +139,7 @@ export function Composer({
   const { t } = useTranslation();
   const [query, setQuery] = useState<ComposerQueryState>(EMPTY_COMPOSER_QUERY);
   const [selectedActionIndex, setSelectedActionIndex] = useState(0);
+  const actionHighlightSourceRef = useRef<"keyboard" | "pointer">("keyboard");
   const [menuDismissed, setMenuDismissed] = useState(false);
   const [plusMenuOpen, setPlusMenuOpen] = useState(false);
   const [expandedGroups, setExpandedGroups] = useState<
@@ -173,7 +183,7 @@ export function Composer({
     [selectedPluginIds],
   );
   // Only plugins the user actually installed, hasn't disabled, and hasn't already applied
-  // show up in "@" and "+" — picking one removes it from the menu until it is removed below.
+  // show up in "+" — picking one removes it from the menu until it is removed below.
   const composerPlugins = useMemo(
     () =>
       CANDIDATE_PLUGINS.filter(
@@ -271,11 +281,20 @@ export function Composer({
     lastInjectedRequestId.current = pendingFileContext.id;
     editorRef.current?.insertFileChips(pendingFileContext.selections);
     consumeFileContext(taskId, pendingFileContext.id);
-    editorRef.current?.focus();
+    editorRef.current?.focus({ at: "end" });
   }, [consumeFileContext, pendingFileContext, taskId]);
   const slashQuery = query.slashQuery;
   const atQuery = query.atQuery;
-  const atTriggerIndex = query.atTriggerIndex;
+  const fileMentionEnabled =
+    !plusMenuOpen && !menuDismissed && !disabled && !isResponding;
+  const fileMentions = useComposerFileMentions({
+    taskId,
+    projectId,
+    atQuery,
+    enabled: fileMentionEnabled,
+  });
+  const fileMentionActive = fileMentions.active;
+
   const allActions = useMemo(
     () =>
       buildComposerActions({
@@ -291,28 +310,36 @@ export function Composer({
   );
   const filteredActions = useMemo(() => {
     if (plusMenuOpen) return filterComposerActions(allActions, "");
-    if (atQuery !== null)
-      return filterComposerActions(
-        allActions.filter((action) => action.group === "plugins"),
-        atQuery,
-      );
-    // Slash is for skills and commands only; plugins are reached through "@" or the "+" menu.
+    if (atQuery !== null) {
+      // Loading/error/debounce clears paths so the menu never offers stale hits.
+      return buildComposerFileActions(fileMentions.entries);
+    }
+    // Slash is for skills and commands only; plugins are reached through the "+" menu.
     return filterComposerActions(
       allActions.filter((action) => action.group !== "plugins"),
       slashQuery ?? "",
     );
-  }, [allActions, atQuery, plusMenuOpen, slashQuery]);
+  }, [allActions, atQuery, fileMentions.entries, plusMenuOpen, slashQuery]);
   const visibleActions = useMemo(
     () => visibleComposerActions(filteredActions, expandedGroups),
     [expandedGroups, filteredActions],
   );
+  const fileMenuStatus = fileMentionMenuStatus(fileMentions.status);
+  const fileMenuStatusMessageKey = fileMentionStatusMessageKey(
+    fileMentions.status,
+    fileMentions.debouncedQuery,
+  );
+  const fileMenuStatusMessage =
+    fileMenuStatusMessageKey === undefined
+      ? undefined
+      : t(fileMenuStatusMessageKey);
   const showActionMenu =
-    visibleActions.length > 0 &&
     (plusMenuOpen ||
       (slashQuery !== null && !menuDismissed) ||
       (atQuery !== null && !menuDismissed)) &&
     !disabled &&
-    !isResponding;
+    !isResponding &&
+    (visibleActions.length > 0 || fileMentionActive);
 
   const hasText = !query.isBlank;
   // With an empty input the send affordance still fires when there is a stage to
@@ -416,19 +443,27 @@ export function Composer({
     requestAnimationFrame(() => editorRef.current?.focus());
   };
 
-  /** Adds a plugin to this message's applied set and clears any "@" token that triggered it. */
+  /** Adds a plugin to this message's applied set (reached from the "+" menu). */
   const applyPlugin = (plugin: PluginEntry) => {
     addSelectedPlugin(conversationKey, plugin.id);
-    if (atTriggerIndex !== null) {
-      editorRef.current?.removeAtToken();
-    }
     closeActionMenu();
     requestAnimationFrame(() => editorRef.current?.focus());
+  };
+
+  /** Inserts a workspace path chip (file or folder) and clears the `@…` token. */
+  const insertFileMention = (path: string, entryKind: "file" | "directory") => {
+    editorRef.current?.removeAtToken();
+    editorRef.current?.insertFileChips([{ path, kind: entryKind }]);
+    closeActionMenu();
+    requestAnimationFrame(() => editorRef.current?.focus({ at: "keep" }));
   };
 
   /** Executes the selected palette action through its existing product data path. */
   const selectAction = (action: ComposerAction) => {
     switch (action.group) {
+      case "files":
+        insertFileMention(action.path, action.entryKind);
+        return;
       case "skills":
         insertPromptToken("skill", action.skill.name);
         return;
@@ -489,9 +524,27 @@ export function Composer({
 
   const handleMenuKeyDown = (event: KeyboardEvent): boolean => {
     if (!showActionMenu) return false;
+    if (visibleActions.length === 0) {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        closeActionMenu();
+        return true;
+      }
+      // Keep Enter/Tab from sending while the @ file palette is open without hits.
+      if (
+        fileMentionActive &&
+        (event.key === "Enter" || event.key === "Tab") &&
+        !event.isComposing
+      ) {
+        event.preventDefault();
+        return true;
+      }
+      return false;
+    }
     if (event.key === "ArrowDown" || event.key === "ArrowUp") {
       event.preventDefault();
       const direction = event.key === "ArrowDown" ? 1 : -1;
+      actionHighlightSourceRef.current = "keyboard";
       setSelectedActionIndex(
         (current) =>
           (current + direction + visibleActions.length) % visibleActions.length,
@@ -505,6 +558,10 @@ export function Composer({
     }
     if ((event.key === "Enter" || event.key === "Tab") && !event.isComposing) {
       event.preventDefault();
+      // Debounce / in-flight: keep highlighting but do not commit a stale path.
+      if (fileMentionActive && fileMentions.selectionLocked) {
+        return true;
+      }
       const action = visibleActions[selectedActionIndex];
       if (action !== undefined) selectAction(action);
       return true;
@@ -516,8 +573,26 @@ export function Composer({
     setPlusMenuOpen(false);
     setMenuDismissed(false);
     setExpandedGroups((current) => (current.size === 0 ? current : new Set()));
+    actionHighlightSourceRef.current = "keyboard";
     setSelectedActionIndex(0);
   };
+
+  // Render-phase highlight sync (avoid setState-in-effect): reset when the
+  // settled @ query changes, and clamp when the visible list shrinks.
+  const [highlightQueryKey, setHighlightQueryKey] = useState(
+    fileMentions.debouncedQuery,
+  );
+  if (fileMentionActive && fileMentions.debouncedQuery !== highlightQueryKey) {
+    setHighlightQueryKey(fileMentions.debouncedQuery);
+    actionHighlightSourceRef.current = "keyboard";
+    setSelectedActionIndex(0);
+  }
+  if (
+    visibleActions.length > 0 &&
+    selectedActionIndex >= visibleActions.length
+  ) {
+    setSelectedActionIndex(visibleActions.length - 1);
+  }
 
   // Hide the model picker only when the footer cannot fit both control groups.
   // The stored width lets the check continue to work after the picker is hidden.
@@ -572,7 +647,10 @@ export function Composer({
   }, [showModelSelector]);
 
   useEffect(() => {
-    if (!showActionMenu) return;
+    if (!showActionMenu || visibleActions.length === 0) return;
+    // Pointer highlight already follows the cursor; scrolling that row into view
+    // fights the wheel and snaps the list back toward the active item.
+    if (actionHighlightSourceRef.current !== "keyboard") return;
     const safeIndex = Math.min(selectedActionIndex, visibleActions.length - 1);
     actionOptionRefs.current[safeIndex]?.scrollIntoView?.({ block: "nearest" });
   }, [selectedActionIndex, showActionMenu, visibleActions.length]);
@@ -600,7 +678,15 @@ export function Composer({
           activeIndex={selectedActionIndex}
           expandedGroups={expandedGroups}
           optionRefs={actionOptionRefs}
-          onActiveIndexChange={setSelectedActionIndex}
+          status={fileMentionActive ? fileMenuStatus : "ready"}
+          statusMessage={fileMentionActive ? fileMenuStatusMessage : undefined}
+          truncated={fileMentions.truncated}
+          filesPalette={fileMentionActive}
+          selectionLocked={fileMentionActive && fileMentions.selectionLocked}
+          onActiveIndexChange={(index) => {
+            actionHighlightSourceRef.current = "pointer";
+            setSelectedActionIndex(index);
+          }}
           onToggleGroup={(group) => {
             setExpandedGroups((current) => {
               const next = new Set(current);

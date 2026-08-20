@@ -445,6 +445,7 @@ export function createMockClient(state: MockClientState): ContractsClient {
     },
     fileSystem: {
       listWorkspaceDirectory: async () => ({ path: "", entries: [] }),
+      listProjectDirectory: async () => ({ path: "", entries: [] }),
       readWorkspaceFile: async (request) => ({
         path: request.path,
         content: "",
@@ -452,6 +453,7 @@ export function createMockClient(state: MockClientState): ContractsClient {
         sizeBytes: 0,
       }),
       searchWorkspace: async () => ({ results: [], truncated: false }),
+      searchProject: async () => ({ results: [], truncated: false }),
       watchWorkspace: () =>
         (async function* () {
           yield* [];

@@ -17,8 +17,8 @@ function tokenText(kind: PromptTokenKind, name: string): string {
 
 /**
  * Inline mention for `$skill` / `/command`. Atom so the token deletes as one
- * unit. Color comes from the chromatic chart token, not `--primary` (Ora
- * primary is grayscale and reads as body text).
+ * unit. Color comes from soft mint wash + forest ink in app-shell CSS
+ * (Cursor-style), not `--primary` (Ora primary is grayscale).
  */
 export const PromptToken = Node.create({
   name: "promptToken",
