@@ -19,7 +19,11 @@ Tiptap preset and plain-text helpers for prompt boxes (chat composer, HITL).
   deletes remove real characters. Typing at the start of a converted mark stays
   inside it; typing after it is body text. Pasted Markdown and restored
   `documentPlainText` drafts parse into the same nodes so `#` / `**` /
-  `- [ ]` still render as structure. Raw strings that must stay literal (`<`
+  `- [ ]` still render as structure. Path-like backticks (slash paths, known
+  source extensions, dotfiles) and `$skill` tokens become chips on that text
+  path; versions (`v1.0`), globs (`*.ts`), slash-command chips, and directory
+  `kind` need TipTap JSON parking (chat composer) for a lossless round-trip.
+  Raw strings that must stay literal (`<`
   as text) use `plainTextToComposerContent`. `[ ] ` at the start of a paragraph
   or bullet becomes a task item (not a checklist nested under a disc). Marks
   reuse the kit Bold / Italic / Strike / Code / Highlight / Link / Underline

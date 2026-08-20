@@ -35,6 +35,9 @@ export function looksLikeComposerMarkdown(text: string): boolean {
  * Turns Markdown that the prompt box can represent into Tiptap JSON.
  * Inverse of `documentPlainText` for paste and HITL draft restore.
  * HTML tags stay text so `<script>` cannot become markup.
+ * Backtick spans that look like workspace paths become `composerFile` chips;
+ * `$name` skill tokens become `promptToken` nodes. Slash-command chips and
+ * directory `kind` need TipTap JSON parking for a lossless session switch.
  */
 export function markdownToComposerContent(text: string): JSONContent {
   const blocks = parseBlocks(text.replace(/\r\n/g, "\n").split("\n"));
@@ -269,10 +272,32 @@ function parseInline(text: string): JSONContent[] {
     if (rest[0] === "`") {
       const close = rest.indexOf("`", 1);
       if (close !== -1) {
-        pushText(nodes, rest.slice(1, close), [{ type: "code" }]);
+        const inner = rest.slice(1, close);
+        const file = tryParseComposerFileChip(inner);
+        if (file !== null) {
+          nodes.push(file);
+        } else {
+          pushText(nodes, inner, [{ type: "code" }]);
+        }
         rest = rest.slice(close + 1);
         continue;
       }
+    }
+
+    const prompt = takePromptToken(rest, nodes);
+    if (prompt !== null) {
+      nodes.push(prompt.node);
+      rest = rest.slice(prompt.end);
+      continue;
+    }
+
+    // `/command` chips are not reconstructed from plain text — bare `/…` is too
+    // ambiguous with paths (`/usr/bin`, `a / b`). Session switch parks TipTap
+    // JSON so slash chips survive; restart keeps the `/name` characters.
+    if (rest[0] === "$") {
+      pushText(nodes, "$", []);
+      rest = rest.slice(1);
+      continue;
     }
 
     if (rest.startsWith("[")) {
@@ -313,6 +338,96 @@ function parseInline(text: string): JSONContent[] {
   }
 
   return nodes;
+}
+
+/**
+ * Restores `$skill` chips from `documentPlainText`. Slash commands stay text on
+ * this path (ambiguous with paths); park TipTap JSON for lossless `/` chips.
+ * Tokens glued to a preceding word character (`cost$x`) stay text.
+ */
+function takePromptToken(
+  text: string,
+  preceding: JSONContent[],
+): { node: JSONContent; end: number } | null {
+  const match = /^\$([A-Za-z][\w-]*)/.exec(text);
+  if (match === null) {
+    return null;
+  }
+  const last = preceding.at(-1);
+  if (
+    last?.type === "text" &&
+    typeof last.text === "string" &&
+    last.text.length > 0 &&
+    /[A-Za-z0-9]$/.test(last.text)
+  ) {
+    return null;
+  }
+  return {
+    node: {
+      type: "promptToken",
+      attrs: {
+        kind: "skill",
+        name: match[1]!,
+      },
+    },
+    end: match[0].length,
+  };
+}
+
+/** Line-range suffix on a path chip: `:12` or `:12-34`. */
+const FILE_CHIP_RANGE = /^(.*):(\d+)(?:-(\d+))?$/;
+
+/**
+ * Backtick payloads that look like workspace paths become file chips; plain
+ * identifiers stay inline code so `` `code` `` does not become a chip.
+ */
+function tryParseComposerFileChip(inner: string): JSONContent | null {
+  if (inner.length === 0 || inner.includes("`")) {
+    return null;
+  }
+  let path = inner;
+  let startLine: number | null = null;
+  let endLine: number | null = null;
+  const ranged = FILE_CHIP_RANGE.exec(inner);
+  if (ranged !== null) {
+    path = ranged[1]!;
+    startLine = Number(ranged[2]);
+    endLine = ranged[3] === undefined ? startLine : Number(ranged[3]);
+  }
+  if (!looksLikeComposerFilePath(path)) {
+    return null;
+  }
+  return {
+    type: "composerFile",
+    attrs: {
+      path,
+      startLine,
+      endLine,
+      kind: "file",
+    },
+  };
+}
+
+/** Common source/doc extensions; bare `v1.0` / globs stay inline code. */
+const SOURCE_FILE_EXT =
+  /\.(?:ts|tsx|js|jsx|mjs|cjs|json|md|mdx|css|scss|html|rs|py|go|java|kt|swift|c|cc|cpp|h|hpp|cs|rb|php|sh|bash|zsh|yaml|yml|toml|xml|svg|png|jpg|jpeg|gif|webp|txt|sql|proto|graphql|vue|svelte|dart|lua|r|zig|ex|exs)$/i;
+
+/** Path-like enough to prefer a chip over inline code on text-only restore. */
+function looksLikeComposerFilePath(path: string): boolean {
+  if (path.length === 0 || /\s/.test(path) || /[*?]/.test(path)) {
+    return false;
+  }
+  if (path.includes("/") || path.includes("\\")) {
+    return true;
+  }
+  if (path.startsWith(".") && path.length > 1) {
+    return true;
+  }
+  // Semver-looking tokens (`v1.0`, `1.2.3`) are intentional inline code.
+  if (/^v?\d+(?:\.\d+)+$/i.test(path)) {
+    return false;
+  }
+  return SOURCE_FILE_EXT.test(path);
 }
 
 /**
@@ -491,7 +606,8 @@ function nextSpecial(text: string, from: number): number {
       char === "*" ||
       char === "_" ||
       char === "~" ||
-      char === "="
+      char === "=" ||
+      char === "$"
     ) {
       return index;
     }

@@ -36,6 +36,8 @@ import {
 } from "../../lib/workspace-path";
 import { useTaskWorkspace } from "../../state/hooks/use-task-workspace";
 import { useComposerFileContextStore } from "../../state/stores/composer-file-context-store";
+import { conversationKeyFor } from "../../state/stores/conversation-key";
+import { useWorkspaceSelectionStore } from "../../state/stores/workspace-selection-store";
 import {
   WorkspaceFileViewer,
   type WorkspaceFileLineSelection,
@@ -228,7 +230,12 @@ export function WorkspaceFilesView({
     );
   };
   const addLineSelectionToChat = (selection: WorkspaceFileLineSelection) => {
-    useComposerFileContextStore.getState().addSelection(taskId, selection);
+    const conversationKey = conversationKeyFor(
+      useWorkspaceSelectionStore.getState().selection,
+    );
+    useComposerFileContextStore
+      .getState()
+      .addSelection(conversationKey, selection);
     toast.success(
       t("files.lineSelectionAdded", {
         startLine: selection.startLine,

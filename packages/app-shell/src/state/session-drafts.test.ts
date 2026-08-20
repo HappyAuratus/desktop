@@ -135,6 +135,36 @@ describe("recoverFailedDraftSend", () => {
     ]);
   });
 
+  it("parks TipTap doc alongside text so chips survive abandon repark", () => {
+    const id = startSessionDraft({ projectId: "p1", taskId: null });
+    const doc = {
+      type: "doc",
+      content: [
+        {
+          type: "paragraph",
+          content: [
+            {
+              type: "promptToken",
+              attrs: { kind: "skill", name: "code-review" },
+            },
+          ],
+        },
+      ],
+    };
+
+    reparkDraftComposerContent({
+      draftId: id,
+      text: "$code-review ",
+      doc,
+    });
+
+    expect(useComposerInputStore.getState().byKey[`draft:${id}`]).toEqual({
+      text: "$code-review ",
+      images: [],
+      doc,
+    });
+  });
+
   it("unbinds the dead warm id, reselects the draft, and re-parks the message", () => {
     const id = startSessionDraft({ projectId: "p1", taskId: null });
     useDraftSessionsStore.getState().updateContent(id, { text: "hello" });

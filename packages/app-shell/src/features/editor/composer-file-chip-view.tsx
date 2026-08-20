@@ -29,6 +29,7 @@ export function ComposerFileChipView({ node }: NodeViewProps) {
       as="span"
       className="composer-file-ref"
       data-composer-file={attrs.path}
+      data-kind={kind}
       contentEditable={false}
       title={title}
     >

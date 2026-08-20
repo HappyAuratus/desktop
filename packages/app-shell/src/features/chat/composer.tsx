@@ -25,6 +25,7 @@ import {
   EMPTY_COMPOSER_QUERY,
   type ComposerQueryState,
 } from "../editor/composer-query";
+import type { JSONContent } from "@tiptap/core";
 import type { Skill } from "@ora/contracts";
 import { useTranslation } from "react-i18next";
 import { ModelSelector } from "./model-selector";
@@ -209,13 +210,17 @@ export function Composer({
   // Bumped on every submit so an older send's reject cannot restore text over a
   // newer attempt (Stop during handshake, then type and send again).
   const submitGenerationRef = useRef(0);
-  const pendingFileContext = useComposerFileContextStore((state) =>
-    taskId === undefined ? undefined : state.pendingByTask[taskId],
+  const pendingFileContext = useComposerFileContextStore(
+    (state) => state.pendingByConversation[conversationKey],
   );
   const consumeFileContext = useComposerFileContextStore(
     (state) => state.consumeSelections,
   );
   const lastInjectedRequestId = useRef<number | null>(null);
+
+  useEffect(() => {
+    lastInjectedRequestId.current = null;
+  }, [conversationKey]);
 
   /** Keeps async attachment work and React state on the same latest array. */
   const replaceAttachments = useCallback((next: ImageAttachment[]) => {
@@ -224,17 +229,19 @@ export function Composer({
   }, []);
 
   /**
-   * Parks unsent text/images on the current conversation key so switching
-   * sessions (or drafts) can restore them. Also mirrors onto the draft store
-   * while the surface is still a client-only draft, which is what feeds the
-   * muted sidebar title.
+   * Parks unsent text/images/doc on the current conversation key so switching
+   * sessions (or drafts) can restore them. TipTap `doc` stays in memory so
+   * chips round-trip with their kind. Also mirrors typed text onto the draft
+   * store while the surface is still a client-only draft (sidebar title).
    */
   const persistComposerInput = useCallback(
-    (text: string, nextImages?: ImageAttachment[]) => {
+    (text: string, nextImages?: ImageAttachment[], doc?: JSONContent) => {
       const images = nextImages ?? attachmentsRef.current;
+      const parkedDoc = doc ?? editorRef.current?.getJSON();
       useComposerInputStore.getState().setInput(conversationKey, {
         text,
         images,
+        ...(parkedDoc !== undefined ? { doc: parkedDoc } : {}),
       });
       if (draftId === null || selectedSessionId !== null) return;
       useDraftSessionsStore.getState().updateContent(draftId, {
@@ -249,13 +256,18 @@ export function Composer({
   // attachmentsRef and the store aligned during hydrate and send-failure restore.
   const suppressPersistRef = useRef(false);
 
-  /** Sets editor text and attachments without re-entering persistComposerInput. */
+  /** Sets editor content and attachments without re-entering persistComposerInput. */
   const applyComposerContent = useCallback(
-    (text: string, images: ImageAttachment[]) => {
+    (text: string, images: ImageAttachment[], doc?: JSONContent) => {
       suppressPersistRef.current = true;
+      // Parked `@…` / `/…` suffixes must not pop the palette on session restore.
+      setPlusMenuOpen(false);
+      setMenuDismissed(true);
       try {
         replaceAttachments(images);
-        if (text.length === 0) {
+        if (doc !== undefined) {
+          editorRef.current?.replaceDocument(doc);
+        } else if (text.length === 0) {
           editorRef.current?.clear();
         } else {
           editorRef.current?.replaceText(text);
@@ -273,7 +285,7 @@ export function Composer({
     hydratedConversationKey.current = conversationKey;
     const parked = useComposerInputStore.getState().byKey[conversationKey];
     if (parked !== undefined) {
-      applyComposerContent(parked.text, parked.images);
+      applyComposerContent(parked.text, parked.images, parked.doc);
       return;
     }
     if (draftId !== null && selectedSessionId === null) {
@@ -286,20 +298,37 @@ export function Composer({
     applyComposerContent("", []);
   }, [applyComposerContent, conversationKey, draftId, selectedSessionId]);
 
+  const conversationKeyRef = useRef(conversationKey);
+  conversationKeyRef.current = conversationKey;
+
   useEffect(() => {
     if (
-      taskId === undefined ||
       pendingFileContext === undefined ||
       pendingFileContext.id === lastInjectedRequestId.current
     ) {
       return;
     }
 
-    lastInjectedRequestId.current = pendingFileContext.id;
-    editorRef.current?.insertFileChips(pendingFileContext.selections);
-    consumeFileContext(taskId, pendingFileContext.id);
-    editorRef.current?.focus({ at: "end" });
-  }, [consumeFileContext, pendingFileContext, taskId]);
+    const requestId = pendingFileContext.id;
+    const selections = pendingFileContext.selections;
+    const keyAtSchedule = conversationKey;
+    // Defer past session hydrate's replaceDocument. Consume only after insert
+    // so clearing pending does not cancel this timer via effect cleanup.
+    const timer = window.setTimeout(() => {
+      if (conversationKeyRef.current !== keyAtSchedule) return;
+      lastInjectedRequestId.current = requestId;
+      try {
+        editorRef.current?.insertFileChips(selections);
+        consumeFileContext(keyAtSchedule, requestId);
+        editorRef.current?.focus({ at: "end" });
+      } catch {
+        // Hydrate may still be settling; leave pending so a later effect retry
+        // can deliver the chips instead of dropping the explorer selection.
+        lastInjectedRequestId.current = null;
+      }
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, [consumeFileContext, conversationKey, pendingFileContext]);
   const slashQuery = query.slashQuery;
   const atQuery = query.atQuery;
   const fileMentionEnabled =
@@ -374,6 +403,7 @@ export function Composer({
       return;
     }
     const sentAttachments = attachments;
+    const sentDoc = editorRef.current?.getJSON();
     const sentImages =
       sentAttachments.length === 0
         ? undefined
@@ -422,6 +452,20 @@ export function Composer({
             selection.sessionId === sendSessionId;
           let adoptedSession: string | undefined;
           if (error instanceof DraftSendAbandonedError) {
+            // Workspace already reparked text/images onto the draft; attach the
+            // TipTap tree so / and directory chips survive when the user returns
+            // (including after they navigated away mid-handshake).
+            if (sendDraftId !== null && sentDoc !== undefined) {
+              const draftKey = `draft:${sendDraftId}`;
+              const parked = useComposerInputStore.getState().byKey[draftKey];
+              useComposerInputStore.getState().setInput(draftKey, {
+                text: parked?.text ?? text,
+                images: parked?.images ?? sentAttachments,
+                doc: sentDoc,
+              });
+            } else if (sentDoc !== undefined) {
+              persistComposerInput(text, sentAttachments, sentDoc);
+            }
             if (!onSendSurface) return;
           } else {
             adoptedSession = composerSendAdoptedSession(sendConversationKey);
@@ -439,11 +483,12 @@ export function Composer({
             useComposerInputStore.getState().setInput(adoptedSession, {
               text,
               images: sentAttachments,
+              ...(sentDoc !== undefined ? { doc: sentDoc } : {}),
             });
           } else {
-            persistComposerInput(text, sentAttachments);
+            persistComposerInput(text, sentAttachments, sentDoc);
           }
-          applyComposerContent(text, sentAttachments);
+          applyComposerContent(text, sentAttachments, sentDoc);
         } finally {
           clearComposerSendAdoption(sendConversationKey);
         }
@@ -585,6 +630,9 @@ export function Composer({
   };
 
   const handleDocChange = () => {
+    // Programmatic hydrate/clear must not reopen @ / menus from a parked `@…`
+    // or `/…` suffix at the caret.
+    if (suppressPersistRef.current) return;
     setPlusMenuOpen(false);
     setMenuDismissed(false);
     setExpandedGroups((current) => (current.size === 0 ? current : new Set()));

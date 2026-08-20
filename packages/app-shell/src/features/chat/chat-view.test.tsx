@@ -33,6 +33,7 @@ import { ConversationNavigator } from "./conversation-navigator";
 import { MessageList } from "./message-list";
 import { ToolCallBlock } from "./tool-call-block";
 import { useComposerInputStore } from "../../state/stores/composer-input-store";
+import { useComposerFileContextStore } from "../../state/stores/composer-file-context-store";
 import { useDraftSessionsStore } from "../../state/stores/draft-sessions-store";
 import { useWorkspaceSelectionStore } from "../../state/stores/workspace-selection-store";
 import {
@@ -52,6 +53,7 @@ afterEach(() => {
   resetComposerSendAdoptionsForTests();
   useDraftSessionsStore.getState().clear();
   useComposerInputStore.getState().reset();
+  useComposerFileContextStore.setState({ pendingByConversation: {} });
 });
 
 /** Stale-time-zero QueryClient so tests don't need to wait for refetch intervals. */
@@ -477,12 +479,43 @@ describe("Composer", () => {
       type: "image/png",
     });
 
-    fireEvent.paste(textarea, { clipboardData: { files: [image] } });
+    fireEvent.paste(textarea, {
+      clipboardData: {
+        files: [image],
+        getData: () => "",
+      },
+    });
 
     expect(
       await screen.findByRole("img", { name: "clipboard.png" }),
     ).toBeVisible();
     expect(composerText(textarea)).toBe("");
+    expect(onSend).not.toHaveBeenCalled();
+  });
+
+  it("pastes clipboard text alongside an image instead of dropping the text", async () => {
+    const onSend = vi.fn();
+    renderWithI18n(<Composer onSend={onSend} isResponding={false} />);
+    const textarea = screen.getByRole("textbox");
+    const image = new File(["clipboard"], "clipboard.png", {
+      type: "image/png",
+    });
+
+    fireEvent.paste(textarea, {
+      clipboardData: {
+        files: [image],
+        getData: (type: string) =>
+          type === "text/plain" ? "**pasted** note" : "",
+      },
+    });
+
+    expect(
+      await screen.findByRole("img", { name: "clipboard.png" }),
+    ).toBeVisible();
+    await waitFor(() => {
+      expect(composerText(textarea)).toContain("pasted");
+      expect(textarea.querySelector("strong, b")).not.toBeNull();
+    });
     expect(onSend).not.toHaveBeenCalled();
   });
 
@@ -518,6 +551,114 @@ describe("Composer", () => {
         .selectSession("session-b", "task-1", "project-1");
     });
     expect(composerText(textarea)).toBe("on B");
+  });
+
+  it("restores file and skill chips (not inline code) when switching sessions", async () => {
+    useComposerInputStore.getState().reset();
+    const parkedDoc = {
+      type: "doc",
+      content: [
+        {
+          type: "paragraph",
+          content: [
+            {
+              type: "promptToken",
+              attrs: { kind: "skill", name: "code-review" },
+            },
+            { type: "text", text: " " },
+            {
+              type: "composerFile",
+              attrs: {
+                path: "src/app.ts",
+                startLine: null,
+                endLine: null,
+                kind: "file",
+              },
+            },
+            { type: "text", text: " " },
+            {
+              type: "composerFile",
+              attrs: {
+                path: "src",
+                startLine: null,
+                endLine: null,
+                kind: "directory",
+              },
+            },
+            { type: "text", text: " " },
+            {
+              type: "promptToken",
+              attrs: { kind: "command", name: "test" },
+            },
+            { type: "text", text: " " },
+          ],
+        },
+      ],
+    };
+    useComposerInputStore.getState().setInput("session-a", {
+      text: "$code-review `src/app.ts` `src` /test ",
+      images: [],
+      doc: parkedDoc,
+    });
+    useWorkspaceSelectionStore
+      .getState()
+      .selectSession("session-b", "task-1", "project-1");
+
+    renderWithI18n(<Composer onSend={vi.fn()} isResponding={false} />);
+    const textarea = screen.getByRole("textbox");
+    expect(composerText(textarea)).toBe("");
+
+    act(() => {
+      useWorkspaceSelectionStore
+        .getState()
+        .selectSession("session-a", "task-1", "project-1");
+    });
+
+    await waitFor(() => {
+      expect(
+        textarea.querySelector("[data-prompt-token='skill']"),
+      ).not.toBeNull();
+      expect(
+        textarea.querySelector("[data-composer-file='src/app.ts']"),
+      ).not.toBeNull();
+      expect(textarea.querySelector("code")).toBeNull();
+      const dirChip = textarea.querySelector("[data-composer-file='src']");
+      expect(dirChip).not.toBeNull();
+      expect(dirChip).toHaveAttribute("data-kind", "directory");
+      expect(
+        textarea.querySelector("[data-prompt-token='command']"),
+      ).not.toBeNull();
+    });
+  });
+
+  it("rebuilds path and $skill chips from parked text when TipTap doc is missing", async () => {
+    useComposerInputStore.getState().reset();
+    useComposerInputStore.getState().setInput("session-a", {
+      text: "see `src/app.ts` and $code-review",
+      images: [],
+    });
+    useWorkspaceSelectionStore
+      .getState()
+      .selectSession("session-b", "task-1", "project-1");
+
+    renderWithI18n(<Composer onSend={vi.fn()} isResponding={false} />);
+    const textarea = screen.getByRole("textbox");
+
+    act(() => {
+      useWorkspaceSelectionStore
+        .getState()
+        .selectSession("session-a", "task-1", "project-1");
+    });
+
+    await waitFor(() => {
+      expect(
+        textarea.querySelector("[data-composer-file='src/app.ts']"),
+      ).not.toBeNull();
+      expect(
+        textarea.querySelector("[data-prompt-token='skill']"),
+      ).not.toBeNull();
+      expect(textarea.querySelector("code")).toBeNull();
+    });
   });
 
   it("keeps parked images isolated when switching sessions", async () => {
@@ -764,6 +905,191 @@ describe("Composer", () => {
     expect(composerText(textarea)).toBe("");
     expect(
       useComposerInputStore.getState().byKey[`draft:${draftB}`],
+    ).toBeUndefined();
+  });
+
+  it("keeps TipTap doc on the draft park after abandon away from the send surface", async () => {
+    const user = userEvent.setup();
+    let rejectSend!: (error: Error) => void;
+    let sendPromise!: Promise<void>;
+    const onSend = vi.fn(() => {
+      sendPromise = new Promise<void>((_resolve, reject) => {
+        rejectSend = reject;
+      });
+      return sendPromise;
+    });
+    useComposerInputStore.getState().reset();
+    useDraftSessionsStore.getState().clear();
+    const draftId = useDraftSessionsStore.getState().ensureEmptyDraft({
+      projectId: "project-1",
+      taskId: null,
+    });
+    useWorkspaceSelectionStore
+      .getState()
+      .selectDraft(draftId, null, "project-1");
+
+    renderWithI18n(
+      <Composer
+        onSend={onSend}
+        isResponding={false}
+        skills={[
+          {
+            id: "skill-1",
+            namespace: "local",
+            name: "code-review",
+            description: "Review",
+            availability: "available",
+          },
+        ]}
+        availableCommands={[{ name: "test", description: "Run tests" }]}
+      />,
+    );
+    const textarea = screen.getByRole("textbox");
+    await user.click(screen.getByRole("button", { name: "打开快捷操作" }));
+    await user.click(screen.getByRole("option", { name: "code-review" }));
+    expect(
+      textarea.querySelector("[data-prompt-token='skill']"),
+    ).not.toBeNull();
+    await user.type(textarea, "/");
+    await user.click(await screen.findByRole("option", { name: "test" }));
+    expect(
+      textarea.querySelector("[data-prompt-token='command']"),
+    ).not.toBeNull();
+
+    await user.keyboard("{Enter}");
+    expect(onSend).toHaveBeenCalledOnce();
+
+    await act(() => {
+      useWorkspaceSelectionStore
+        .getState()
+        .selectSession("session-other", "task-1", "project-1");
+    });
+
+    await act(async () => {
+      reparkDraftComposerContent({
+        draftId,
+        text: "$code-review /test ",
+      });
+      rejectSend(new DraftSendAbandonedError());
+      await sendPromise.then(
+        () => undefined,
+        () => undefined,
+      );
+      await Promise.resolve();
+    });
+
+    const parked = useComposerInputStore.getState().byKey[`draft:${draftId}`];
+    expect(parked?.doc).toBeDefined();
+    const serialized = JSON.stringify(parked?.doc);
+    expect(serialized).toContain("promptToken");
+    expect(serialized).toContain("code-review");
+    expect(serialized).toContain("test");
+
+    await act(() => {
+      useWorkspaceSelectionStore
+        .getState()
+        .selectDraft(draftId, null, "project-1");
+    });
+    await waitFor(() => {
+      expect(
+        textarea.querySelector("[data-prompt-token='skill']"),
+      ).not.toBeNull();
+      expect(
+        textarea.querySelector("[data-prompt-token='command']"),
+      ).not.toBeNull();
+    });
+  });
+
+  it("does not reopen the @ menu when hydrating a parked @ query", async () => {
+    useComposerInputStore.getState().reset();
+    useComposerInputStore.getState().setInput("session-a", {
+      text: "look at @fi",
+      images: [],
+      doc: {
+        type: "doc",
+        content: [
+          {
+            type: "paragraph",
+            content: [{ type: "text", text: "look at @fi" }],
+          },
+        ],
+      },
+    });
+    useWorkspaceSelectionStore
+      .getState()
+      .selectSession("session-b", "task-1", "project-1");
+
+    renderWithI18n(<Composer onSend={vi.fn()} isResponding={false} />);
+    expect(screen.queryByRole("listbox")).not.toBeInTheDocument();
+
+    act(() => {
+      useWorkspaceSelectionStore
+        .getState()
+        .selectSession("session-a", "task-1", "project-1");
+    });
+
+    await waitFor(() =>
+      expect(composerText(screen.getByRole("textbox"))).toBe("look at @fi"),
+    );
+    expect(screen.queryByRole("listbox")).not.toBeInTheDocument();
+  });
+
+  it("injects explorer file chips only into the conversation that queued them", async () => {
+    useComposerInputStore.getState().reset();
+    useComposerFileContextStore.setState({ pendingByConversation: {} });
+    useWorkspaceSelectionStore
+      .getState()
+      .selectSession("session-a", "task-1", "project-1");
+
+    renderWithI18n(
+      <Composer taskId="task-1" onSend={vi.fn()} isResponding={false} />,
+    );
+    const textarea = screen.getByRole("textbox");
+
+    act(() => {
+      useComposerFileContextStore.getState().addSelection("session-a", {
+        path: "src/only-a.ts",
+        startLine: 1,
+        endLine: 2,
+      });
+    });
+    await waitFor(() =>
+      expect(
+        textarea.querySelector("[data-composer-file='src/only-a.ts']"),
+      ).not.toBeNull(),
+    );
+    expect(
+      useComposerFileContextStore.getState().pendingByConversation["session-a"],
+    ).toBeUndefined();
+
+    act(() => {
+      useWorkspaceSelectionStore
+        .getState()
+        .selectSession("session-b", "task-1", "project-1");
+    });
+    expect(
+      screen
+        .getByRole("textbox")
+        .querySelector("[data-composer-file='src/only-a.ts']"),
+    ).toBeNull();
+
+    act(() => {
+      useComposerFileContextStore.getState().addSelection("session-a", {
+        path: "src/queued-for-a.ts",
+        startLine: 3,
+        endLine: 3,
+      });
+    });
+    // Queued for A while viewing B must not land on B.
+    expect(
+      screen.getByRole("textbox").querySelector("[data-composer-file]"),
+    ).toBeNull();
+    expect(
+      useComposerFileContextStore.getState().pendingByConversation["session-a"]
+        ?.selections,
+    ).toEqual([{ path: "src/queued-for-a.ts", startLine: 3, endLine: 3 }]);
+    expect(
+      useComposerFileContextStore.getState().pendingByConversation["session-b"],
     ).toBeUndefined();
   });
 

@@ -105,6 +105,65 @@ describe("ComposerEditor", () => {
     expect(composerText(textbox)).toContain("`src/app.ts:4-12`");
   });
 
+  it("replaceDocument restores chips from TipTap JSON without markdown round-trip", async () => {
+    const editorRef = createRef<ComposerEditorHandle>();
+    render(
+      <ComposerEditor ref={editorRef} ariaLabel="Message" onSubmit={vi.fn()} />,
+    );
+    const textbox = screen.getByRole("textbox", { name: "Message" });
+
+    act(() => {
+      editorRef.current?.replaceDocument({
+        type: "doc",
+        content: [
+          {
+            type: "paragraph",
+            content: [
+              {
+                type: "composerFile",
+                attrs: {
+                  path: "src",
+                  startLine: null,
+                  endLine: null,
+                  kind: "directory",
+                },
+              },
+              { type: "text", text: " " },
+              {
+                type: "promptToken",
+                attrs: { kind: "command", name: "test" },
+              },
+            ],
+          },
+        ],
+      });
+    });
+
+    await waitFor(() => {
+      const dir = textbox.querySelector("[data-composer-file='src']");
+      expect(dir).not.toBeNull();
+      expect(dir).toHaveAttribute("data-kind", "directory");
+      expect(
+        textbox.querySelector("[data-prompt-token='command']"),
+      ).not.toBeNull();
+      expect(textbox.querySelector("code")).toBeNull();
+    });
+    expect(editorRef.current?.getJSON().content?.[0]).toMatchObject({
+      type: "paragraph",
+      content: [
+        {
+          type: "composerFile",
+          attrs: { path: "src", kind: "directory" },
+        },
+        { type: "text", text: " " },
+        {
+          type: "promptToken",
+          attrs: { kind: "command", name: "test" },
+        },
+      ],
+    });
+  });
+
   it("inserts a file chip at the caret without jumping to the document end", () => {
     const editor = new Editor({
       extensions: createComposerExtensions({ placeholder: "Type" }),

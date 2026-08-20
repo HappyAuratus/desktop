@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import type * as acp from "@agentclientprotocol/sdk";
+import type { JSONContent } from "@tiptap/core";
 import { createDebouncedJSONStorage } from "./debounced-json-storage";
 
 /** One image parked in an unsent composer draft (memory only; not written to disk). */
@@ -15,6 +16,12 @@ export interface ParkedComposerInput {
   text: string;
   images: ParkedComposerImage[];
   /**
+   * TipTap document JSON so file/skill/command chips restore as chips (with
+   * `kind`) instead of backtick/`$name`/`/name` plain text. Memory only —
+   * localStorage keeps `text` so restart can still approximate via markdown.
+   */
+  doc?: JSONContent;
+  /**
    * Remembers that attachments existed in this process after image bytes are
    * stripped for localStorage. Image-only parks still do not survive restart.
    */
@@ -26,7 +33,8 @@ interface ComposerInputState {
    * Unsent composer text/images keyed by `conversationKeyFor`. The composer
    * component is reused across switches, so parking here is what restores a
    * half-typed message when the user comes back to that session or draft.
-   * Text survives restarts via localStorage; images stay in-process only.
+   * Text survives restarts via localStorage; images and TipTap `doc` stay
+   * in-process only (chips need `doc` for kind / slash tokens).
    */
   byKey: Record<string, ParkedComposerInput>;
   /** Replaces the parked payload for one conversation. */
@@ -55,9 +63,10 @@ export function composerInputHasContent(input: ParkedComposerInput): boolean {
 }
 
 /**
- * Disk shape for one parked conversation: typed text only. Image-only parks
- * stay in memory for the current process; restoring an empty retained stub
- * after restart looked like a blank composer with nothing to recover.
+ * Disk shape for one parked conversation: typed text only. Image bytes and
+ * TipTap `doc` stay in memory for the current process; restoring an empty
+ * retained stub after restart looked like a blank composer with nothing to
+ * recover.
  */
 function textOnlyPark(input: unknown): ParkedComposerInput | null {
   if (
@@ -91,8 +100,8 @@ function sanitizeParkedByKey(
 /**
  * Parks unsent composer contents per conversation so switching sessions does
  * not throw away a half-written message. Typed text is mirrored to
- * localStorage (frontend only); attached images remain in memory for the
- * current process.
+ * localStorage (frontend only); attached images and TipTap `doc` remain in
+ * memory for the current process.
  */
 export const useComposerInputStore = create<ComposerInputState>()(
   persist(
@@ -105,6 +114,13 @@ export const useComposerInputStore = create<ComposerInputState>()(
             text: input.text,
             // Store ownership must not be bypassed by a caller mutating its array.
             images: [...input.images],
+            // Omit `doc` to keep a previously parked TipTap tree (text-only
+            // repark from abandon must not wipe chips the composer already saved).
+            ...(input.doc !== undefined
+              ? { doc: input.doc }
+              : previous.doc !== undefined
+                ? { doc: previous.doc }
+                : {}),
             ...(input.images.length > 0 || input.retainedAttachments === true
               ? { retainedAttachments: true }
               : {}),
@@ -112,6 +128,7 @@ export const useComposerInputStore = create<ComposerInputState>()(
           if (
             previous.text === next.text &&
             previous.images === next.images &&
+            previous.doc === next.doc &&
             previous.retainedAttachments === next.retainedAttachments
           ) {
             return state;

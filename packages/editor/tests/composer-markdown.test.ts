@@ -407,6 +407,64 @@ test("markdownToComposerContent caps quote nesting so a deep paste cannot recurs
   assert.equal(typeof node?.type, "string");
 });
 
+test("markdownToComposerContent restores path backticks and $skills as chips", () => {
+  const doc = markdownToComposerContent(
+    "see `src/app.ts:1-2` and $code-review then /test",
+  );
+  assert.deepEqual(doc, {
+    type: "doc",
+    content: [
+      {
+        type: "paragraph",
+        content: [
+          { type: "text", text: "see " },
+          {
+            type: "composerFile",
+            attrs: {
+              path: "src/app.ts",
+              startLine: 1,
+              endLine: 2,
+              kind: "file",
+            },
+          },
+          { type: "text", text: " and " },
+          {
+            type: "promptToken",
+            attrs: { kind: "skill", name: "code-review" },
+          },
+          { type: "text", text: " then /test" },
+        ],
+      },
+    ],
+  });
+});
+
+test("markdownToComposerContent keeps plain backticks as inline code", () => {
+  const doc = markdownToComposerContent("use `code` not a path");
+  assert.deepEqual(doc.content?.[0], {
+    type: "paragraph",
+    content: [
+      { type: "text", text: "use " },
+      { type: "text", text: "code", marks: [{ type: "code" }] },
+      { type: "text", text: " not a path" },
+    ],
+  });
+});
+
+test("markdownToComposerContent does not chip versions or globs", () => {
+  const doc = markdownToComposerContent("pin `v1.0` and `*.ts` please");
+  assert.deepEqual(doc.content?.[0], {
+    type: "paragraph",
+    content: [
+      { type: "text", text: "pin " },
+      { type: "text", text: "v1.0", marks: [{ type: "code" }] },
+      { type: "text", text: " and " },
+      { type: "text", text: "*.ts", marks: [{ type: "code" }] },
+      { type: "text", text: " please" },
+    ],
+  });
+});
+
 function paragraphPlain(doc: {
   content?: Array<{
     content?: Array<{ text?: string; marks?: Array<{ type: string }> }>;
