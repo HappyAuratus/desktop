@@ -124,12 +124,15 @@ export function Composer({
   availableCommands = [],
 }: ComposerProps) {
   const { t } = useTranslation();
+  const [value, setValue] = useState("");
   const [selectedActionIndex, setSelectedActionIndex] = useState(0);
   const [menuDismissed, setMenuDismissed] = useState(false);
   const [plusMenuOpen, setPlusMenuOpen] = useState(false);
   const [expandedGroups, setExpandedGroups] = useState<
     ReadonlySet<ComposerActionGroup>
   >(new Set());
+  const [attachments, setAttachmentsState] = useState<ImageAttachment[]>([]);
+  const attachmentsRef = useRef<ImageAttachment[]>([]);
   const [attachmentError, setAttachmentError] = useState<string | null>(null);
   const [caret, setCaret] = useState(0);
   const installedPluginIds = usePluginInstallStore(
@@ -149,25 +152,6 @@ export function Composer({
   const selectedSessionId = useWorkspaceSelectionStore(
     (state) => state.selection.sessionId,
   );
-  // The draft store keeps its sent text as a muted sidebar title until attach.
-  // Once submit clears the composer park, do not treat that title as live input.
-  const [suppressedDraftFallbackKey, setSuppressedDraftFallbackKey] = useState<
-    string | null
-  >(null);
-  const parkedInput = useComposerInputStore(
-    (state) => state.byKey[conversationKey],
-  );
-  const selectedDraft = useDraftSessionsStore((state) =>
-    draftId === null || selectedSessionId !== null
-      ? undefined
-      : state.drafts.find((draft) => draft.id === draftId),
-  );
-  // External conversation-keyed state is the composer source of truth. Switching
-  // surfaces changes these selectors directly, avoiding render/effect state sync.
-  const draftFallback =
-    suppressedDraftFallbackKey === conversationKey ? undefined : selectedDraft;
-  const value = parkedInput?.text ?? draftFallback?.text ?? "";
-  const attachments = parkedInput?.images ?? draftFallback?.images ?? [];
   const selectedPluginIds = useComposerPluginSelectionStore(
     (state) =>
       state.selectedIdsByConversation[conversationKey] ?? EMPTY_PLUGIN_IDS,
@@ -220,6 +204,12 @@ export function Composer({
   );
   const lastInjectedRequestId = useRef<number | null>(null);
 
+  /** Keeps async attachment work and React state on the same latest array. */
+  const replaceAttachments = useCallback((next: ImageAttachment[]) => {
+    attachmentsRef.current = next;
+    setAttachmentsState(next);
+  }, []);
+
   /**
    * Parks unsent text/images on the current conversation key so switching
    * sessions (or drafts) can restore them. Also mirrors onto the draft store
@@ -228,14 +218,7 @@ export function Composer({
    */
   const persistComposerInput = useCallback(
     (text: string, nextImages?: ImageAttachment[]) => {
-      const images =
-        nextImages ??
-        useComposerInputStore.getState().byKey[conversationKey]?.images ??
-        (draftId === null
-          ? []
-          : (useDraftSessionsStore
-              .getState()
-              .drafts.find((draft) => draft.id === draftId)?.images ?? []));
+      const images = nextImages ?? attachmentsRef.current;
       useComposerInputStore.getState().setInput(conversationKey, {
         text,
         images,
@@ -248,6 +231,30 @@ export function Composer({
     },
     [conversationKey, draftId, selectedSessionId],
   );
+
+  const hydratedConversationKey = useRef<string | null>(null);
+  /* eslint-disable react-hooks/set-state-in-effect -- A reused controlled composer must synchronously swap to the selected conversation before paint. */
+  useLayoutEffect(() => {
+    if (hydratedConversationKey.current === conversationKey) return;
+    hydratedConversationKey.current = conversationKey;
+    const parked = useComposerInputStore.getState().byKey[conversationKey];
+    if (parked !== undefined) {
+      setValue(parked.text);
+      replaceAttachments(parked.images);
+      return;
+    }
+    if (draftId !== null && selectedSessionId === null) {
+      const draft = useDraftSessionsStore
+        .getState()
+        .drafts.find((candidate) => candidate.id === draftId);
+      setValue(draft?.text ?? "");
+      replaceAttachments(draft?.images ?? []);
+      return;
+    }
+    setValue("");
+    replaceAttachments([]);
+  }, [conversationKey, draftId, replaceAttachments, selectedSessionId]);
+  /* eslint-enable react-hooks/set-state-in-effect */
 
   useEffect(() => {
     if (
@@ -269,6 +276,7 @@ export function Composer({
     const prefix = value.trimEnd();
     const next =
       prefix.length === 0 ? `${context}\n\n` : `${prefix}\n\n${context}\n\n`;
+    setValue(next);
     persistComposerInput(next);
     consumeFileContext(taskId, pendingFileContext.id);
     textAreaRef.current?.focus();
@@ -354,11 +362,12 @@ export function Composer({
       if (sentImages === undefined) await onSend(text);
       else await onSend(text, sentImages);
     })();
+    setValue("");
+    replaceAttachments([]);
     setAttachmentError(null);
     // Drop the conversation-keyed park so a later return cannot resurrect the
     // message that was just sent. Draft-store text is left alone so the muted
     // sidebar title survives until attach replaces the row.
-    setSuppressedDraftFallbackKey(conversationKey);
     useComposerInputStore.getState().clear(conversationKey);
     closeActionMenu();
     // If the send rejects while still on this surface, put the message back.
@@ -407,6 +416,8 @@ export function Composer({
           } else {
             persistComposerInput(text, sentAttachments);
           }
+          setValue(text);
+          replaceAttachments(sentAttachments);
         } finally {
           clearComposerSendAdoption(sendConversationKey);
         }
@@ -416,6 +427,7 @@ export function Composer({
 
   /** Inserts a skill or command token for review while keeping arguments under user control. */
   const insertPromptToken = (inserted: string) => {
+    setValue(inserted);
     persistComposerInput(inserted);
     closeActionMenu();
     requestAnimationFrame(() => {
@@ -429,6 +441,7 @@ export function Composer({
     addSelectedPlugin(conversationKey, plugin.id);
     if (atTriggerIndex !== null) {
       const nextValue = value.slice(0, atTriggerIndex) + value.slice(caret);
+      setValue(nextValue);
       persistComposerInput(nextValue);
       requestAnimationFrame(() => {
         textAreaRef.current?.focus();
@@ -469,8 +482,10 @@ export function Composer({
     const selectedFiles = [...files];
     if (selectedFiles.length === 0) return;
     const totalBytes =
-      attachments.reduce((sum, attachment) => sum + attachment.size, 0) +
-      selectedFiles.reduce((sum, file) => sum + file.size, 0);
+      attachmentsRef.current.reduce(
+        (sum, attachment) => sum + attachment.size,
+        0,
+      ) + selectedFiles.reduce((sum, file) => sum + file.size, 0);
     if (selectedFiles.some((file) => !ACCEPTED_IMAGE_TYPES.has(file.type))) {
       setAttachmentError(t("chat.attachments.unsupported"));
       return;
@@ -483,10 +498,8 @@ export function Composer({
       return;
     }
     const next = await Promise.all(selectedFiles.map(readImageAttachment));
-    const current =
-      useComposerInputStore.getState().byKey[conversationKey]?.images ??
-      attachments;
-    const combined = [...current, ...next];
+    const combined = [...attachmentsRef.current, ...next];
+    replaceAttachments(combined);
     persistComposerInput(value, combined);
     setAttachmentError(null);
   };
@@ -668,9 +681,10 @@ export function Composer({
                 <button
                   type="button"
                   onClick={() => {
-                    const next = attachments.filter(
+                    const next = attachmentsRef.current.filter(
                       (item) => item.id !== attachment.id,
                     );
+                    replaceAttachments(next);
                     persistComposerInput(value, next);
                   }}
                   aria-label={t("chat.attachments.remove", {
@@ -696,6 +710,7 @@ export function Composer({
           value={value}
           disabled={disabled}
           onChange={(event) => {
+            setValue(event.target.value);
             persistComposerInput(event.target.value);
             setCaret(event.target.selectionStart ?? event.target.value.length);
             setPlusMenuOpen(false);
