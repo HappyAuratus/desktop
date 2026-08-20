@@ -41,11 +41,11 @@ Tiptap preset and plain-text helpers for prompt boxes (chat composer, HITL).
 `COMPOSER_CAPABILITIES` is the supported surface. Anything else in the full-page
 kit (images, TOC, video, alignment) is out of scope.
 
-| Layer  | Nodes / marks                                                                     |
-| ------ | --------------------------------------------------------------------------------- |
-| Blocks | paragraph, heading 1–6, blockquote, fenced code, bullet/ordered/task lists, `---` |
-| Marks  | bold, italic, underline, strike, inline code, highlight, link                     |
-| Chips  | `composerFile` (chip), `promptToken` (mention)                                    |
+| Layer  | Nodes / marks                                                                                            |
+| ------ | -------------------------------------------------------------------------------------------------------- |
+| Blocks | paragraph, heading 1–6, blockquote, fenced code, bullet/ordered/task lists, `---`                        |
+| Marks  | bold, italic, underline, strike, inline code, highlight, link                                            |
+| Chips  | `composerFile` (chip), `promptToken` (mention); range selection paints chips via `composerChipSelection` |
 
 Replace a slot with `features: { link: false }` or `features: { link: MyLink }`
 and append extras via `extraExtensions`. Rendering stays CSS in the product shell

@@ -356,7 +356,8 @@
   max-width: 14rem;
   align-items: center;
   gap: 0.28em;
-  margin: 0 0.08em;
+  /* Gap without a selectable text space (those paint as thin selection bars). */
+  margin: 0 0.2em;
   vertical-align: baseline;
   color: var(--composer-file-ink);
   font-size: inherit;
@@ -364,6 +365,7 @@
   line-height: inherit;
   cursor: default;
   user-select: none;
+  -webkit-user-select: none;
 }
 
 .dark .composer-editor-shell .composer-file-ref {
@@ -383,11 +385,27 @@
   white-space: nowrap;
 }
 
+.composer-editor-shell .composer-file-ref::selection,
+.composer-editor-shell .composer-file-ref *::selection {
+  background: transparent;
+  color: inherit;
+}
+
 .composer-editor-shell .composer-file-ref.ProseMirror-selectednode {
+  border-radius: 0.25rem;
+  background: color-mix(in oklch, var(--composer-file-ink) 14%, transparent);
+  box-shadow: 0 0 0 1px
+    color-mix(in oklch, var(--composer-file-ink) 35%, var(--ring));
+}
+
+/* Atom chips skip native ::selection; mirror a spanning TextSelection onto them.
+ * React file chips put the decoration class on the outer node-view host; mentions
+ * apply it on the mention span itself. */
+.composer-editor-shell .composer-chip-in-selection .composer-file-ref,
+.composer-editor-shell .composer-file-ref.composer-chip-in-selection {
   border-radius: 0.2rem;
-  outline: 2px solid
-    color-mix(in oklch, var(--composer-file-ink) 45%, var(--ring));
-  outline-offset: 1px;
+  background: color-mix(in srgb, Highlight 58%, transparent);
+  box-shadow: 0 0 0 1px color-mix(in srgb, Highlight 45%, transparent);
 }
 
 /*
@@ -397,7 +415,7 @@
   --composer-skill-ink: oklch(0.48 0.12 155);
   --composer-skill-wash: oklch(0.96 0.045 155);
   display: inline;
-  margin: 0 0.08em;
+  margin: 0 0.2em;
   border-radius: 9999px;
   background: var(--composer-skill-wash);
   padding: 0.08em 0.42em;
@@ -408,6 +426,8 @@
   box-decoration-break: clone;
   -webkit-box-decoration-break: clone;
   cursor: default;
+  user-select: none;
+  -webkit-user-select: none;
 }
 
 .dark .composer-mention {
@@ -416,10 +436,19 @@
   text-shadow: none;
 }
 
+.composer-mention::selection {
+  background: transparent;
+  color: inherit;
+}
+
 .composer-mention.ProseMirror-selectednode {
-  outline: 2px solid
+  box-shadow: 0 0 0 1px
     color-mix(in oklch, var(--composer-skill-ink) 40%, var(--ring));
-  outline-offset: 1px;
+}
+
+.composer-editor-shell .composer-mention.composer-chip-in-selection {
+  background: color-mix(in srgb, Highlight 50%, var(--composer-skill-wash));
+  box-shadow: 0 0 0 1px color-mix(in srgb, Highlight 45%, transparent);
 }
 
 .composer-editor-shell .tiptap.is-editor-empty p.is-empty::before {

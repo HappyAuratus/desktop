@@ -78,18 +78,31 @@ function serializeText(node: PmNode): string {
   return wrapInlineMarkdown(node.text ?? "", node.marks);
 }
 
+function isComposerChipLeaf(node: PmNode): boolean {
+  return node.type.name === "composerFile" || node.type.name === "promptToken";
+}
+
 function serializeInline(node: PmNode): string {
   let out = "";
+  let prevWasChip = false;
   node.forEach((child) => {
     if (child.isText) {
       out += serializeText(child);
+      prevWasChip = false;
       return;
     }
     if (child.isLeaf) {
+      // Chips sit adjacent in the doc (no selectable spaces between them);
+      // still emit a space in the agent payload so paths stay separated.
+      if (prevWasChip && isComposerChipLeaf(child)) {
+        out += " ";
+      }
       out += leafPlainText(child);
+      prevWasChip = isComposerChipLeaf(child);
       return;
     }
     out += serializeInline(child);
+    prevWasChip = false;
   });
   return out;
 }

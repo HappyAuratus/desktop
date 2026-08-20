@@ -132,6 +132,29 @@ describe("ComposerEditor", () => {
     editor.destroy();
   });
 
+  it("keeps adjacent file chips free of selectable separator spaces", () => {
+    const editor = new Editor({
+      extensions: createComposerExtensions({ placeholder: "Type" }),
+      content: {
+        type: "doc",
+        content: [{ type: "paragraph" }],
+      },
+    });
+    editor.commands.insertComposerFiles([
+      { path: "hack.svg" },
+      { path: "copy.svg" },
+    ]);
+
+    const paragraph = editor.state.doc.firstChild;
+    expect(paragraph?.childCount).toBe(3);
+    expect(paragraph?.child(0).type.name).toBe("composerFile");
+    expect(paragraph?.child(1).type.name).toBe("composerFile");
+    expect(paragraph?.child(2).isText).toBe(true);
+    expect(paragraph?.child(2).text).toBe(" ");
+    expect(documentPlainText(editor.state.doc)).toBe("`hack.svg` `copy.svg` ");
+    editor.destroy();
+  });
+
   it("restores documentPlainText as formatted nodes instead of leftover markers", () => {
     render(
       <ComposerEditor

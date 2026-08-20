@@ -51,18 +51,19 @@ function lineRange(attrs: ComposerFileAttrs): string | null {
 }
 
 function fileContent(files: ComposerFileAttrs[]): JSONContent[] {
-  return files.flatMap((file) => [
-    {
-      type: "composerFile",
-      attrs: {
-        path: file.path,
-        startLine: file.startLine ?? null,
-        endLine: file.endLine ?? null,
-        kind: file.kind ?? "file",
-      },
+  // No text spaces between chips: native selection paints those spaces as
+  // caret-thin blue bars. Visual gap comes from chip margin; plain-text
+  // serialization inserts spaces between adjacent chips for the agent payload.
+  const chips: JSONContent[] = files.map((file) => ({
+    type: "composerFile",
+    attrs: {
+      path: file.path,
+      startLine: file.startLine ?? null,
+      endLine: file.endLine ?? null,
+      kind: file.kind ?? "file",
     },
-    { type: "text", text: " " },
-  ]);
+  }));
+  return [...chips, { type: "text", text: " " }];
 }
 
 /**
@@ -154,7 +155,7 @@ export const ComposerFile = Node.create({
     return {
       insertComposerFiles:
         (files) =>
-        ({ editor, commands }) => {
+        ({ editor, commands, state }) => {
           if (files.length === 0) {
             return false;
           }
@@ -164,6 +165,26 @@ export const ComposerFile = Node.create({
               type: "doc",
               content: [{ type: "paragraph", content }],
             });
+          }
+          // Drop one separator space after a prior chip/token so a range
+          // selection does not paint a blue bar between adjacent atoms.
+          const { $from } = state.selection;
+          const index = $from.index();
+          if (index >= 2) {
+            const maybeSpace = $from.parent.child(index - 1);
+            const maybeAtom = $from.parent.child(index - 2);
+            if (
+              maybeSpace.isText &&
+              maybeSpace.text === " " &&
+              (maybeAtom.type.name === "composerFile" ||
+                maybeAtom.type.name === "promptToken")
+            ) {
+              return editor
+                .chain()
+                .deleteRange({ from: $from.pos - 1, to: $from.pos })
+                .insertContent(content)
+                .run();
+            }
           }
           return commands.insertContent(content);
         },
