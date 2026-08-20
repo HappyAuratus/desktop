@@ -250,7 +250,7 @@ export function ChatView({
             </div>
           )}
           {workflowBar}
-          {/* The hint hangs off a wrapper because a disabled textarea swallows the
+          {/* The hint hangs off a wrapper because a disabled composer swallows the
               pointer events a trigger needs. The wrapper stays mounted whether or not
               there is a hint: swapping it out would remount the composer and throw
               away whatever the user had already typed. Tracking the cursor keeps the

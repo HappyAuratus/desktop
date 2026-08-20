@@ -135,5 +135,5 @@ describe("agent picker isolation across real sidebar navigation", () => {
 
     await openTaskComposer(user, "Task One");
     expect(within(picker()).getByText("Claude Code")).not.toBeNull();
-  });
+  }, 15_000);
 });

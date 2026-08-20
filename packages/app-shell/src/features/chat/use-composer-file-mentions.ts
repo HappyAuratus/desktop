@@ -263,8 +263,8 @@ export function useComposerFileMentions({
     if (scopeKind === null) {
       status = "need-project";
     } else if (fetching || (awaitingDebounce && entries.length === 0)) {
-      // First open / no prior hits: searching chrome. Debounce/fetch with prior
-      // hits also uses loading chrome so the spinner shows above kept rows.
+      // First open / no prior hits: searching chrome. Debounce with prior hits
+      // keeps rows without the spinner; a live fetch still shows loading.
       status = "loading";
     } else if (errored) {
       status = "error";

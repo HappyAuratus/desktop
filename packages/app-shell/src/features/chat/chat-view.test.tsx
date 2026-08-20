@@ -520,6 +520,46 @@ describe("Composer", () => {
     expect(composerText(textarea)).toBe("on B");
   });
 
+  it("keeps parked images isolated when switching sessions", async () => {
+    const user = userEvent.setup();
+    useComposerInputStore.getState().reset();
+    useWorkspaceSelectionStore
+      .getState()
+      .selectSession("session-a", "task-1", "project-1");
+
+    renderWithI18n(<Composer onSend={vi.fn()} isResponding={false} />);
+    const fileInput = document.querySelector(
+      'input[type="file"]',
+    ) as HTMLInputElement;
+
+    await user.upload(
+      fileInput,
+      new File(["a-bytes"], "a.png", { type: "image/png" }),
+    );
+    expect(await screen.findByRole("img", { name: "a.png" })).toBeVisible();
+
+    act(() => {
+      useWorkspaceSelectionStore
+        .getState()
+        .selectSession("session-b", "task-1", "project-1");
+    });
+    expect(screen.queryByRole("img", { name: "a.png" })).toBeNull();
+
+    await user.upload(
+      fileInput,
+      new File(["b-bytes"], "b.png", { type: "image/png" }),
+    );
+    expect(await screen.findByRole("img", { name: "b.png" })).toBeVisible();
+
+    act(() => {
+      useWorkspaceSelectionStore
+        .getState()
+        .selectSession("session-a", "task-1", "project-1");
+    });
+    expect(await screen.findByRole("img", { name: "a.png" })).toBeVisible();
+    expect(screen.queryByRole("img", { name: "b.png" })).toBeNull();
+  });
+
   it("hydrates independently when switching between task-only surfaces", async () => {
     const user = userEvent.setup();
     useComposerInputStore.getState().reset();

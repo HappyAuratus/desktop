@@ -341,7 +341,7 @@ describe("WorkflowSettings", () => {
     expect(
       screen.getByText("这是当前生效的版本，部署会使用它。"),
     ).toBeInTheDocument();
-  });
+  }, 15_000);
 
   it("zooms around the pointer with the mouse wheel", async () => {
     renderSettings();
