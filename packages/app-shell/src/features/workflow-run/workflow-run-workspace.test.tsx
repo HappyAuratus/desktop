@@ -114,6 +114,7 @@ describe("WorkflowRunWorkspace", () => {
         taskId: null,
         sessionId: null,
         workflowRunId: "run-1",
+        draftId: null,
       },
     });
     useLocationActionsStore.setState({ defaultTarget: "explorer" });

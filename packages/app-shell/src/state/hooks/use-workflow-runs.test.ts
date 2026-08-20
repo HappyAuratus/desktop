@@ -348,6 +348,7 @@ describe("persisted run hooks", () => {
       taskId: null,
       sessionId: null,
       workflowRunId: null,
+      draftId: null,
     });
   });
 

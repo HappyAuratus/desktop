@@ -32,9 +32,21 @@ import { Composer } from "./composer";
 import { ConversationNavigator } from "./conversation-navigator";
 import { MessageList } from "./message-list";
 import { ToolCallBlock } from "./tool-call-block";
+import { useComposerInputStore } from "../../state/stores/composer-input-store";
+import { useDraftSessionsStore } from "../../state/stores/draft-sessions-store";
+import { useWorkspaceSelectionStore } from "../../state/stores/workspace-selection-store";
+import {
+  DraftSendAbandonedError,
+  noteComposerSendAdoptedSession,
+  reparkDraftComposerContent,
+  resetComposerSendAdoptionsForTests,
+} from "../../state/session-drafts";
 
 afterEach(() => {
   vi.unstubAllGlobals();
+  resetComposerSendAdoptionsForTests();
+  useDraftSessionsStore.getState().clear();
+  useComposerInputStore.getState().reset();
 });
 
 /** Stale-time-zero QueryClient so tests don't need to wait for refetch intervals. */
@@ -419,6 +431,352 @@ describe("Composer", () => {
     ).toBeVisible();
     expect(textarea).toHaveValue("");
     expect(onSend).not.toHaveBeenCalled();
+  });
+
+  it("restores unsent text when switching between persisted sessions", async () => {
+    const user = userEvent.setup();
+    useComposerInputStore.getState().reset();
+    useWorkspaceSelectionStore
+      .getState()
+      .selectSession("session-a", "task-1", "project-1");
+
+    renderWithI18n(<Composer onSend={vi.fn()} isResponding={false} />);
+    const textarea = screen.getByRole("textbox");
+    await user.type(textarea, "parked on A");
+
+    act(() => {
+      useWorkspaceSelectionStore
+        .getState()
+        .selectSession("session-b", "task-1", "project-1");
+    });
+    expect(textarea).toHaveValue("");
+
+    await user.type(textarea, "on B");
+    act(() => {
+      useWorkspaceSelectionStore
+        .getState()
+        .selectSession("session-a", "task-1", "project-1");
+    });
+    expect(textarea).toHaveValue("parked on A");
+
+    act(() => {
+      useWorkspaceSelectionStore
+        .getState()
+        .selectSession("session-b", "task-1", "project-1");
+    });
+    expect(textarea).toHaveValue("on B");
+  });
+
+  it("keeps typed draft text when leaving and returning to a draft", async () => {
+    const user = userEvent.setup();
+    useComposerInputStore.getState().reset();
+    useDraftSessionsStore.getState().clear();
+    const draftId = useDraftSessionsStore.getState().ensureEmptyDraft({
+      projectId: "project-1",
+      taskId: null,
+    });
+    useWorkspaceSelectionStore
+      .getState()
+      .selectDraft(draftId, null, "project-1");
+
+    renderWithI18n(<Composer onSend={vi.fn()} isResponding={false} />);
+    const textarea = screen.getByRole("textbox");
+    await user.type(textarea, "draft note");
+
+    act(() => {
+      useWorkspaceSelectionStore
+        .getState()
+        .selectSession("session-a", "task-1", "project-1");
+    });
+    expect(textarea).toHaveValue("");
+    expect(
+      useDraftSessionsStore.getState().drafts.find((d) => d.id === draftId)
+        ?.text,
+    ).toBe("draft note");
+
+    act(() => {
+      useWorkspaceSelectionStore
+        .getState()
+        .selectDraft(draftId, null, "project-1");
+    });
+    expect(textarea).toHaveValue("draft note");
+  });
+
+  it("clears parked input after send so a later return stays empty", async () => {
+    const user = userEvent.setup();
+    const onSend = vi.fn();
+    useComposerInputStore.getState().reset();
+    useWorkspaceSelectionStore
+      .getState()
+      .selectSession("session-a", "task-1", "project-1");
+
+    renderWithI18n(<Composer onSend={onSend} isResponding={false} />);
+    const textarea = screen.getByRole("textbox");
+    await user.type(textarea, "send me{Enter}");
+    expect(onSend).toHaveBeenCalledWith("send me");
+    expect(useComposerInputStore.getState().byKey["session-a"]).toBeUndefined();
+
+    act(() => {
+      useWorkspaceSelectionStore
+        .getState()
+        .selectSession("session-b", "task-1", "project-1");
+    });
+    act(() => {
+      useWorkspaceSelectionStore
+        .getState()
+        .selectSession("session-a", "task-1", "project-1");
+    });
+    expect(textarea).toHaveValue("");
+  });
+
+  it("restores composer text when onSend rejects on the same surface", async () => {
+    const user = userEvent.setup();
+    const onSend = vi.fn(() => Promise.reject(new Error("warm failed")));
+    useComposerInputStore.getState().reset();
+    useDraftSessionsStore.getState().clear();
+    const draftId = useDraftSessionsStore.getState().ensureEmptyDraft({
+      projectId: "project-1",
+      taskId: null,
+    });
+    useWorkspaceSelectionStore
+      .getState()
+      .selectDraft(draftId, null, "project-1");
+
+    renderWithI18n(<Composer onSend={onSend} isResponding={false} />);
+    const textarea = screen.getByRole("textbox");
+    await user.type(textarea, "try again{Enter}");
+
+    expect(onSend).toHaveBeenCalledWith("try again");
+    await waitFor(() => expect(textarea).toHaveValue("try again"));
+    expect(
+      useComposerInputStore.getState().byKey[`draft:${draftId}`]?.text,
+    ).toBe("try again");
+  });
+
+  it("restores composer text when onSend abandons without a hard failure", async () => {
+    const user = userEvent.setup();
+    const onSend = vi.fn(() => Promise.reject(new DraftSendAbandonedError()));
+    useComposerInputStore.getState().reset();
+    useDraftSessionsStore.getState().clear();
+    const draftId = useDraftSessionsStore.getState().ensureEmptyDraft({
+      projectId: "project-1",
+      taskId: null,
+    });
+    useWorkspaceSelectionStore
+      .getState()
+      .selectDraft(draftId, null, "project-1");
+
+    renderWithI18n(<Composer onSend={onSend} isResponding={false} />);
+    const textarea = screen.getByRole("textbox");
+    await user.type(textarea, "stopped{Enter}");
+
+    await waitFor(() => expect(textarea).toHaveValue("stopped"));
+  });
+
+  it("does not paint an abandoned send onto a different conversation", async () => {
+    const user = userEvent.setup();
+    let rejectSend!: (error: Error) => void;
+    let sendPromise!: Promise<void>;
+    const onSend = vi.fn(() => {
+      sendPromise = new Promise<void>((_resolve, reject) => {
+        rejectSend = reject;
+      });
+      return sendPromise;
+    });
+    useComposerInputStore.getState().reset();
+    useDraftSessionsStore.getState().clear();
+    const draftA = useDraftSessionsStore.getState().ensureEmptyDraft({
+      projectId: "project-1",
+      taskId: null,
+    });
+    useDraftSessionsStore.getState().updateContent(draftA, { text: "keep" });
+    const draftB = useDraftSessionsStore.getState().ensureEmptyDraft({
+      projectId: "project-1",
+      taskId: null,
+    });
+    useWorkspaceSelectionStore
+      .getState()
+      .selectDraft(draftA, null, "project-1");
+
+    renderWithI18n(<Composer onSend={onSend} isResponding={false} />);
+    const textarea = screen.getByRole("textbox");
+    await user.clear(textarea);
+    await user.type(textarea, "abandoned{Enter}");
+    expect(onSend).toHaveBeenCalledOnce();
+
+    // Switch away before the send settles; restore must not touch draft B.
+    await act(() => {
+      useWorkspaceSelectionStore
+        .getState()
+        .selectDraft(draftB, null, "project-1");
+    });
+    await waitFor(() => expect(textarea).toHaveValue(""));
+
+    // Mirror workspace-view's abandon repark onto the original draft only.
+    await act(async () => {
+      reparkDraftComposerContent({
+        draftId: draftA,
+        text: "abandoned",
+      });
+      rejectSend(new DraftSendAbandonedError());
+      await sendPromise.then(
+        () => undefined,
+        () => undefined,
+      );
+      await Promise.resolve();
+    });
+
+    expect(
+      useComposerInputStore.getState().byKey[`draft:${draftA}`]?.text,
+    ).toBe("abandoned");
+    expect(textarea).toHaveValue("");
+    expect(
+      useComposerInputStore.getState().byKey[`draft:${draftB}`],
+    ).toBeUndefined();
+  });
+
+  it("does not restore an abandoned send over a newer submit on the same surface", async () => {
+    const user = userEvent.setup();
+    const rejectors: Array<(error: Error) => void> = [];
+    const sendPromises: Array<Promise<void>> = [];
+    const onSend = vi.fn(() => {
+      const promise = new Promise<void>((_resolve, reject) => {
+        rejectors.push(reject);
+      });
+      sendPromises.push(promise);
+      return promise;
+    });
+    useComposerInputStore.getState().reset();
+    useDraftSessionsStore.getState().clear();
+    const draftId = useDraftSessionsStore.getState().ensureEmptyDraft({
+      projectId: "project-1",
+      taskId: null,
+    });
+    useWorkspaceSelectionStore
+      .getState()
+      .selectDraft(draftId, null, "project-1");
+
+    renderWithI18n(<Composer onSend={onSend} isResponding={false} />);
+    const textarea = screen.getByRole("textbox");
+    await user.type(textarea, "first{Enter}");
+    expect(onSend).toHaveBeenCalledTimes(1);
+
+    await user.type(textarea, "second{Enter}");
+    expect(onSend).toHaveBeenCalledTimes(2);
+    expect(textarea).toHaveValue("");
+
+    // First send abandons after the second submit already cleared the composer.
+    await act(async () => {
+      rejectors[0]!(new DraftSendAbandonedError());
+      await sendPromises[0]!.then(
+        () => undefined,
+        () => undefined,
+      );
+      await Promise.resolve();
+    });
+    expect(textarea).toHaveValue("");
+
+    // Second send still owns the surface and can restore its own text.
+    await act(async () => {
+      rejectors[1]!(new Error("warm failed"));
+      await sendPromises[1]!.then(
+        () => undefined,
+        () => undefined,
+      );
+      await Promise.resolve();
+    });
+    expect(textarea).toHaveValue("second");
+  });
+
+  it("does not paint a hard-fail restore onto an unrelated conversation", async () => {
+    const user = userEvent.setup();
+    let rejectSend!: (error: Error) => void;
+    let sendPromise!: Promise<void>;
+    const onSend = vi.fn(() => {
+      sendPromise = new Promise<void>((_resolve, reject) => {
+        rejectSend = reject;
+      });
+      return sendPromise;
+    });
+    useComposerInputStore.getState().reset();
+    useDraftSessionsStore.getState().clear();
+    const draftId = useDraftSessionsStore.getState().ensureEmptyDraft({
+      projectId: "project-1",
+      taskId: null,
+    });
+    useWorkspaceSelectionStore
+      .getState()
+      .selectDraft(draftId, null, "project-1");
+
+    renderWithI18n(<Composer onSend={onSend} isResponding={false} />);
+    const textarea = screen.getByRole("textbox");
+    await user.type(textarea, "lost elsewhere{Enter}");
+    expect(onSend).toHaveBeenCalledOnce();
+
+    // First-send adopted a warm session, then the user opened a third chat.
+    noteComposerSendAdoptedSession(`draft:${draftId}`, "warm-adopted");
+    await act(() => {
+      useWorkspaceSelectionStore
+        .getState()
+        .selectSession("session-other", "task-1", "project-1");
+    });
+    await waitFor(() => expect(textarea).toHaveValue(""));
+
+    await act(async () => {
+      rejectSend(new Error("attach failed"));
+      await sendPromise.then(
+        () => undefined,
+        () => undefined,
+      );
+      await Promise.resolve();
+    });
+    expect(textarea).toHaveValue("");
+    expect(
+      useComposerInputStore.getState().byKey["session-other"],
+    ).toBeUndefined();
+  });
+
+  it("restores a hard failure onto the warm session the draft adopted", async () => {
+    const user = userEvent.setup();
+    let rejectSend!: (error: Error) => void;
+    let sendPromise!: Promise<void>;
+    const onSend = vi.fn(() => {
+      sendPromise = new Promise<void>((_resolve, reject) => {
+        rejectSend = reject;
+      });
+      return sendPromise;
+    });
+    useComposerInputStore.getState().reset();
+    useDraftSessionsStore.getState().clear();
+    const draftId = useDraftSessionsStore.getState().ensureEmptyDraft({
+      projectId: "project-1",
+      taskId: null,
+    });
+    useWorkspaceSelectionStore
+      .getState()
+      .selectDraft(draftId, null, "project-1");
+
+    renderWithI18n(<Composer onSend={onSend} isResponding={false} />);
+    const textarea = screen.getByRole("textbox");
+    await user.type(textarea, "keep on warm{Enter}");
+
+    noteComposerSendAdoptedSession(`draft:${draftId}`, "warm-adopted");
+    await act(() => {
+      useWorkspaceSelectionStore
+        .getState()
+        .selectSession("warm-adopted", "task-1", "project-1");
+    });
+    await waitFor(() => expect(textarea).toHaveValue(""));
+
+    await act(async () => {
+      rejectSend(new Error("attach failed"));
+      await sendPromise.then(
+        () => undefined,
+        () => undefined,
+      );
+      await Promise.resolve();
+    });
+    expect(textarea).toHaveValue("keep on warm");
   });
 });
 

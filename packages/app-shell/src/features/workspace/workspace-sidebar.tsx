@@ -27,6 +27,7 @@ import {
   IconChevronDown,
   IconChevronRight,
   IconFolder,
+  IconFolderOpen,
   IconGitBranch,
   IconLayoutSidebarLeftCollapse,
   IconMessageCircle,
@@ -53,12 +54,21 @@ import {
   useUpdateProject,
   useUpdateTask,
 } from "../../state/hooks/use-workspace-mutations";
+import { useStoreWithEqualityFn } from "zustand/traditional";
 import { useUiStore } from "../../state/stores/ui-store";
 import { useWorkspaceSelectionStore } from "../../state/stores/workspace-selection-store";
+import {
+  draftPlacements,
+  draftPlacementsEqual,
+  draftSidebarTitle,
+  useDraftSessionsStore,
+} from "../../state/stores/draft-sessions-store";
+import { startSessionDraft } from "../../state/session-drafts";
 import { OraMark } from "../../components/ora-mark";
 import { DragRegion } from "../../components/drag-region";
 import type { GraphWorkflowRunStatus } from "@ora/workflow-runtime";
 import { SidebarCreateMenu } from "./sidebar-create-menu";
+import { DraftSessionTreeRow } from "./draft-session-tree-row";
 import { SessionTreeRow } from "./session-tree-row";
 import { useInlineTreeRename } from "./use-inline-tree-rename";
 
@@ -89,6 +99,31 @@ export function WorkspaceSidebar({ user, onSignOut }: WorkspaceSidebarProps) {
     () => sessionsQuery.data ?? [],
     [sessionsQuery.data],
   );
+  // Placement only — text changes must not rebuild the tree.
+  // Zustand 5 dropped equality as the hook's 2nd arg; React 19 also requires
+  // getSnapshot to return a cached reference when the logical selection is equal.
+  const placements = useStoreWithEqualityFn(
+    useDraftSessionsStore,
+    (s) => draftPlacements(s.drafts),
+    draftPlacementsEqual,
+  );
+  const persistedSessionIds = useMemo(
+    () => new Set(sessions.map((session) => session.id)),
+    [sessions],
+  );
+  const visiblePlacements = useMemo(
+    () =>
+      placements.filter(
+        (draft) =>
+          draft.pendingSessionId === null ||
+          !persistedSessionIds.has(draft.pendingSessionId),
+      ),
+    [placements, persistedSessionIds],
+  );
+
+  useEffect(() => {
+    useDraftSessionsStore.getState().removeCommitted(persistedSessionIds);
+  }, [persistedSessionIds]);
   const loading =
     projectsQuery.isPending || tasksQuery.isPending || sessionsQuery.isPending;
   const error = projectsQuery.error ?? tasksQuery.error ?? sessionsQuery.error;
@@ -114,8 +149,29 @@ export function WorkspaceSidebar({ user, onSignOut }: WorkspaceSidebarProps) {
     return grouped;
   }, [sessions]);
 
+  const directDraftsByProjectId = useMemo(() => {
+    const grouped = new Map<string, typeof visiblePlacements>();
+    for (const draft of visiblePlacements) {
+      if (draft.taskId !== null) continue;
+      const list = grouped.get(draft.projectId);
+      if (list) list.push(draft);
+      else grouped.set(draft.projectId, [draft]);
+    }
+    return grouped;
+  }, [visiblePlacements]);
+
+  const worktreeDraftsByTaskId = useMemo(() => {
+    const grouped = new Map<string, typeof visiblePlacements>();
+    for (const draft of visiblePlacements) {
+      if (draft.taskId === null) continue;
+      const list = grouped.get(draft.taskId);
+      if (list) list.push(draft);
+      else grouped.set(draft.taskId, [draft]);
+    }
+    return grouped;
+  }, [visiblePlacements]);
+
   const selection = useWorkspaceSelectionStore((s) => s.selection);
-  const selectProject = useWorkspaceSelectionStore((s) => s.selectProject);
   const selectTask = useWorkspaceSelectionStore((s) => s.selectTask);
   const selectWorkflowRun = useWorkspaceSelectionStore(
     (s) => s.selectWorkflowRun,
@@ -129,28 +185,64 @@ export function WorkspaceSidebar({ user, onSignOut }: WorkspaceSidebarProps) {
   const setSettingsOpen = useUiStore((s) => s.setSettingsOpen);
   const setDialog = useUiStore((s) => s.setDialog);
   const setDeleteTarget = useUiStore((s) => s.setDeleteTarget);
-  const expandProject = useUiStore((s) => s.expandProject);
   const updateProject = useUpdateProject();
   const updateTask = useUpdateTask();
 
   const needle = query.trim().toLowerCase();
-
-  const visibleProjects = useMemo(
-    () =>
-      projects.filter((project) => {
-        if (!needle) return true;
-        if (project.name.toLowerCase().includes(needle)) return true;
-        const projectTasks = tasksByProjectId.get(project.id) ?? EMPTY_TASKS;
-        return projectTasks.some((task) => {
-          if (task.title.toLowerCase().includes(needle)) return true;
-          const taskSessions = sessionsByTaskId.get(task.id) ?? EMPTY_SESSIONS;
-          return taskSessions.some((session) =>
-            session.title?.toLowerCase().includes(needle),
-          );
-        });
-      }),
-    [needle, projects, sessionsByTaskId, tasksByProjectId],
+  // Titles are only needed while filtering the tree by search.
+  const draftTitleEpoch = useDraftSessionsStore((s) =>
+    needle.length === 0
+      ? ""
+      : s.drafts.map((draft) => `${draft.id}\0${draft.text}`).join("\n"),
   );
+
+  const newSessionLabel = t("sidebar.newSession");
+  const visibleProjects = useMemo(() => {
+    // Read the epoch so search results refresh when draft titles change.
+    void draftTitleEpoch;
+    return projects.filter((project) => {
+      if (!needle) return true;
+      if (project.name.toLowerCase().includes(needle)) return true;
+      const drafts = useDraftSessionsStore.getState().drafts;
+      if (
+        drafts.some(
+          (draft) =>
+            draft.projectId === project.id &&
+            draftSidebarTitle(draft.text, newSessionLabel)
+              .toLowerCase()
+              .includes(needle),
+        )
+      ) {
+        return true;
+      }
+      const projectTasks = tasksByProjectId.get(project.id) ?? EMPTY_TASKS;
+      return projectTasks.some((task) => {
+        if (task.title.toLowerCase().includes(needle)) return true;
+        if (
+          drafts.some(
+            (draft) =>
+              draft.taskId === task.id &&
+              draftSidebarTitle(draft.text, newSessionLabel)
+                .toLowerCase()
+                .includes(needle),
+          )
+        ) {
+          return true;
+        }
+        const taskSessions = sessionsByTaskId.get(task.id) ?? EMPTY_SESSIONS;
+        return taskSessions.some((session) =>
+          session.title?.toLowerCase().includes(needle),
+        );
+      });
+    });
+  }, [
+    draftTitleEpoch,
+    needle,
+    newSessionLabel,
+    projects,
+    sessionsByTaskId,
+    tasksByProjectId,
+  ]);
 
   // Expand the initial workspace tree once while preserving later manual collapse choices.
   useEffect(() => {
@@ -172,12 +264,9 @@ export function WorkspaceSidebar({ user, onSignOut }: WorkspaceSidebarProps) {
     toggleProjectExpand(projectId);
   };
 
+  /** Same as projects: row click only toggles; new chat is the hover plus. */
   const openTask = (taskId: string) => {
-    const task = tasks.find((candidate) => candidate.id === taskId);
-    if (task) {
-      toggleTaskExpand(taskId);
-      selectTask(taskId, task.projectId);
-    }
+    toggleTaskExpand(taskId);
   };
 
   const createProjectId = selection.projectId ?? projects[0]?.id ?? null;
@@ -188,8 +277,8 @@ export function WorkspaceSidebar({ user, onSignOut }: WorkspaceSidebarProps) {
       setDialog({ kind: "project" });
       return;
     }
-    selectProject(createProjectId);
-  }, [createProjectId, selectProject, setDialog]);
+    startSessionDraft({ projectId: createProjectId, taskId: null });
+  }, [createProjectId, setDialog]);
 
   // Match desktop IDE conventions while preventing the browser's new-window shortcut.
   useEffect(() => {
@@ -314,10 +403,16 @@ export function WorkspaceSidebar({ user, onSignOut }: WorkspaceSidebarProps) {
                   active={
                     selection.projectId === project.id &&
                     selection.taskId === null &&
+                    selection.sessionId === null &&
+                    selection.draftId === null &&
                     selection.workflowRunId === null
                   }
                   icon={
-                    <IconFolder className="size-[18px] text-muted-foreground" />
+                    projectOpen ? (
+                      <IconFolderOpen className="size-[18px] text-muted-foreground" />
+                    ) : (
+                      <IconFolder className="size-[18px] text-muted-foreground" />
+                    )
                   }
                   label={project.name}
                   expanded={projectOpen}
@@ -326,8 +421,7 @@ export function WorkspaceSidebar({ user, onSignOut }: WorkspaceSidebarProps) {
                     <SidebarCreateMenu
                       projectId={project.id}
                       onNewTask={(projectId) => {
-                        expandProject(projectId);
-                        selectProject(projectId);
+                        startSessionDraft({ projectId, taskId: null });
                       }}
                     />
                   }
@@ -369,6 +463,15 @@ export function WorkspaceSidebar({ user, onSignOut }: WorkspaceSidebarProps) {
                       })
                     }
                   />
+                  {(directDraftsByProjectId.get(project.id) ?? []).map(
+                    (draft) => (
+                      <DraftSessionTreeRow
+                        key={draft.id}
+                        draftId={draft.id}
+                        depth={1}
+                      />
+                    ),
+                  )}
                   {projectTasks.map((task) => {
                     const taskSessions =
                       sessionsByTaskId.get(task.id) ?? EMPTY_SESSIONS;
@@ -435,7 +538,8 @@ export function WorkspaceSidebar({ user, onSignOut }: WorkspaceSidebarProps) {
                           depth={1}
                           active={
                             selection.taskId === task.id &&
-                            selection.sessionId === null
+                            selection.sessionId === null &&
+                            selection.draftId === null
                           }
                           icon={
                             <IconGitBranch
@@ -449,7 +553,10 @@ export function WorkspaceSidebar({ user, onSignOut }: WorkspaceSidebarProps) {
                           action={
                             <NewSessionButton
                               onClick={() =>
-                                selectTask(task.id, task.projectId)
+                                startSessionDraft({
+                                  projectId: task.projectId,
+                                  taskId: task.id,
+                                })
                               }
                             />
                           }
@@ -478,6 +585,15 @@ export function WorkspaceSidebar({ user, onSignOut }: WorkspaceSidebarProps) {
                           ]}
                         />
                         <TreeBranch expanded={taskOpen}>
+                          {(worktreeDraftsByTaskId.get(task.id) ?? []).map(
+                            (draft) => (
+                              <DraftSessionTreeRow
+                                key={draft.id}
+                                draftId={draft.id}
+                                depth={2}
+                              />
+                            ),
+                          )}
                           {taskSessions.map((session) => (
                             <SessionTreeRow
                               key={session.id}
@@ -736,12 +852,8 @@ function ArchiveButton() {
 }
 
 /**
- * Opens the composer for a new session against the row's own scope.
- *
- * Selecting the row's entity is the whole implementation: the workspace shows the
- * composer for any selection without a session, and the context bar reads the
- * same selection, so a project row lands on that project and a worktree row lands
- * on that project plus branch.
+ * Hover plus on a worktree: mint/focus a draft under that branch without
+ * toggling the row's expand state.
  */
 function NewSessionButton({ onClick }: { onClick: () => void }) {
   const { t } = useTranslation();

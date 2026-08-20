@@ -1,5 +1,6 @@
 import type * as acp from "@agentclientprotocol/sdk";
 import {
+  useCallback,
   useEffect,
   useId,
   useLayoutEffect,
@@ -35,8 +36,15 @@ import { SelectedPluginsButton } from "./selected-plugins-button";
 import { useComposerFileContextStore } from "../../state/stores/composer-file-context-store";
 import { usePluginInstallStore } from "../../state/stores/plugin-install-store";
 import { useComposerPluginSelectionStore } from "../../state/stores/composer-plugin-selection-store";
+import { useComposerInputStore } from "../../state/stores/composer-input-store";
 import { conversationKeyFor } from "../../state/stores/conversation-key";
+import { useDraftSessionsStore } from "../../state/stores/draft-sessions-store";
 import { useWorkspaceSelectionStore } from "../../state/stores/workspace-selection-store";
+import {
+  clearComposerSendAdoption,
+  DraftSendAbandonedError,
+  composerSendAdoptedSession,
+} from "../../state/session-drafts";
 import {
   AI_AGENT_CATEGORY_KEY,
   PLUGIN_CATALOG,
@@ -56,7 +64,7 @@ const AT_TRIGGER_PATTERN = /(?<=^|\s)@([^\s]*)$/;
 
 interface ComposerProps {
   taskId?: string;
-  onSend: (text: string, images?: acp.ImageContent[]) => void;
+  onSend: (text: string, images?: acp.ImageContent[]) => void | Promise<void>;
   /**
    * Invoked when Enter (or send) is pressed with an empty input. Used in Spec mode
    * to run the highlighted stage directly; absent when there is nothing to launch.
@@ -137,6 +145,12 @@ export function Composer({
   const conversationKey = useWorkspaceSelectionStore((state) =>
     conversationKeyFor(state.selection),
   );
+  const draftId = useWorkspaceSelectionStore(
+    (state) => state.selection.draftId,
+  );
+  const selectedSessionId = useWorkspaceSelectionStore(
+    (state) => state.selection.sessionId,
+  );
   const selectedPluginIds = useComposerPluginSelectionStore(
     (state) =>
       state.selectedIdsByConversation[conversationKey] ?? EMPTY_PLUGIN_IDS,
@@ -178,6 +192,9 @@ export function Composer({
   const [showModelSelector, setShowModelSelector] = useState(true);
   const actionOptionRefs = useRef<Array<HTMLButtonElement | null>>([]);
   const actionMenuId = useId();
+  // Bumped on every submit so an older send's reject cannot restore text over a
+  // newer attempt (Stop during handshake, then type and send again).
+  const submitGenerationRef = useRef(0);
   const pendingFileContext = useComposerFileContextStore((state) =>
     taskId === undefined ? undefined : state.pendingByTask[taskId],
   );
@@ -185,6 +202,51 @@ export function Composer({
     (state) => state.consumeSelections,
   );
   const lastInjectedRequestId = useRef<number | null>(null);
+
+  /**
+   * Parks unsent text/images on the current conversation key so switching
+   * sessions (or drafts) can restore them. Also mirrors onto the draft store
+   * while the surface is still a client-only draft, which is what feeds the
+   * muted sidebar title.
+   */
+  const persistComposerInput = useCallback(
+    (text: string, nextImages?: ImageAttachment[]) => {
+      const images = nextImages ?? attachments;
+      useComposerInputStore.getState().setInput(conversationKey, {
+        text,
+        images,
+      });
+      if (draftId === null || selectedSessionId !== null) return;
+      useDraftSessionsStore.getState().updateContent(draftId, {
+        text,
+        ...(nextImages === undefined ? {} : { images: nextImages }),
+      });
+    },
+    [attachments, conversationKey, draftId, selectedSessionId],
+  );
+
+  // The composer instance is reused across surfaces. Swap local text/images to
+  // whatever is parked for the new conversation so typed-but-unsent input does
+  // not bleed, and so returning to a session or draft restores it.
+  const composerSurface = `${draftId ?? ""}:${selectedSessionId ?? ""}`;
+  const [hydratedSurface, setHydratedSurface] = useState(composerSurface);
+  if (hydratedSurface !== composerSurface) {
+    setHydratedSurface(composerSurface);
+    const parked = useComposerInputStore.getState().byKey[conversationKey];
+    if (parked !== undefined) {
+      setValue(parked.text);
+      setAttachments(parked.images);
+    } else if (draftId !== null && selectedSessionId === null) {
+      const draft = useDraftSessionsStore
+        .getState()
+        .drafts.find((candidate) => candidate.id === draftId);
+      setValue(draft?.text ?? "");
+      setAttachments(draft?.images ?? []);
+    } else {
+      setValue("");
+      setAttachments([]);
+    }
+  }
 
   useEffect(() => {
     if (
@@ -205,13 +267,14 @@ export function Composer({
     ].join("\n");
     setValue((current) => {
       const prefix = current.trimEnd();
-      return prefix.length === 0
-        ? `${context}\n\n`
-        : `${prefix}\n\n${context}\n\n`;
+      const next =
+        prefix.length === 0 ? `${context}\n\n` : `${prefix}\n\n${context}\n\n`;
+      persistComposerInput(next);
+      return next;
     });
     consumeFileContext(taskId, pendingFileContext.id);
     textAreaRef.current?.focus();
-  }, [consumeFileContext, pendingFileContext, t, taskId]);
+  }, [consumeFileContext, pendingFileContext, persistComposerInput, t, taskId]);
   const slashQuery = value.match(/^\/([^\s]*)$/)?.[1] ?? null;
   const atMatch = value.slice(0, caret).match(AT_TRIGGER_PATTERN);
   const atQuery = atMatch?.[1] ?? null;
@@ -269,21 +332,74 @@ export function Composer({
       onEmptySubmit?.();
       return;
     }
-    if (attachments.length === 0) onSend(text);
-    else
-      onSend(
-        text,
-        attachments.map((attachment) => attachment.content),
-      );
+    const sentAttachments = attachments;
+    const sentImages =
+      sentAttachments.length === 0
+        ? undefined
+        : sentAttachments.map((attachment) => attachment.content);
+    // Capture the surface this send left so a reject after navigation cannot
+    // paint the abandoned message onto a different conversation's composer.
+    const sendConversationKey = conversationKey;
+    const sendDraftId = draftId;
+    const sendSessionId = selectedSessionId;
+    const submitGeneration = (submitGenerationRef.current += 1);
+    const sendResult =
+      sentImages === undefined ? onSend(text) : onSend(text, sentImages);
     setValue("");
     setAttachments([]);
     setAttachmentError(null);
+    // Drop the conversation-keyed park so a later return cannot resurrect the
+    // message that was just sent. Draft-store text is left alone so the muted
+    // sidebar title survives until attach replaces the row.
+    useComposerInputStore.getState().clear(conversationKey);
     closeActionMenu();
+    // If the send rejects while still on this surface, put the message back.
+    // Abandoned sends (Stop / navigated away) already repark stores — restore the
+    // reused composer UI only when we never left, so a later surface is not
+    // contaminated. Hard failures restore only on the send surface, the
+    // recovered draft, or the warm session that first-send adopted — never an
+    // unrelated chat the user opened mid-attach. A newer submit supersedes
+    // this catch entirely (Stop → retype → send).
+    //
+    // Use async/await (not Promise.resolve().then) so reject handlers attach
+    // directly to the send promise; tests can await the same promise inside
+    // act() and CI's stderr gate will not see stray setState warnings.
+    void (async () => {
+      try {
+        await sendResult;
+        clearComposerSendAdoption(sendConversationKey);
+      } catch (error: unknown) {
+        try {
+          if (submitGeneration !== submitGenerationRef.current) return;
+          const selection = useWorkspaceSelectionStore.getState().selection;
+          const onSendSurface =
+            conversationKeyFor(selection) === sendConversationKey &&
+            selection.draftId === sendDraftId &&
+            selection.sessionId === sendSessionId;
+          if (error instanceof DraftSendAbandonedError) {
+            if (!onSendSurface) return;
+          } else {
+            const adopted = composerSendAdoptedSession(sendConversationKey);
+            const onSendDraft =
+              sendDraftId !== null && selection.draftId === sendDraftId;
+            const onAdoptedSession =
+              adopted !== undefined && selection.sessionId === adopted;
+            if (!onSendSurface && !onSendDraft && !onAdoptedSession) return;
+          }
+          setValue(text);
+          setAttachments(sentAttachments);
+          persistComposerInput(text, sentAttachments);
+        } finally {
+          clearComposerSendAdoption(sendConversationKey);
+        }
+      }
+    })();
   };
 
   /** Inserts a skill or command token for review while keeping arguments under user control. */
   const insertPromptToken = (inserted: string) => {
     setValue(inserted);
+    persistComposerInput(inserted);
     closeActionMenu();
     requestAnimationFrame(() => {
       textAreaRef.current?.focus();
@@ -297,6 +413,7 @@ export function Composer({
     if (atTriggerIndex !== null) {
       const nextValue = value.slice(0, atTriggerIndex) + value.slice(caret);
       setValue(nextValue);
+      persistComposerInput(nextValue);
       requestAnimationFrame(() => {
         textAreaRef.current?.focus();
         textAreaRef.current?.setSelectionRange(atTriggerIndex, atTriggerIndex);
@@ -350,7 +467,11 @@ export function Composer({
       return;
     }
     const next = await Promise.all(selectedFiles.map(readImageAttachment));
-    setAttachments((current) => [...current, ...next]);
+    setAttachments((current) => {
+      const combined = [...current, ...next];
+      persistComposerInput(value, combined);
+      return combined;
+    });
     setAttachmentError(null);
   };
 
@@ -531,9 +652,13 @@ export function Composer({
                 <button
                   type="button"
                   onClick={() =>
-                    setAttachments((current) =>
-                      current.filter((item) => item.id !== attachment.id),
-                    )
+                    setAttachments((current) => {
+                      const next = current.filter(
+                        (item) => item.id !== attachment.id,
+                      );
+                      persistComposerInput(value, next);
+                      return next;
+                    })
                   }
                   aria-label={t("chat.attachments.remove", {
                     name: attachment.name,
@@ -559,6 +684,7 @@ export function Composer({
           disabled={disabled}
           onChange={(event) => {
             setValue(event.target.value);
+            persistComposerInput(event.target.value);
             setCaret(event.target.selectionStart ?? event.target.value.length);
             setPlusMenuOpen(false);
             setMenuDismissed(false);

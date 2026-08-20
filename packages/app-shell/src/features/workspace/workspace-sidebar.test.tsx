@@ -35,7 +35,9 @@ import {
 import { createStubPlatform } from "../../test/stub-platform";
 import { useUiStore } from "../../state/stores/ui-store";
 import { useWorkspaceSelectionStore } from "../../state/stores/workspace-selection-store";
+import { useDraftSessionsStore } from "../../state/stores/draft-sessions-store";
 import { useUnreadSessionsStore } from "../../state/stores/unread-sessions-store";
+import { dismissSessionDraft } from "../../state/session-drafts";
 import { WorkspaceSidebar } from "./workspace-sidebar";
 
 const USER = { name: "Eric", email: "eric@example.com" };
@@ -170,6 +172,7 @@ function workspaceWithOneSession(): MockClientState {
 
 beforeEach(() => {
   useWorkspaceSelectionStore.getState().clearSelection();
+  useDraftSessionsStore.getState().clear();
   useUiStore.setState({
     expandedProjects: new Set(),
     expandedTasks: new Set(),
@@ -195,6 +198,15 @@ function treeRow(label: string): HTMLElement | null {
   );
 }
 
+/** Outer TreeRow shell that also hosts the hover plus / archive controls. */
+function treeRowShell(label: string): HTMLElement {
+  const row = treeRow(label);
+  expect(row).not.toBeNull();
+  const shell = row!.closest(".group\\/tree");
+  expect(shell).not.toBeNull();
+  return shell as HTMLElement;
+}
+
 const NEW_SESSION_LABEL = "新建会话|New session";
 
 describe("WorkspaceSidebar", () => {
@@ -213,6 +225,7 @@ describe("WorkspaceSidebar", () => {
       taskId: TASK.id,
       sessionId: SESSION.id,
       workflowRunId: null,
+      draftId: null,
     });
     expect(useUiStore.getState().expandedProjects.has(PROJECT.id)).toBe(false);
   });
@@ -250,11 +263,187 @@ describe("WorkspaceSidebar", () => {
       await screen.findByRole("button", { name: /新建对话|New chat/ }),
     );
 
-    expect(useWorkspaceSelectionStore.getState().selection).toEqual({
+    expect(useWorkspaceSelectionStore.getState().selection).toMatchObject({
       projectId: PROJECT.id,
       taskId: null,
       sessionId: null,
       workflowRunId: null,
+    });
+    expect(useWorkspaceSelectionStore.getState().selection.draftId).toEqual(
+      expect.any(String),
+    );
+    await waitFor(() => expect(treeRow(NEW_SESSION_LABEL)).not.toBeNull());
+  });
+
+  it("discards an empty draft when another session is selected", async () => {
+    const user = userEvent.setup();
+    const state = workspaceWithOneSession();
+    state.sessions = [{ ...SESSION, title: "Review auth" }];
+    useWorkspaceSelectionStore
+      .getState()
+      .selectSession(SESSION.id, TASK.id, PROJECT.id);
+    renderSidebar(state);
+
+    await user.click(
+      await screen.findByRole("button", { name: /新建对话|New chat/ }),
+    );
+    await waitFor(() => expect(treeRow(NEW_SESSION_LABEL)).not.toBeNull());
+
+    await user.click(screen.getByText("Review auth"));
+
+    expect(useWorkspaceSelectionStore.getState().selection).toEqual({
+      projectId: PROJECT.id,
+      taskId: TASK.id,
+      sessionId: SESSION.id,
+      workflowRunId: null,
+      draftId: null,
+    });
+    expect(treeRow(NEW_SESSION_LABEL)).toBeNull();
+    expect(useDraftSessionsStore.getState().drafts).toHaveLength(0);
+  });
+
+  it("keeps a typed draft until it is dismissed", async () => {
+    const user = userEvent.setup();
+    const state = workspaceWithOneSession();
+    state.sessions = [{ ...SESSION, title: "Review auth" }];
+    renderSidebar(state);
+
+    await user.click(
+      await screen.findByRole("button", { name: /新建对话|New chat/ }),
+    );
+    const draftId = useWorkspaceSelectionStore.getState().selection.draftId;
+    expect(draftId).toEqual(expect.any(String));
+    act(() => {
+      useDraftSessionsStore
+        .getState()
+        .updateContent(draftId!, { text: "keep this" });
+    });
+
+    await waitFor(() => expect(treeRow("keep this")).not.toBeNull());
+    await user.click(screen.getByText("Review auth"));
+    expect(treeRow("keep this")).not.toBeNull();
+    expect(useDraftSessionsStore.getState().drafts).toHaveLength(1);
+
+    await user.click(
+      screen.getByRole("button", { name: /关闭草稿|Dismiss draft/ }),
+    );
+    expect(treeRow("keep this")).toBeNull();
+    expect(useDraftSessionsStore.getState().drafts).toHaveLength(0);
+  });
+
+  it("starts a muted draft from the worktree plus, not the row click", async () => {
+    const user = userEvent.setup();
+    useWorkspaceSelectionStore
+      .getState()
+      .selectSession(SESSION.id, TASK.id, PROJECT.id);
+    renderSidebar(workspaceWithOneSession());
+
+    await waitFor(() => expect(treeRow(TASK.title)).not.toBeNull());
+    await user.click(
+      within(treeRowShell(TASK.title)).getByRole("button", {
+        name: /^新建会话$|^New session$/,
+      }),
+    );
+
+    expect(useWorkspaceSelectionStore.getState().selection).toMatchObject({
+      projectId: PROJECT.id,
+      taskId: TASK.id,
+      sessionId: null,
+      workflowRunId: null,
+    });
+    expect(useWorkspaceSelectionStore.getState().selection.draftId).toEqual(
+      expect.any(String),
+    );
+    await waitFor(() => expect(treeRow(NEW_SESSION_LABEL)).not.toBeNull());
+  });
+
+  it("collapses a worktree on click without discarding an existing draft", async () => {
+    const user = userEvent.setup();
+    renderSidebar(workspaceWithOneSession());
+
+    await waitFor(() => expect(treeRow(NEW_SESSION_LABEL)).not.toBeNull());
+    await user.click(
+      within(treeRowShell(TASK.title)).getByRole("button", {
+        name: /^新建会话$|^New session$/,
+      }),
+    );
+    expect(treeRow(NEW_SESSION_LABEL)).not.toBeNull();
+
+    await user.click(screen.getByText(TASK.title));
+
+    expect(useUiStore.getState().expandedTasks.has(TASK.id)).toBe(false);
+    expect(treeRow(NEW_SESSION_LABEL)).toBeNull();
+    expect(useWorkspaceSelectionStore.getState().selection.draftId).toEqual(
+      expect.any(String),
+    );
+  });
+
+  it("opens the live session when a bound draft row is clicked", async () => {
+    const user = userEvent.setup();
+    const state = workspaceWithOneSession();
+    state.sessions = [{ ...SESSION, title: "Review auth" }];
+    renderSidebar(state);
+
+    await waitFor(() => expect(treeRow(TASK.title)).not.toBeNull());
+    await user.click(
+      within(treeRowShell(TASK.title)).getByRole("button", {
+        name: /^新建会话$|^New session$/,
+      }),
+    );
+    const draftId = useWorkspaceSelectionStore.getState().selection.draftId!;
+    act(() => {
+      useDraftSessionsStore.getState().updateContent(draftId, {
+        text: "in flight",
+      });
+      useDraftSessionsStore.getState().bindToSession(draftId, "pending-s");
+      useWorkspaceSelectionStore
+        .getState()
+        .selectSession("pending-s", TASK.id, PROJECT.id);
+    });
+
+    await user.click(screen.getByText("Review auth"));
+    await waitFor(() => expect(treeRow("in flight")).not.toBeNull());
+    await user.click(screen.getByText("in flight"));
+
+    expect(useWorkspaceSelectionStore.getState().selection).toEqual({
+      projectId: PROJECT.id,
+      taskId: TASK.id,
+      sessionId: "pending-s",
+      workflowRunId: null,
+      draftId: null,
+    });
+  });
+
+  it("keeps the live session selected when a bound draft is dismissed", async () => {
+    const id = useDraftSessionsStore
+      .getState()
+      .ensureEmptyDraft({ projectId: PROJECT.id, taskId: TASK.id });
+    useDraftSessionsStore.getState().updateContent(id, { text: "sending" });
+    // Bind to a warm id that is not persisted yet so the muted row stays visible.
+    useDraftSessionsStore.getState().bindToSession(id, "pending-s");
+    useWorkspaceSelectionStore
+      .getState()
+      .selectSession("pending-s", TASK.id, PROJECT.id);
+    useUiStore.getState().expandProject(PROJECT.id);
+    useUiStore.getState().expandTask(TASK.id);
+    renderSidebar(workspaceWithOneSession());
+
+    await waitFor(() => expect(treeRow("sending")).not.toBeNull());
+    expect(
+      screen.queryByRole("button", { name: /关闭草稿|Dismiss draft/ }),
+    ).toBeNull();
+
+    act(() => {
+      dismissSessionDraft(id);
+    });
+
+    expect(useDraftSessionsStore.getState().drafts).toHaveLength(0);
+    expect(useWorkspaceSelectionStore.getState().selection).toEqual({
+      projectId: PROJECT.id,
+      taskId: TASK.id,
+      sessionId: "pending-s",
+      workflowRunId: null,
+      draftId: null,
     });
   });
 
@@ -275,12 +464,15 @@ describe("WorkspaceSidebar", () => {
       await screen.findByRole("button", { name: /^新建任务$|^New task$/ }),
     );
 
-    expect(useWorkspaceSelectionStore.getState().selection).toEqual({
+    expect(useWorkspaceSelectionStore.getState().selection).toMatchObject({
       projectId: PROJECT.id,
       taskId: null,
       sessionId: null,
       workflowRunId: null,
     });
+    expect(useWorkspaceSelectionStore.getState().selection.draftId).toEqual(
+      expect.any(String),
+    );
     expect(useUiStore.getState().dialog).toBeNull();
   });
 
@@ -370,12 +562,15 @@ describe("WorkspaceSidebar", () => {
       await screen.findByRole("button", { name: /^新建任务$|^New task$/ }),
     );
 
-    expect(useWorkspaceSelectionStore.getState().selection).toEqual({
+    expect(useWorkspaceSelectionStore.getState().selection).toMatchObject({
       projectId: PROJECT.id,
       taskId: null,
       sessionId: null,
       workflowRunId: null,
     });
+    expect(useWorkspaceSelectionStore.getState().selection.draftId).toEqual(
+      expect.any(String),
+    );
   });
 
   it("shows an archive control on session rows instead of the overflow menu", async () => {
@@ -456,12 +651,12 @@ describe("WorkspaceSidebar", () => {
     );
     await user.hover(
       await screen.findByRole("button", {
-        name: /新建工作流任务|New workflow task/,
+        name: /运行工作流|Run workflow/,
       }),
     );
     await user.click(
       await screen.findByRole("button", {
-        name: /新建工作流任务|New workflow task/,
+        name: /运行工作流|Run workflow/,
       }),
     );
     expect(
@@ -490,7 +685,7 @@ describe("WorkspaceSidebar", () => {
       }),
     );
     const workflowButton = await screen.findByRole("button", {
-      name: /新建工作流任务|New workflow task/,
+      name: /运行工作流|Run workflow/,
     });
     workflowButton.focus();
     await user.keyboard("{Enter}");
@@ -816,7 +1011,7 @@ describe("WorkspaceSidebar", () => {
     expect(useUiStore.getState().expandedProjects.has(PROJECT.id)).toBe(false);
   });
 
-  it("collapses a task on the first click, not the second", async () => {
+  it("collapses a worktree on the first click, not the second", async () => {
     const user = userEvent.setup();
     renderSidebar(workspaceWithOneSession());
 

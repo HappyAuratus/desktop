@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach } from "vitest";
+import { useDraftSessionsStore } from "./draft-sessions-store";
 import { useWorkspaceSelectionStore } from "./workspace-selection-store";
 
 const empty = {
@@ -6,9 +7,11 @@ const empty = {
   taskId: null,
   sessionId: null,
   workflowRunId: null,
+  draftId: null,
 };
 
 beforeEach(() => {
+  useDraftSessionsStore.getState().clear();
   useWorkspaceSelectionStore.getState().clearSelection();
 });
 
@@ -25,6 +28,7 @@ describe("useWorkspaceSelectionStore", () => {
       taskId: null,
       sessionId: null,
       workflowRunId: null,
+      draftId: null,
     });
   });
 
@@ -36,6 +40,7 @@ describe("useWorkspaceSelectionStore", () => {
       taskId: "t2",
       sessionId: null,
       workflowRunId: null,
+      draftId: null,
     });
   });
 
@@ -46,6 +51,7 @@ describe("useWorkspaceSelectionStore", () => {
       taskId: "t1",
       sessionId: "s1",
       workflowRunId: null,
+      draftId: null,
     });
   });
 
@@ -58,6 +64,19 @@ describe("useWorkspaceSelectionStore", () => {
       taskId: null,
       sessionId: "draft-1",
       workflowRunId: null,
+      draftId: null,
+    });
+  });
+
+  it("selectDraft records a client-only chat and clears session/run", () => {
+    useWorkspaceSelectionStore.getState().selectSession("s1", "t1", "p1");
+    useWorkspaceSelectionStore.getState().selectDraft("d1", null, "p1");
+    expect(useWorkspaceSelectionStore.getState().selection).toEqual({
+      projectId: "p1",
+      taskId: null,
+      sessionId: null,
+      workflowRunId: null,
+      draftId: "d1",
     });
   });
 
@@ -69,6 +88,7 @@ describe("useWorkspaceSelectionStore", () => {
       taskId: null,
       sessionId: null,
       workflowRunId: "gwr-1",
+      draftId: null,
     });
   });
 
@@ -94,6 +114,7 @@ describe("useWorkspaceSelectionStore", () => {
       taskId: "t1",
       sessionId: null,
       workflowRunId: null,
+      draftId: null,
     });
   });
 
@@ -105,6 +126,7 @@ describe("useWorkspaceSelectionStore", () => {
       taskId: null,
       sessionId: null,
       workflowRunId: null,
+      draftId: null,
     });
   });
 
@@ -122,6 +144,26 @@ describe("useWorkspaceSelectionStore", () => {
       taskId: null,
       sessionId: null,
       workflowRunId: null,
+      draftId: null,
     });
+  });
+
+  it("leaving an empty draft discards it; a typed draft stays", () => {
+    const emptyId = useDraftSessionsStore
+      .getState()
+      .ensureEmptyDraft({ projectId: "p1", taskId: null });
+    useWorkspaceSelectionStore.getState().selectDraft(emptyId, null, "p1");
+    useWorkspaceSelectionStore.getState().selectSession("s1", "t1", "p1");
+    expect(useDraftSessionsStore.getState().drafts).toHaveLength(0);
+
+    const typedId = useDraftSessionsStore
+      .getState()
+      .ensureEmptyDraft({ projectId: "p1", taskId: null });
+    useDraftSessionsStore.getState().updateContent(typedId, { text: "keep" });
+    useWorkspaceSelectionStore.getState().selectDraft(typedId, null, "p1");
+    useWorkspaceSelectionStore.getState().selectSession("s1", "t1", "p1");
+    expect(
+      useDraftSessionsStore.getState().drafts.map((draft) => draft.id),
+    ).toEqual([typedId]);
   });
 });
