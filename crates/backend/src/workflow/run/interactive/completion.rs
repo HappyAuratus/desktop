@@ -345,7 +345,7 @@ mod tests {
                 schema_version: 1,
                 session_id: "session-1".to_string(),
                 task_id: "task-1".to_string(),
-                agent_cli: AgentCli::OpenCode,
+                agent_ref: AgentCli::Nga.agent_ref(),
                 agent_session_id: "provider-1".to_string(),
                 cwd: std::path::PathBuf::from("."),
             }),
