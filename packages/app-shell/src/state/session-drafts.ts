@@ -1,4 +1,5 @@
 import type * as acp from "@agentclientprotocol/sdk";
+import type { JSONContent } from "@tiptap/core";
 import { useDraftSessionsStore } from "./stores/draft-sessions-store";
 import type { DraftScope } from "./stores/draft-sessions-store";
 import { useComposerInputStore } from "./stores/composer-input-store";
@@ -71,8 +72,10 @@ export function reparkDraftComposerContent(args: {
   draftId: string;
   text: string;
   images?: acp.ImageContent[];
+  /** TipTap JSON so chips survive abandon/fail when the process is still alive. */
+  doc?: JSONContent;
 }): void {
-  const { draftId, text, images = [] } = args;
+  const { draftId, text, images = [], doc } = args;
   const parkedImages = images.map((content, index) => ({
     id: `recovered-${index}`,
     name: content.uri ?? `image-${index + 1}`,
@@ -86,6 +89,7 @@ export function reparkDraftComposerContent(args: {
   useComposerInputStore.getState().setInput(`draft:${draftId}`, {
     text,
     images: parkedImages,
+    ...(doc !== undefined ? { doc } : {}),
   });
 }
 
@@ -173,6 +177,7 @@ export function recoverFailedDraftSend(args: {
   taskId: string | null;
   text: string;
   images?: acp.ImageContent[];
+  doc?: JSONContent;
   boundSessionId: string;
 }): void {
   const {
@@ -181,13 +186,14 @@ export function recoverFailedDraftSend(args: {
     taskId,
     text,
     images = [],
+    doc,
     boundSessionId,
   } = args;
   useDraftSessionsStore.getState().restoreForRetry(draftId, {
     projectId,
     taskId,
   });
-  reparkDraftComposerContent({ draftId, text, images });
+  reparkDraftComposerContent({ draftId, text, images, doc });
   // Plugin picks and workflow state were rekeyed onto the warm id; move them
   // back so a retry on the draft surface keeps the same constellation.
   const draftKey = `draft:${draftId}`;

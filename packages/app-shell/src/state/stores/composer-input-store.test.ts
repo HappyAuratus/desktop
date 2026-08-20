@@ -147,6 +147,74 @@ describe("useComposerInputStore", () => {
     expect(useComposerInputStore.getState().byKey.s1?.images).toHaveLength(1);
   });
 
+  it("parks TipTap doc in memory but strips it from localStorage", () => {
+    const doc = {
+      type: "doc",
+      content: [
+        {
+          type: "paragraph",
+          content: [
+            {
+              type: "composerFile",
+              attrs: {
+                path: "src/a.ts",
+                startLine: null,
+                endLine: null,
+                kind: "file",
+              },
+            },
+          ],
+        },
+      ],
+    };
+    useComposerInputStore.getState().setInput("s1", {
+      text: "`src/a.ts`",
+      images: [],
+      doc,
+    });
+    expect(useComposerInputStore.getState().byKey.s1?.doc).toEqual(doc);
+    flushDebouncedPersistStorage();
+
+    const raw = window.localStorage.getItem(COMPOSER_INPUT_STORAGE_KEY);
+    expect(raw).not.toBeNull();
+    const parsed = JSON.parse(raw!) as {
+      state: { byKey: Record<string, { text: string; doc?: unknown }> };
+    };
+    expect(parsed.state.byKey.s1).toEqual({
+      text: "`src/a.ts`",
+      images: [],
+    });
+  });
+
+  it("preserves a parked TipTap doc when a later text-only setInput omits it", () => {
+    const doc = {
+      type: "doc",
+      content: [
+        {
+          type: "paragraph",
+          content: [
+            {
+              type: "promptToken",
+              attrs: { kind: "command", name: "test" },
+            },
+          ],
+        },
+      ],
+    };
+    useComposerInputStore.getState().setInput("draft:d1", {
+      text: "/test ",
+      images: [],
+      doc,
+    });
+    useComposerInputStore.getState().setInput("draft:d1", {
+      text: "/test ",
+      images: [],
+    });
+    expect(useComposerInputStore.getState().byKey["draft:d1"]?.doc).toEqual(
+      doc,
+    );
+  });
+
   it("rehydrates text-only parks from localStorage", async () => {
     useComposerInputStore.getState().reset();
     flushDebouncedPersistStorage();

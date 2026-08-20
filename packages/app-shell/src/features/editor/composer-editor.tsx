@@ -16,6 +16,7 @@ import {
   type ComposerFileAttrs,
   type PromptTokenKind,
 } from "@ora/editor/composer";
+import type { JSONContent } from "@tiptap/core";
 import { useOptionalPlatform } from "@ora/app-shell/platform";
 import { cn } from "@ora/ui";
 import {
@@ -31,6 +32,8 @@ import "./composer-editor.css";
 
 export interface ComposerEditorHandle {
   getText: () => string;
+  /** TipTap JSON so chip attrs (path, kind, token name) survive park/restore. */
+  getJSON: () => JSONContent;
   focus: (options?: {
     preventScroll?: boolean;
     /** Defaults to end; `keep` restores focus without moving the caret. */
@@ -38,6 +41,8 @@ export interface ComposerEditorHandle {
   }) => void;
   clear: () => void;
   replaceText: (text: string) => void;
+  /** Restores a parked TipTap document without round-tripping through plain text. */
+  replaceDocument: (doc: JSONContent) => void;
   insertPromptToken: (kind: PromptTokenKind, name: string) => void;
   insertFileChips: (files: ComposerFileAttrs[]) => void;
   appendText: (text: string) => void;
@@ -246,6 +251,7 @@ export const ComposerEditor = forwardRef<
         }
         editor.commands.focus(at);
       },
+      getJSON: () => editor.getJSON(),
       clear: () => {
         editor.commands.clearContent(true);
       },
@@ -255,6 +261,9 @@ export const ComposerEditor = forwardRef<
           .setContent(markdownToComposerContent(text))
           .focus("end")
           .run();
+      },
+      replaceDocument: (doc) => {
+        editor.chain().setContent(doc).focus("end").run();
       },
       insertPromptToken: (kind, name) => {
         deleteTriggerToken(editor, SLASH_TRIGGER_PATTERN);
@@ -312,9 +321,23 @@ export const ComposerEditor = forwardRef<
         if (files.length === 0 || onPasteFilesRef.current === undefined) {
           return;
         }
+        const text =
+          typeof event.clipboardData?.getData === "function"
+            ? event.clipboardData.getData("text/plain")
+            : "";
+        // Always own the paste when files are present so the image path runs;
+        // still insert accompanying plain text so markdown+screenshot copies
+        // do not lose the typed payload.
         event.preventDefault();
         event.stopPropagation();
         onPasteFilesRef.current(files);
+        if (text.length > 0) {
+          editor
+            .chain()
+            .focus()
+            .insertContent(markdownToComposerContent(text).content ?? [])
+            .run();
+        }
       }}
     >
       <EditorContent editor={editor} />

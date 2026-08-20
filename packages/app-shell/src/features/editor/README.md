@@ -7,6 +7,13 @@ App-shell wrapper around `@ora/editor` for prompt boxes.
 - Own the Tiptap instance for chat and HITL (`ComposerEditor`).
 - Seed and `replaceText` from `documentPlainText` via `markdownToComposerContent`
   so HITL drafts remount as the same nodes rather than leftover `**` / `#`.
+  Chat session switches park TipTap JSON (`getJSON` / `replaceDocument`) so
+  file/skill/command chips keep their UI and `kind` instead of becoming inline
+  code. Text-only restore still rebuilds path backticks and `$skill` tokens
+  when possible; slash-command chips and directory `kind` need the parked doc.
+  Programmatic hydrate dismisses the `@`/`/` palette so a parked `@…` suffix
+  does not reopen the menu. Explorer line selections queue per conversation
+  key. Pastes that include both files and plain text keep the text.
   Typing an opener in front of existing closers (`**`, `==`, `~~`, and the
   rest of the prompt Markdown surface) stays source until a trailing space or
   newline, which then renders that line only. Backspace against contiguous
