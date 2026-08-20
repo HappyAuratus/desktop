@@ -11,6 +11,7 @@ import { queryKeys } from "./query-keys";
 import { useSessions } from "./use-sessions";
 import { usePendingSwitch } from "../stores/pending-agent-store";
 import { useAgentModelStore } from "../stores/agent-model-store";
+import { useWorkspaceSelectionStore } from "../stores/workspace-selection-store";
 
 /** The provider session backing one chat surface, and whether it is still being opened. */
 export interface WarmSession {
@@ -88,6 +89,12 @@ export function useWarmSession(
   const { data: sessions = [] } = useSessions();
   const pendingSwitch = usePendingSwitch(selection.sessionId);
   const rememberModels = useAgentModelStore((state) => state.remember);
+  // Two-phase selection restore stages disk ids in `pendingRestore` until the
+  // sessions list settles. Warming during that window would treat a not-yet-
+  // listed session id as unpersisted and open a stray provider session.
+  const restorePending = useWorkspaceSelectionStore(
+    (state) => state.pendingRestore !== null,
+  );
   // Selection can already point at a session that was never persisted — a chat
   // whose attach failed, for one — and that surface still needs a warm session
   // to retry with. Only a session the backend actually stored ends warming.
@@ -100,7 +107,9 @@ export function useWarmSession(
   // before the move is paid for. The backend claims this very session when the
   // move commits, so the model chosen on it survives into the rebind.
   const target =
-    isPersisted && pendingSwitch === undefined ? null : warmTarget(selection);
+    restorePending || (isPersisted && pendingSwitch === undefined)
+      ? null
+      : warmTarget(selection);
 
   // The backend keys warm sessions by exactly these values, so the same surface
   // always resolves to the same session and repeated calls are cache hits rather

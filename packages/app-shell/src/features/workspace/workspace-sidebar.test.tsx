@@ -171,7 +171,17 @@ function workspaceWithOneSession(): MockClientState {
 }
 
 beforeEach(() => {
-  useWorkspaceSelectionStore.getState().clearSelection();
+  window.localStorage.clear();
+  useWorkspaceSelectionStore.setState({
+    selection: {
+      projectId: null,
+      taskId: null,
+      sessionId: null,
+      workflowRunId: null,
+      draftId: null,
+    },
+    pendingRestore: null,
+  });
   useDraftSessionsStore.getState().clear();
   useUiStore.setState({
     expandedProjects: new Set(),
