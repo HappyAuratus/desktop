@@ -23,6 +23,8 @@ import {
 } from "../editor/composer-editor";
 import {
   EMPTY_COMPOSER_QUERY,
+  queryStateFromText,
+  queryStatesEqual,
   type ComposerQueryState,
 } from "../editor/composer-query";
 import type { JSONContent } from "@tiptap/core";
@@ -224,6 +226,14 @@ export function Composer({
 
   /** Keeps async attachment work and React state on the same latest array. */
   const replaceAttachments = useCallback((next: ImageAttachment[]) => {
+    const current = attachmentsRef.current;
+    if (
+      current.length === next.length &&
+      current.every((item, index) => item.id === next[index]?.id)
+    ) {
+      attachmentsRef.current = next;
+      return;
+    }
     attachmentsRef.current = next;
     setAttachmentsState(next);
   }, []);
@@ -255,14 +265,49 @@ export function Composer({
   // TipTap's replaceText/clear emit onTextChange; skipping park writes there keeps
   // attachmentsRef and the store aligned during hydrate and send-failure restore.
   const suppressPersistRef = useRef(false);
+  /**
+   * Blocks slash/@ menus after programmatic hydrate without calling setState in
+   * the conversation layout effect (react-hooks/set-state-in-effect). Cleared on
+   * the next user-driven doc change.
+   */
+  const suppressQueryMenuRef = useRef(false);
+
+  /**
+   * Conversation-keyed React state is adjusted during render so it stays inside
+   * the same `act()` as the selection store update. TipTap `setContent` still
+   * waits for a microtask (flushSync), but must not call setState from there.
+   */
+  const syncedSurfaceRef = useRef<string | null>(null);
+  if (syncedSurfaceRef.current !== conversationKey) {
+    syncedSurfaceRef.current = conversationKey;
+    const parked = useComposerInputStore.getState().byKey[conversationKey];
+    const draft =
+      draftId !== null && selectedSessionId === null
+        ? useDraftSessionsStore
+            .getState()
+            .drafts.find((candidate) => candidate.id === draftId)
+        : undefined;
+    const text = parked !== undefined ? parked.text : (draft?.text ?? "");
+    const images = parked !== undefined ? parked.images : (draft?.images ?? []);
+    replaceAttachments(images);
+    const nextQuery = queryStateFromText(text, text);
+    setQuery((current) =>
+      queryStatesEqual(current, nextQuery) ? current : nextQuery,
+    );
+    setPlusMenuOpen(false);
+    setMenuDismissed(false);
+    setAttachmentError(null);
+    suppressQueryMenuRef.current = true;
+    setExpandedGroups((current) => (current.size === 0 ? current : new Set()));
+    setSelectedActionIndex(0);
+  }
 
   /** Sets editor content and attachments without re-entering persistComposerInput. */
   const applyComposerContent = useCallback(
     (text: string, images: ImageAttachment[], doc?: JSONContent) => {
       suppressPersistRef.current = true;
       // Parked `@…` / `/…` suffixes must not pop the palette on session restore.
-      setPlusMenuOpen(false);
-      setMenuDismissed(true);
+      suppressQueryMenuRef.current = true;
       try {
         replaceAttachments(images);
         if (doc !== undefined) {
@@ -279,27 +324,62 @@ export function Composer({
     [replaceAttachments],
   );
 
-  const hydratedConversationKey = useRef<string | null>(null);
-  useLayoutEffect(() => {
-    if (hydratedConversationKey.current === conversationKey) return;
-    hydratedConversationKey.current = conversationKey;
-    const parked = useComposerInputStore.getState().byKey[conversationKey];
-    if (parked !== undefined) {
-      applyComposerContent(parked.text, parked.images, parked.doc);
-      return;
-    }
-    if (draftId !== null && selectedSessionId === null) {
-      const draft = useDraftSessionsStore
-        .getState()
-        .drafts.find((candidate) => candidate.id === draftId);
-      applyComposerContent(draft?.text ?? "", draft?.images ?? []);
-      return;
-    }
-    applyComposerContent("", []);
-  }, [applyComposerContent, conversationKey, draftId, selectedSessionId]);
-
   const conversationKeyRef = useRef(conversationKey);
   conversationKeyRef.current = conversationKey;
+
+  const hydratedConversationKey = useRef<string | null>(null);
+  const pendingHydrateKeyRef = useRef<string | null>(null);
+  const hydrateGenerationRef = useRef(0);
+  // Passive effect + microtask: TipTap setContent uses flushSync; calling it inside
+  // useLayoutEffect nests flushSync in React's lifecycle and fails the stderr gate.
+  useEffect(() => {
+    if (hydratedConversationKey.current === conversationKey) return;
+    if (pendingHydrateKeyRef.current === conversationKey) return;
+
+    const previousKey = hydratedConversationKey.current;
+    const key = conversationKey;
+    const parked = useComposerInputStore.getState().byKey[key];
+    const draft =
+      draftId !== null && selectedSessionId === null
+        ? useDraftSessionsStore
+            .getState()
+            .drafts.find((candidate) => candidate.id === draftId)
+        : undefined;
+    const text =
+      parked !== undefined
+        ? parked.text
+        : draft !== undefined
+          ? (draft.text ?? "")
+          : "";
+    const images =
+      parked !== undefined
+        ? parked.images
+        : draft !== undefined
+          ? (draft.images ?? [])
+          : [];
+    const doc = parked?.doc;
+    const emptyPayload =
+      text.length === 0 && images.length === 0 && doc === undefined;
+    // First mount onto an empty conversation: the editor is already blank.
+    // Scheduling a deferred clear races pastes/typing that land before the
+    // microtask and would wipe them.
+    if (emptyPayload && previousKey === null) {
+      hydratedConversationKey.current = key;
+      return;
+    }
+
+    const generation = (hydrateGenerationRef.current += 1);
+    pendingHydrateKeyRef.current = key;
+    queueMicrotask(() => {
+      if (pendingHydrateKeyRef.current === key) {
+        pendingHydrateKeyRef.current = null;
+      }
+      if (hydrateGenerationRef.current !== generation) return;
+      if (conversationKeyRef.current !== key) return;
+      hydratedConversationKey.current = key;
+      applyComposerContent(text, images, doc);
+    });
+  }, [applyComposerContent, conversationKey, draftId, selectedSessionId]);
 
   useEffect(() => {
     if (
@@ -312,9 +392,9 @@ export function Composer({
     const requestId = pendingFileContext.id;
     const selections = pendingFileContext.selections;
     const keyAtSchedule = conversationKey;
-    // Defer past session hydrate's replaceDocument. Consume only after insert
-    // so clearing pending does not cancel this timer via effect cleanup.
-    const timer = window.setTimeout(() => {
+    // Queue after hydrate's microtask (effects run top-to-bottom) so insert does
+    // not race replaceDocument and TipTap portal updates stay outside layout.
+    queueMicrotask(() => {
       if (conversationKeyRef.current !== keyAtSchedule) return;
       lastInjectedRequestId.current = requestId;
       try {
@@ -322,12 +402,9 @@ export function Composer({
         consumeFileContext(keyAtSchedule, requestId);
         editorRef.current?.focus({ at: "end" });
       } catch {
-        // Hydrate may still be settling; leave pending so a later effect retry
-        // can deliver the chips instead of dropping the explorer selection.
         lastInjectedRequestId.current = null;
       }
-    }, 0);
-    return () => window.clearTimeout(timer);
+    });
   }, [consumeFileContext, conversationKey, pendingFileContext]);
   const slashQuery = query.slashQuery;
   const atQuery = query.atQuery;
@@ -381,8 +458,10 @@ export function Composer({
       : t(fileMenuStatusMessageKey);
   const showActionMenu =
     (plusMenuOpen ||
-      (slashQuery !== null && !menuDismissed) ||
-      (atQuery !== null && !menuDismissed)) &&
+      (slashQuery !== null &&
+        !menuDismissed &&
+        !suppressQueryMenuRef.current) ||
+      (atQuery !== null && !menuDismissed && !suppressQueryMenuRef.current)) &&
     !disabled &&
     !isResponding &&
     (visibleActions.length > 0 || fileMentionActive);
@@ -421,6 +500,7 @@ export function Composer({
       else await onSend(text, sentImages);
     })();
     applyComposerContent("", []);
+    setQuery(EMPTY_COMPOSER_QUERY);
     setAttachmentError(null);
     // Drop the conversation-keyed park so a later return cannot resurrect the
     // message that was just sent. Draft-store text is left alone so the muted
@@ -489,6 +569,7 @@ export function Composer({
             persistComposerInput(text, sentAttachments, sentDoc);
           }
           applyComposerContent(text, sentAttachments, sentDoc);
+          setQuery(queryStateFromText(text, text));
         } finally {
           clearComposerSendAdoption(sendConversationKey);
         }
@@ -633,6 +714,7 @@ export function Composer({
     // Programmatic hydrate/clear must not reopen @ / menus from a parked `@…`
     // or `/…` suffix at the caret.
     if (suppressPersistRef.current) return;
+    suppressQueryMenuRef.current = false;
     setPlusMenuOpen(false);
     setMenuDismissed(false);
     setExpandedGroups((current) => (current.size === 0 ? current : new Set()));

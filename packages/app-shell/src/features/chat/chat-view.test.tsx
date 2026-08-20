@@ -48,6 +48,14 @@ function composerText(element: HTMLElement): string {
   return element.dataset.composerText ?? "";
 }
 
+/** Flushes conversation hydrate / chip-inject microtasks scheduled from effects. */
+async function flushComposerEffects(): Promise<void> {
+  await act(async () => {
+    await Promise.resolve();
+    await Promise.resolve();
+  });
+}
+
 afterEach(() => {
   vi.unstubAllGlobals();
   resetComposerSendAdoptionsForTests();
@@ -535,6 +543,7 @@ describe("Composer", () => {
         .getState()
         .selectSession("session-b", "task-1", "project-1");
     });
+    await flushComposerEffects();
     expect(composerText(textarea)).toBe("");
 
     await user.type(textarea, "on B");
@@ -543,6 +552,7 @@ describe("Composer", () => {
         .getState()
         .selectSession("session-a", "task-1", "project-1");
     });
+    await flushComposerEffects();
     expect(composerText(textarea)).toBe("parked on A");
 
     act(() => {
@@ -550,6 +560,7 @@ describe("Composer", () => {
         .getState()
         .selectSession("session-b", "task-1", "project-1");
     });
+    await flushComposerEffects();
     expect(composerText(textarea)).toBe("on B");
   });
 
@@ -606,6 +617,7 @@ describe("Composer", () => {
 
     renderWithI18n(<Composer onSend={vi.fn()} isResponding={false} />);
     const textarea = screen.getByRole("textbox");
+    await flushComposerEffects();
     expect(composerText(textarea)).toBe("");
 
     act(() => {
@@ -613,6 +625,7 @@ describe("Composer", () => {
         .getState()
         .selectSession("session-a", "task-1", "project-1");
     });
+    await flushComposerEffects();
 
     await waitFor(() => {
       expect(
@@ -643,12 +656,14 @@ describe("Composer", () => {
 
     renderWithI18n(<Composer onSend={vi.fn()} isResponding={false} />);
     const textarea = screen.getByRole("textbox");
+    await flushComposerEffects();
 
     act(() => {
       useWorkspaceSelectionStore
         .getState()
         .selectSession("session-a", "task-1", "project-1");
     });
+    await flushComposerEffects();
 
     await waitFor(() => {
       expect(
@@ -684,6 +699,7 @@ describe("Composer", () => {
         .getState()
         .selectSession("session-b", "task-1", "project-1");
     });
+    await flushComposerEffects();
     expect(screen.queryByRole("img", { name: "a.png" })).toBeNull();
 
     await user.upload(
@@ -697,6 +713,7 @@ describe("Composer", () => {
         .getState()
         .selectSession("session-a", "task-1", "project-1");
     });
+    await flushComposerEffects();
     expect(await screen.findByRole("img", { name: "a.png" })).toBeVisible();
     expect(screen.queryByRole("img", { name: "b.png" })).toBeNull();
   });
@@ -708,17 +725,20 @@ describe("Composer", () => {
 
     renderWithI18n(<Composer onSend={vi.fn()} isResponding={false} />);
     const textarea = screen.getByRole("textbox");
+    await flushComposerEffects();
     await user.type(textarea, "parked on task A");
 
     act(() => {
       useWorkspaceSelectionStore.getState().selectTask("task-b", "project-1");
     });
+    await flushComposerEffects();
     expect(composerText(textarea)).toBe("");
     await user.type(textarea, "task B");
 
     act(() => {
       useWorkspaceSelectionStore.getState().selectTask("task-a", "project-1");
     });
+    await flushComposerEffects();
     expect(composerText(textarea)).toBe("parked on task A");
   });
 
@@ -736,6 +756,7 @@ describe("Composer", () => {
 
     renderWithI18n(<Composer onSend={vi.fn()} isResponding={false} />);
     const textarea = screen.getByRole("textbox");
+    await flushComposerEffects();
     await user.type(textarea, "draft note");
 
     act(() => {
@@ -743,6 +764,7 @@ describe("Composer", () => {
         .getState()
         .selectSession("session-a", "task-1", "project-1");
     });
+    await flushComposerEffects();
     expect(composerText(textarea)).toBe("");
     expect(
       useDraftSessionsStore.getState().drafts.find((d) => d.id === draftId)
@@ -754,6 +776,7 @@ describe("Composer", () => {
         .getState()
         .selectDraft(draftId, null, "project-1");
     });
+    await flushComposerEffects();
     expect(composerText(textarea)).toBe("draft note");
   });
 
@@ -767,6 +790,7 @@ describe("Composer", () => {
 
     renderWithI18n(<Composer onSend={onSend} isResponding={false} />);
     const textarea = screen.getByRole("textbox");
+    await flushComposerEffects();
     await user.type(textarea, "send me{Enter}");
     expect(onSend).toHaveBeenCalledWith("send me");
     expect(useComposerInputStore.getState().byKey["session-a"]).toBeUndefined();
@@ -781,6 +805,7 @@ describe("Composer", () => {
         .getState()
         .selectSession("session-a", "task-1", "project-1");
     });
+    await flushComposerEffects();
     expect(composerText(textarea)).toBe("");
   });
 
@@ -883,6 +908,7 @@ describe("Composer", () => {
         .getState()
         .selectDraft(draftB, null, "project-1");
     });
+    await flushComposerEffects();
     await waitFor(() => expect(composerText(textarea)).toBe(""));
 
     // Mirror workspace-view's abandon repark onto the original draft only.
@@ -964,6 +990,7 @@ describe("Composer", () => {
         .getState()
         .selectSession("session-other", "task-1", "project-1");
     });
+    await flushComposerEffects();
 
     await act(async () => {
       reparkDraftComposerContent({
@@ -990,6 +1017,7 @@ describe("Composer", () => {
         .getState()
         .selectDraft(draftId, null, "project-1");
     });
+    await flushComposerEffects();
     await waitFor(() => {
       expect(
         textarea.querySelector("[data-prompt-token='skill']"),
@@ -1031,6 +1059,7 @@ describe("Composer", () => {
     await waitFor(() =>
       expect(composerText(screen.getByRole("textbox"))).toBe("look at @fi"),
     );
+    await flushComposerEffects();
     expect(screen.queryByRole("listbox")).not.toBeInTheDocument();
   });
 
@@ -1045,13 +1074,16 @@ describe("Composer", () => {
       <Composer taskId="task-1" onSend={vi.fn()} isResponding={false} />,
     );
     const textarea = screen.getByRole("textbox");
+    await flushComposerEffects();
 
-    act(() => {
+    await act(async () => {
       useComposerFileContextStore.getState().addSelection("session-a", {
         path: "src/only-a.ts",
         startLine: 1,
         endLine: 2,
       });
+      await Promise.resolve();
+      await Promise.resolve();
     });
     await waitFor(() =>
       expect(
@@ -1067,6 +1099,7 @@ describe("Composer", () => {
         .getState()
         .selectSession("session-b", "task-1", "project-1");
     });
+    await flushComposerEffects();
     expect(
       screen
         .getByRole("textbox")
@@ -1080,6 +1113,7 @@ describe("Composer", () => {
         endLine: 3,
       });
     });
+    await flushComposerEffects();
     // Queued for A while viewing B must not land on B.
     expect(
       screen.getByRole("textbox").querySelector("[data-composer-file]"),
@@ -1178,6 +1212,7 @@ describe("Composer", () => {
         .getState()
         .selectSession("session-other", "task-1", "project-1");
     });
+    await flushComposerEffects();
     await waitFor(() => expect(composerText(textarea)).toBe(""));
 
     await act(async () => {
@@ -1224,6 +1259,7 @@ describe("Composer", () => {
         .getState()
         .selectSession("warm-adopted", "task-1", "project-1");
     });
+    await flushComposerEffects();
     await waitFor(() => expect(composerText(textarea)).toBe(""));
 
     await act(async () => {

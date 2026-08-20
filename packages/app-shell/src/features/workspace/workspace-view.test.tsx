@@ -32,6 +32,14 @@ function composerText(element: HTMLElement): string {
   return element.dataset.composerText ?? "";
 }
 
+/** Flushes conversation hydrate / chip-inject microtasks scheduled from effects. */
+async function flushComposerEffects(): Promise<void> {
+  await act(async () => {
+    await Promise.resolve();
+    await Promise.resolve();
+  });
+}
+
 beforeEach(() => {
   useWorkspaceSelectionStore.getState().clearSelection();
   useDraftSessionsStore.getState().clear();
@@ -772,12 +780,14 @@ describe("WorkspaceView", () => {
         .getState()
         .selectSession("s-other", "t1", "p1");
     });
+    await flushComposerEffects();
     // Warm resolve continues through Promise chains after release; flush a
     // macrotask so abandon repark / pendingSend clear stay inside act.
     await act(async () => {
       releaseWarm();
       await new Promise((resolve) => setTimeout(resolve, 0));
     });
+    await flushComposerEffects();
 
     await waitFor(() =>
       expect(
@@ -789,6 +799,7 @@ describe("WorkspaceView", () => {
     await act(() => {
       useWorkspaceSelectionStore.getState().selectDraft(draftId, null, "p1");
     });
+    await flushComposerEffects();
     await waitFor(() => expect(composerText(composer)).toBe("leave mid send"));
     // Returning must not resurrect a forever-streaming pending turn.
     expect(

@@ -378,9 +378,15 @@ test("range selection decorates intersecting chips for visual highlight", async 
   const size = editor.state.doc.content.size;
   editor.commands.setTextSelection({ from: 1, to: size - 1 });
   const decorated = chipSelectionDecorations(editor.state);
+  // ProseMirror keeps attrs on the internal decoration type; narrow for the assert.
   const classes = decorated
     .find()
-    .map((decoration) => decoration.type.attrs?.class)
+    .map((decoration) => {
+      const attrs = (
+        decoration as unknown as { type: { attrs?: { class?: string } } }
+      ).type.attrs;
+      return attrs?.class;
+    })
     .filter(Boolean);
   assert.equal(classes.includes("composer-chip-in-selection"), true);
   editor.destroy();
