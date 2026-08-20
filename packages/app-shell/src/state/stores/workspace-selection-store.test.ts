@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect, beforeEach, vi } from "vitest";
 import { useDraftSessionsStore } from "./draft-sessions-store";
 import { useWorkspaceSelectionStore } from "./workspace-selection-store";
 
@@ -165,5 +165,29 @@ describe("useWorkspaceSelectionStore", () => {
     expect(
       useDraftSessionsStore.getState().drafts.map((draft) => draft.id),
     ).toEqual([typedId]);
+  });
+
+  it("updates selection before a failing draft cleanup", () => {
+    const draftId = useDraftSessionsStore
+      .getState()
+      .ensureEmptyDraft({ projectId: "p1", taskId: null });
+    useWorkspaceSelectionStore.getState().selectDraft(draftId, null, "p1");
+    const cleanup = vi
+      .spyOn(useDraftSessionsStore.getState(), "discardIfEmpty")
+      .mockImplementation(() => {
+        throw new Error("persistence failed");
+      });
+
+    expect(() =>
+      useWorkspaceSelectionStore.getState().selectProject("p2"),
+    ).toThrow("persistence failed");
+    expect(useWorkspaceSelectionStore.getState().selection).toEqual({
+      projectId: "p2",
+      taskId: null,
+      sessionId: null,
+      workflowRunId: null,
+      draftId: null,
+    });
+    cleanup.mockRestore();
   });
 });

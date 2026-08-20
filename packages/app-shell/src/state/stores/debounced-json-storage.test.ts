@@ -64,4 +64,67 @@ describe("createDebouncedStateStorage", () => {
     vi.advanceTimersByTime(DEBOUNCED_PERSIST_MS);
     expect(window.localStorage.getItem("k")).toBeNull();
   });
+
+  it("keeps a timed write pending when storage fails and retries on flush", () => {
+    let storageAvailable = false;
+    const backing = new Map<string, string>();
+    const target = {
+      getItem: (name: string) => backing.get(name) ?? null,
+      setItem: (name: string, value: string) => {
+        if (!storageAvailable)
+          throw new DOMException("full", "QuotaExceededError");
+        backing.set(name, value);
+      },
+      removeItem: (name: string) => backing.delete(name),
+    } as unknown as Storage;
+    const storage = createDebouncedStateStorage(
+      DEBOUNCED_PERSIST_MS,
+      () => target,
+    );
+    storage.setItem("k", "recoverable");
+
+    vi.advanceTimersByTime(DEBOUNCED_PERSIST_MS);
+    expect(storage.getItem("k")).toBe("recoverable");
+    expect(backing.get("k")).toBeUndefined();
+
+    storageAvailable = true;
+    storage.flush();
+    expect(backing.get("k")).toBe("recoverable");
+  });
+
+  it("continues flushing other keys after one key fails", () => {
+    const backing = new Map<string, string>();
+    const target = {
+      getItem: (name: string) => backing.get(name) ?? null,
+      setItem: (name: string, value: string) => {
+        if (name === "blocked") {
+          throw new DOMException("full", "QuotaExceededError");
+        }
+        backing.set(name, value);
+      },
+      removeItem: (name: string) => backing.delete(name),
+    } as unknown as Storage;
+    const storage = createDebouncedStateStorage(
+      DEBOUNCED_PERSIST_MS,
+      () => target,
+    );
+    storage.setItem("blocked", "retry later");
+    storage.setItem("healthy", "saved");
+
+    expect(() => storage.flush()).not.toThrow();
+    expect(storage.getItem("blocked")).toBe("retry later");
+    expect(backing.get("healthy")).toBe("saved");
+  });
+
+  it("isolates lifecycle flushers when one storage accessor fails", () => {
+    const broken = createDebouncedStateStorage(DEBOUNCED_PERSIST_MS, () => {
+      throw new DOMException("denied", "SecurityError");
+    });
+    const healthy = createDebouncedStateStorage(DEBOUNCED_PERSIST_MS);
+    broken.setItem("broken", "pending");
+    healthy.setItem("healthy", "saved");
+
+    expect(() => window.dispatchEvent(new Event("pagehide"))).not.toThrow();
+    expect(window.localStorage.getItem("healthy")).toBe("saved");
+  });
 });

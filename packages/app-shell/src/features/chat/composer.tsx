@@ -124,14 +124,12 @@ export function Composer({
   availableCommands = [],
 }: ComposerProps) {
   const { t } = useTranslation();
-  const [value, setValue] = useState("");
   const [selectedActionIndex, setSelectedActionIndex] = useState(0);
   const [menuDismissed, setMenuDismissed] = useState(false);
   const [plusMenuOpen, setPlusMenuOpen] = useState(false);
   const [expandedGroups, setExpandedGroups] = useState<
     ReadonlySet<ComposerActionGroup>
   >(new Set());
-  const [attachments, setAttachments] = useState<ImageAttachment[]>([]);
   const [attachmentError, setAttachmentError] = useState<string | null>(null);
   const [caret, setCaret] = useState(0);
   const installedPluginIds = usePluginInstallStore(
@@ -151,6 +149,25 @@ export function Composer({
   const selectedSessionId = useWorkspaceSelectionStore(
     (state) => state.selection.sessionId,
   );
+  // The draft store keeps its sent text as a muted sidebar title until attach.
+  // Once submit clears the composer park, do not treat that title as live input.
+  const [suppressedDraftFallbackKey, setSuppressedDraftFallbackKey] = useState<
+    string | null
+  >(null);
+  const parkedInput = useComposerInputStore(
+    (state) => state.byKey[conversationKey],
+  );
+  const selectedDraft = useDraftSessionsStore((state) =>
+    draftId === null || selectedSessionId !== null
+      ? undefined
+      : state.drafts.find((draft) => draft.id === draftId),
+  );
+  // External conversation-keyed state is the composer source of truth. Switching
+  // surfaces changes these selectors directly, avoiding render/effect state sync.
+  const draftFallback =
+    suppressedDraftFallbackKey === conversationKey ? undefined : selectedDraft;
+  const value = parkedInput?.text ?? draftFallback?.text ?? "";
+  const attachments = parkedInput?.images ?? draftFallback?.images ?? [];
   const selectedPluginIds = useComposerPluginSelectionStore(
     (state) =>
       state.selectedIdsByConversation[conversationKey] ?? EMPTY_PLUGIN_IDS,
@@ -211,7 +228,14 @@ export function Composer({
    */
   const persistComposerInput = useCallback(
     (text: string, nextImages?: ImageAttachment[]) => {
-      const images = nextImages ?? attachments;
+      const images =
+        nextImages ??
+        useComposerInputStore.getState().byKey[conversationKey]?.images ??
+        (draftId === null
+          ? []
+          : (useDraftSessionsStore
+              .getState()
+              .drafts.find((draft) => draft.id === draftId)?.images ?? []));
       useComposerInputStore.getState().setInput(conversationKey, {
         text,
         images,
@@ -222,31 +246,8 @@ export function Composer({
         ...(nextImages === undefined ? {} : { images: nextImages }),
       });
     },
-    [attachments, conversationKey, draftId, selectedSessionId],
+    [conversationKey, draftId, selectedSessionId],
   );
-
-  // The composer instance is reused across surfaces. Swap local text/images to
-  // whatever is parked for the new conversation so typed-but-unsent input does
-  // not bleed, and so returning to a session or draft restores it.
-  const composerSurface = `${draftId ?? ""}:${selectedSessionId ?? ""}`;
-  const [hydratedSurface, setHydratedSurface] = useState(composerSurface);
-  if (hydratedSurface !== composerSurface) {
-    setHydratedSurface(composerSurface);
-    const parked = useComposerInputStore.getState().byKey[conversationKey];
-    if (parked !== undefined) {
-      setValue(parked.text);
-      setAttachments(parked.images);
-    } else if (draftId !== null && selectedSessionId === null) {
-      const draft = useDraftSessionsStore
-        .getState()
-        .drafts.find((candidate) => candidate.id === draftId);
-      setValue(draft?.text ?? "");
-      setAttachments(draft?.images ?? []);
-    } else {
-      setValue("");
-      setAttachments([]);
-    }
-  }
 
   useEffect(() => {
     if (
@@ -265,16 +266,20 @@ export function Composer({
           `- \`${path}:${startLine === endLine ? startLine : `${startLine}-${endLine}`}\``,
       ),
     ].join("\n");
-    setValue((current) => {
-      const prefix = current.trimEnd();
-      const next =
-        prefix.length === 0 ? `${context}\n\n` : `${prefix}\n\n${context}\n\n`;
-      persistComposerInput(next);
-      return next;
-    });
+    const prefix = value.trimEnd();
+    const next =
+      prefix.length === 0 ? `${context}\n\n` : `${prefix}\n\n${context}\n\n`;
+    persistComposerInput(next);
     consumeFileContext(taskId, pendingFileContext.id);
     textAreaRef.current?.focus();
-  }, [consumeFileContext, pendingFileContext, persistComposerInput, t, taskId]);
+  }, [
+    consumeFileContext,
+    pendingFileContext,
+    persistComposerInput,
+    t,
+    taskId,
+    value,
+  ]);
   const slashQuery = value.match(/^\/([^\s]*)$/)?.[1] ?? null;
   const atMatch = value.slice(0, caret).match(AT_TRIGGER_PATTERN);
   const atQuery = atMatch?.[1] ?? null;
@@ -343,14 +348,17 @@ export function Composer({
     const sendDraftId = draftId;
     const sendSessionId = selectedSessionId;
     const submitGeneration = (submitGenerationRef.current += 1);
-    const sendResult =
-      sentImages === undefined ? onSend(text) : onSend(text, sentImages);
-    setValue("");
-    setAttachments([]);
+    // Async wrapping turns a synchronous callback throw into the same rejected
+    // promise path used by transport failures, so restoration always runs.
+    const sendResult = (async () => {
+      if (sentImages === undefined) await onSend(text);
+      else await onSend(text, sentImages);
+    })();
     setAttachmentError(null);
     // Drop the conversation-keyed park so a later return cannot resurrect the
     // message that was just sent. Draft-store text is left alone so the muted
     // sidebar title survives until attach replaces the row.
+    setSuppressedDraftFallbackKey(conversationKey);
     useComposerInputStore.getState().clear(conversationKey);
     closeActionMenu();
     // If the send rejects while still on this surface, put the message back.
@@ -376,19 +384,29 @@ export function Composer({
             conversationKeyFor(selection) === sendConversationKey &&
             selection.draftId === sendDraftId &&
             selection.sessionId === sendSessionId;
+          let adoptedSession: string | undefined;
           if (error instanceof DraftSendAbandonedError) {
             if (!onSendSurface) return;
           } else {
-            const adopted = composerSendAdoptedSession(sendConversationKey);
+            adoptedSession = composerSendAdoptedSession(sendConversationKey);
             const onSendDraft =
               sendDraftId !== null && selection.draftId === sendDraftId;
             const onAdoptedSession =
-              adopted !== undefined && selection.sessionId === adopted;
+              adoptedSession !== undefined &&
+              selection.sessionId === adoptedSession;
             if (!onSendSurface && !onSendDraft && !onAdoptedSession) return;
           }
-          setValue(text);
-          setAttachments(sentAttachments);
-          persistComposerInput(text, sentAttachments);
+          if (
+            adoptedSession !== undefined &&
+            selection.sessionId === adoptedSession
+          ) {
+            useComposerInputStore.getState().setInput(adoptedSession, {
+              text,
+              images: sentAttachments,
+            });
+          } else {
+            persistComposerInput(text, sentAttachments);
+          }
         } finally {
           clearComposerSendAdoption(sendConversationKey);
         }
@@ -398,7 +416,6 @@ export function Composer({
 
   /** Inserts a skill or command token for review while keeping arguments under user control. */
   const insertPromptToken = (inserted: string) => {
-    setValue(inserted);
     persistComposerInput(inserted);
     closeActionMenu();
     requestAnimationFrame(() => {
@@ -412,7 +429,6 @@ export function Composer({
     addSelectedPlugin(conversationKey, plugin.id);
     if (atTriggerIndex !== null) {
       const nextValue = value.slice(0, atTriggerIndex) + value.slice(caret);
-      setValue(nextValue);
       persistComposerInput(nextValue);
       requestAnimationFrame(() => {
         textAreaRef.current?.focus();
@@ -467,11 +483,11 @@ export function Composer({
       return;
     }
     const next = await Promise.all(selectedFiles.map(readImageAttachment));
-    setAttachments((current) => {
-      const combined = [...current, ...next];
-      persistComposerInput(value, combined);
-      return combined;
-    });
+    const current =
+      useComposerInputStore.getState().byKey[conversationKey]?.images ??
+      attachments;
+    const combined = [...current, ...next];
+    persistComposerInput(value, combined);
     setAttachmentError(null);
   };
 
@@ -651,15 +667,12 @@ export function Composer({
                 </button>
                 <button
                   type="button"
-                  onClick={() =>
-                    setAttachments((current) => {
-                      const next = current.filter(
-                        (item) => item.id !== attachment.id,
-                      );
-                      persistComposerInput(value, next);
-                      return next;
-                    })
-                  }
+                  onClick={() => {
+                    const next = attachments.filter(
+                      (item) => item.id !== attachment.id,
+                    );
+                    persistComposerInput(value, next);
+                  }}
                   aria-label={t("chat.attachments.remove", {
                     name: attachment.name,
                   })}
@@ -683,7 +696,6 @@ export function Composer({
           value={value}
           disabled={disabled}
           onChange={(event) => {
-            setValue(event.target.value);
             persistComposerInput(event.target.value);
             setCaret(event.target.selectionStart ?? event.target.value.length);
             setPlusMenuOpen(false);

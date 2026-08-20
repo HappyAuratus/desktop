@@ -1,4 +1,4 @@
-import { memo } from "react";
+import { memo, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import { Button } from "@ora/ui";
 import { IconMessageCircle, IconX } from "@tabler/icons-react";
@@ -29,6 +29,7 @@ export const DraftSessionTreeRow = memo(function DraftSessionTreeRow({
   depth,
 }: DraftSessionTreeRowProps) {
   const { t } = useTranslation();
+  const rowRef = useRef<HTMLDivElement>(null);
   const draft = useDraftSessionsStore((s) =>
     s.drafts.find((candidate) => candidate.id === draftId),
   );
@@ -68,6 +69,7 @@ export const DraftSessionTreeRow = memo(function DraftSessionTreeRow({
 
   return (
     <div
+      ref={rowRef}
       className={`group/tree flex h-9 items-center rounded-md transition-colors ${
         active
           ? "bg-sidebar-accent text-sidebar-accent-foreground"
@@ -111,7 +113,25 @@ export const DraftSessionTreeRow = memo(function DraftSessionTreeRow({
             aria-label={t("sidebar.dismissDraft")}
             onClick={(event) => {
               event.stopPropagation();
+              const navigation = rowRef.current?.closest("nav");
+              const focusableRows = navigation
+                ? [
+                    ...navigation.querySelectorAll<HTMLElement>(
+                      '[role="button"][tabindex="0"]',
+                    ),
+                  ]
+                : [];
+              const currentIndex = focusableRows.findIndex((row) =>
+                rowRef.current?.contains(row),
+              );
+              const nextFocus =
+                focusableRows[currentIndex + 1] ??
+                focusableRows[currentIndex - 1] ??
+                null;
               dismissSessionDraft(current.id);
+              // The clicked × disappears with the draft. Restore keyboard
+              // position to an adjacent row instead of falling back to body.
+              queueMicrotask(() => nextFocus?.focus());
             }}
           >
             <IconX />

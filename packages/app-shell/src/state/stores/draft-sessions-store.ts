@@ -169,13 +169,15 @@ export function draftPlacementsEqual(
   right: DraftPlacement[],
 ): boolean {
   if (left.length !== right.length) return false;
-  return left.every(
-    (placement, index) =>
-      placement.id === right[index]?.id &&
-      placement.projectId === right[index]?.projectId &&
-      placement.taskId === right[index]?.taskId &&
-      placement.pendingSessionId === right[index]?.pendingSessionId,
-  );
+  return left.every((placement, index) => {
+    const candidate = right[index]!;
+    return (
+      placement.id === candidate.id &&
+      placement.projectId === candidate.projectId &&
+      placement.taskId === candidate.taskId &&
+      placement.pendingSessionId === candidate.pendingSessionId
+    );
+  });
 }
 
 /** Clears composer parks for the given draft ids. */
@@ -191,32 +193,54 @@ function clearDraftComposerKeys(draftIds: Iterable<string>): void {
  * undismissable zombies pointing at dead warm ids, and attachment-only rows
  * came back as empty "New session" shells.
  */
-function sanitizeDraftsForDisk(
-  drafts: SessionDraft[] | undefined,
-): SessionDraft[] {
-  if (drafts === undefined) return [];
-  return drafts
-    .filter((draft) => draft.text.trim().length > 0)
-    .map((draft) => ({
-      ...draft,
+function sanitizeDraftsForDisk(drafts: unknown): SessionDraft[] {
+  if (!Array.isArray(drafts)) return [];
+  const sanitized: SessionDraft[] = [];
+  for (const draft of drafts) {
+    if (typeof draft !== "object" || draft === null || Array.isArray(draft)) {
+      continue;
+    }
+    const candidate = draft as Record<string, unknown>;
+    if (
+      typeof candidate.id !== "string" ||
+      candidate.id.length === 0 ||
+      typeof candidate.projectId !== "string" ||
+      candidate.projectId.length === 0 ||
+      typeof candidate.text !== "string" ||
+      candidate.text.trim().length === 0
+    ) {
+      continue;
+    }
+    sanitized.push({
+      id: candidate.id,
+      projectId: candidate.projectId,
+      taskId: typeof candidate.taskId === "string" ? candidate.taskId : null,
+      text: candidate.text,
       images: [],
       retainedAttachments: false,
-      taskId: draft.taskId ?? null,
       pendingSessionId: null,
-      returnTo: sanitizeReturnTo(draft.returnTo),
+      returnTo: sanitizeReturnTo(candidate.returnTo),
       sendInFlight: false,
-    }));
+      updatedAt:
+        typeof candidate.updatedAt === "number" &&
+        Number.isFinite(candidate.updatedAt)
+          ? candidate.updatedAt
+          : Date.now(),
+    });
+  }
+  return sanitized;
 }
 
 /** Drops corrupt returnTo payloads instead of resurrecting a broken selection. */
-function sanitizeReturnTo(
-  returnTo: DraftReturnTo | null | undefined,
-): DraftReturnTo | null {
+function sanitizeReturnTo(returnTo: unknown): DraftReturnTo | null {
   if (
+    typeof returnTo !== "object" ||
     returnTo === null ||
-    returnTo === undefined ||
+    Array.isArray(returnTo) ||
+    !("sessionId" in returnTo) ||
     typeof returnTo.sessionId !== "string" ||
     returnTo.sessionId.length === 0 ||
+    !("projectId" in returnTo) ||
     typeof returnTo.projectId !== "string" ||
     returnTo.projectId.length === 0
   ) {
@@ -226,10 +250,33 @@ function sanitizeReturnTo(
     sessionId: returnTo.sessionId,
     projectId: returnTo.projectId,
     taskId:
-      returnTo.taskId === null || typeof returnTo.taskId === "string"
+      "taskId" in returnTo &&
+      (returnTo.taskId === null || typeof returnTo.taskId === "string")
         ? returnTo.taskId
         : null,
   };
+}
+
+/** Partitions drafts whose pending session has entered the supplied session set. */
+function removeBoundDrafts(
+  drafts: SessionDraft[],
+  sessionIds: Iterable<string>,
+): { remaining: SessionDraft[]; removed: SessionDraft[] } {
+  const committed = new Set(sessionIds);
+  if (committed.size === 0) return { remaining: drafts, removed: [] };
+  const remaining: SessionDraft[] = [];
+  const removed: SessionDraft[] = [];
+  for (const draft of drafts) {
+    if (
+      draft.pendingSessionId !== null &&
+      committed.has(draft.pendingSessionId)
+    ) {
+      removed.push(draft);
+    } else {
+      remaining.push(draft);
+    }
+  }
+  return { remaining, removed };
 }
 
 /** Client-only drafts for chats that have not been attached to a Task yet. */
@@ -396,21 +443,13 @@ export const useDraftSessionsStore = create<DraftSessionsState>()(
           };
         }),
       removeCommitted: (sessionIds) => {
-        const committed = new Set(sessionIds);
-        const removing = get().drafts.filter(
-          (draft) =>
-            draft.pendingSessionId !== null &&
-            committed.has(draft.pendingSessionId),
+        const { remaining, removed } = removeBoundDrafts(
+          get().drafts,
+          sessionIds,
         );
-        clearDraftComposerKeys(removing.map((draft) => draft.id));
-        set((state) => {
-          const drafts = state.drafts.filter(
-            (draft) =>
-              draft.pendingSessionId === null ||
-              !committed.has(draft.pendingSessionId),
-          );
-          return drafts.length === state.drafts.length ? state : { drafts };
-        });
+        if (removed.length === 0) return;
+        clearDraftComposerKeys(removed.map((draft) => draft.id));
+        set({ drafts: remaining });
       },
       remove: (id) => {
         useComposerInputStore.getState().clear(`draft:${id}`);
@@ -442,22 +481,13 @@ export const useDraftSessionsStore = create<DraftSessionsState>()(
         }));
       },
       removeForSessions: (sessionIds) => {
-        const committed = new Set(sessionIds);
-        if (committed.size === 0) return;
-        const removing = get().drafts.filter(
-          (draft) =>
-            draft.pendingSessionId !== null &&
-            committed.has(draft.pendingSessionId),
+        const { remaining, removed } = removeBoundDrafts(
+          get().drafts,
+          sessionIds,
         );
-        if (removing.length === 0) return;
-        clearDraftComposerKeys(removing.map((draft) => draft.id));
-        set((state) => ({
-          drafts: state.drafts.filter(
-            (draft) =>
-              draft.pendingSessionId === null ||
-              !committed.has(draft.pendingSessionId),
-          ),
-        }));
+        if (removed.length === 0) return;
+        clearDraftComposerKeys(removed.map((draft) => draft.id));
+        set({ drafts: remaining });
       },
       clearReturnToForSessions: (sessionIds) => {
         const deleted = new Set(sessionIds);
@@ -503,7 +533,10 @@ export const useDraftSessionsStore = create<DraftSessionsState>()(
         drafts: sanitizeDraftsForDisk(state.drafts),
       }),
       merge: (persisted, current) => {
-        const slice = persisted as Partial<DraftSessionsState> | undefined;
+        const slice =
+          typeof persisted === "object" && persisted !== null
+            ? (persisted as Record<string, unknown>)
+            : undefined;
         return {
           ...current,
           drafts: sanitizeDraftsForDisk(slice?.drafts),

@@ -5,6 +5,7 @@ Ora is an IDE for AI agents. The shared Rust crates live in `crates/`, executabl
 ## Architecture Docs
 
 - [Task Workspace Files](docs/task-workspace-files.md) - read-only worktree browsing, bounded search, and native refresh
+- [Client Session Drafts](docs/client-session-drafts.md) — deferred Task/Session creation, parked composer state, and first-send recovery
 
 - [Application and Contracts Boundary](docs/application-contracts-boundary.md) — cross-crate ownership, contract shapes, and the handler set
 - [Domain Models](docs/domain-models.md) — entities, identifier newtypes, and categorical enums

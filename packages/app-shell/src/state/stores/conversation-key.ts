@@ -11,10 +11,10 @@
 export function conversationKeyFor(selection: {
   sessionId: string | null;
   taskId: string | null;
-  draftId?: string | null;
+  draftId: string | null;
 }): string {
   if (selection.sessionId !== null) return selection.sessionId;
-  if (selection.draftId != null) return `draft:${selection.draftId}`;
+  if (selection.draftId !== null) return `draft:${selection.draftId}`;
   if (selection.taskId !== null) return `task:${selection.taskId}`;
   return "__none__";
 }

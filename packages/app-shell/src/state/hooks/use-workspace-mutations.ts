@@ -73,17 +73,22 @@ export function useDeleteProject() {
       queryClient.invalidateQueries({ queryKey: queryKeys.projects });
       queryClient.invalidateQueries({ queryKey: queryKeys.tasks });
       queryClient.invalidateQueries({ queryKey: queryKeys.sessions });
+      const tasks = readCache<Task>(queryClient, queryKeys.tasks);
+      const taskIds = new Set(
+        tasks
+          .filter((task) => task.projectId === projectId)
+          .map((task) => task.id),
+      );
       const sessions = readCache<Session>(queryClient, queryKeys.sessions);
       const sessionIds = sessions
-        .filter((session) => {
-          const tasks = readCache<Task>(queryClient, queryKeys.tasks);
-          return tasks.some(
-            (task) =>
-              task.id === session.taskId && task.projectId === projectId,
-          );
-        })
+        .filter((session) => taskIds.has(session.taskId))
         .map((session) => session.id);
-      useComposerInputStore.getState().clearKeys(sessionIds);
+      useComposerInputStore
+        .getState()
+        .clearKeys([
+          ...sessionIds,
+          ...[...taskIds].map((taskId) => `task:${taskId}`),
+        ]);
       useDraftSessionsStore.getState().clearReturnToForSessions(sessionIds);
       useDraftSessionsStore.getState().removeForProject(projectId);
       const selection = useWorkspaceSelectionStore.getState().selection;

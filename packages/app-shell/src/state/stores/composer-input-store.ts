@@ -59,16 +59,27 @@ export function composerInputHasContent(input: ParkedComposerInput): boolean {
  * stay in memory for the current process; restoring an empty retained stub
  * after restart looked like a blank composer with nothing to recover.
  */
-function textOnlyPark(input: ParkedComposerInput): ParkedComposerInput | null {
-  if (input.text.trim().length === 0) return null;
+function textOnlyPark(input: unknown): ParkedComposerInput | null {
+  if (
+    typeof input !== "object" ||
+    input === null ||
+    Array.isArray(input) ||
+    !("text" in input) ||
+    typeof input.text !== "string" ||
+    input.text.trim().length === 0
+  ) {
+    return null;
+  }
   return { text: input.text, images: [] };
 }
 
-/** Keeps only entries that still have typed text or retained attachments. */
+/** Keeps only runtime-validated entries with typed text. */
 function sanitizeParkedByKey(
-  byKey: Record<string, ParkedComposerInput> | undefined,
+  byKey: unknown,
 ): Record<string, ParkedComposerInput> {
-  if (byKey === undefined) return {};
+  if (typeof byKey !== "object" || byKey === null || Array.isArray(byKey)) {
+    return {};
+  }
   const next: Record<string, ParkedComposerInput> = {};
   for (const [key, input] of Object.entries(byKey)) {
     const parked = textOnlyPark(input);
@@ -85,14 +96,15 @@ function sanitizeParkedByKey(
  */
 export const useComposerInputStore = create<ComposerInputState>()(
   persist(
-    (set, get) => ({
+    (set) => ({
       byKey: {},
       setInput: (key, input) =>
         set((state) => {
           const previous = state.byKey[key] ?? EMPTY;
           const next: ParkedComposerInput = {
             text: input.text,
-            images: input.images,
+            // Store ownership must not be bypassed by a caller mutating its array.
+            images: [...input.images],
             ...(input.images.length > 0 || input.retainedAttachments === true
               ? { retainedAttachments: true }
               : {}),
@@ -141,12 +153,14 @@ export const useComposerInputStore = create<ComposerInputState>()(
       },
       rekey: (fromKey, toKey) => {
         if (fromKey === toKey) return;
-        const parked = get().byKey[fromKey];
-        if (parked === undefined) return;
         set((state) => {
+          const parked = state.byKey[fromKey];
+          if (parked === undefined) return state;
           const byKey = { ...state.byKey };
           delete byKey[fromKey];
-          byKey[toKey] = parked;
+          // A live destination may contain newer user input. Moving a draft must
+          // never overwrite that independently parked message.
+          if (!(toKey in byKey)) byKey[toKey] = parked;
           return { byKey };
         });
       },
@@ -161,7 +175,10 @@ export const useComposerInputStore = create<ComposerInputState>()(
         byKey: sanitizeParkedByKey(state.byKey),
       }),
       merge: (persisted, current) => {
-        const slice = persisted as Partial<ComposerInputState> | undefined;
+        const slice =
+          typeof persisted === "object" && persisted !== null
+            ? (persisted as Record<string, unknown>)
+            : undefined;
         return {
           ...current,
           byKey: sanitizeParkedByKey(slice?.byKey),

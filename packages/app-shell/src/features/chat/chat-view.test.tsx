@@ -467,6 +467,27 @@ describe("Composer", () => {
     expect(textarea).toHaveValue("on B");
   });
 
+  it("hydrates independently when switching between task-only surfaces", async () => {
+    const user = userEvent.setup();
+    useComposerInputStore.getState().reset();
+    useWorkspaceSelectionStore.getState().selectTask("task-a", "project-1");
+
+    renderWithI18n(<Composer onSend={vi.fn()} isResponding={false} />);
+    const textarea = screen.getByRole("textbox");
+    await user.type(textarea, "parked on task A");
+
+    act(() => {
+      useWorkspaceSelectionStore.getState().selectTask("task-b", "project-1");
+    });
+    expect(textarea).toHaveValue("");
+    await user.type(textarea, "task B");
+
+    act(() => {
+      useWorkspaceSelectionStore.getState().selectTask("task-a", "project-1");
+    });
+    expect(textarea).toHaveValue("parked on task A");
+  });
+
   it("keeps typed draft text when leaving and returning to a draft", async () => {
     const user = userEvent.setup();
     useComposerInputStore.getState().reset();
@@ -551,6 +572,24 @@ describe("Composer", () => {
     expect(
       useComposerInputStore.getState().byKey[`draft:${draftId}`]?.text,
     ).toBe("try again");
+  });
+
+  it("restores composer text when onSend throws synchronously", async () => {
+    const user = userEvent.setup();
+    const onSend = vi.fn(() => {
+      throw new Error("sync failure");
+    });
+    useComposerInputStore.getState().reset();
+    useWorkspaceSelectionStore
+      .getState()
+      .selectSession("session-a", "task-1", "project-1");
+
+    renderWithI18n(<Composer onSend={onSend} isResponding={false} />);
+    const textarea = screen.getByRole("textbox");
+    await user.type(textarea, "restore me{Enter}");
+
+    expect(onSend).toHaveBeenCalledWith("restore me");
+    await waitFor(() => expect(textarea).toHaveValue("restore me"));
   });
 
   it("restores composer text when onSend abandons without a hard failure", async () => {

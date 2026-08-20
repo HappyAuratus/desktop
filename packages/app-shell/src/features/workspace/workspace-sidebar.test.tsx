@@ -329,6 +329,9 @@ describe("WorkspaceSidebar", () => {
     );
     expect(treeRow("keep this")).toBeNull();
     expect(useDraftSessionsStore.getState().drafts).toHaveLength(0);
+    await waitFor(() =>
+      expect(document.activeElement?.getAttribute("role")).toBe("button"),
+    );
   });
 
   it("starts a muted draft from the worktree plus, not the row click", async () => {
@@ -412,6 +415,32 @@ describe("WorkspaceSidebar", () => {
       workflowRunId: null,
       draftId: null,
     });
+  });
+
+  it("moves selection onto a bound draft's persisted session before removing the row", async () => {
+    const draftId = useDraftSessionsStore
+      .getState()
+      .ensureEmptyDraft({ projectId: PROJECT.id, taskId: TASK.id });
+    useDraftSessionsStore
+      .getState()
+      .updateContent(draftId, { text: "sending" });
+    useDraftSessionsStore.getState().bindToSession(draftId, SESSION.id);
+    useWorkspaceSelectionStore
+      .getState()
+      .selectDraft(draftId, TASK.id, PROJECT.id);
+
+    renderSidebar(workspaceWithOneSession());
+
+    await waitFor(() =>
+      expect(useWorkspaceSelectionStore.getState().selection).toEqual({
+        projectId: PROJECT.id,
+        taskId: TASK.id,
+        sessionId: SESSION.id,
+        workflowRunId: null,
+        draftId: null,
+      }),
+    );
+    expect(useDraftSessionsStore.getState().drafts).toEqual([]);
   });
 
   it("keeps the live session selected when a bound draft is dismissed", async () => {
@@ -1132,6 +1161,30 @@ describe("WorkspaceSidebar", () => {
 
     await user.clear(search);
     await user.type(search, NEW_SESSION_LABEL.split("|")[0]!);
+    await waitFor(() =>
+      expect(screen.getByText(/未找到项目|No projects found/)).not.toBeNull(),
+    );
+  });
+
+  it("reacts to structured draft title changes while search is active", async () => {
+    const user = userEvent.setup();
+    const draftId = useDraftSessionsStore
+      .getState()
+      .ensureEmptyDraft({ projectId: PROJECT.id, taskId: null });
+    useDraftSessionsStore
+      .getState()
+      .updateContent(draftId, { text: "Needle draft" });
+    renderSidebar(workspaceWithOneSession());
+
+    const search = screen.getByPlaceholderText(/搜索工作区|Search workspace/);
+    await user.type(search, "Needle draft");
+    expect(treeRow(PROJECT.name)).not.toBeNull();
+
+    act(() => {
+      useDraftSessionsStore
+        .getState()
+        .updateContent(draftId, { text: "Different title" });
+    });
     await waitFor(() =>
       expect(screen.getByText(/未找到项目|No projects found/)).not.toBeNull(),
     );
