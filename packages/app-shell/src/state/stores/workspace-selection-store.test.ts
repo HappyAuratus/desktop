@@ -1,18 +1,28 @@
-import { describe, it, expect, beforeEach, vi } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { useDraftSessionsStore } from "./draft-sessions-store";
-import { useWorkspaceSelectionStore } from "./workspace-selection-store";
+import {
+  useWorkspaceSelectionStore,
+  WORKSPACE_SELECTION_STORAGE_KEY,
+} from "./workspace-selection-store";
+import { EMPTY_WORKSPACE_SELECTION } from "./sanitize-workspace-selection";
 
-const empty = {
-  projectId: null,
-  taskId: null,
-  sessionId: null,
-  workflowRunId: null,
-  draftId: null,
-};
+const empty = EMPTY_WORKSPACE_SELECTION;
 
 beforeEach(() => {
+  window.localStorage.clear();
   useDraftSessionsStore.getState().clear();
-  useWorkspaceSelectionStore.getState().clearSelection();
+  useWorkspaceSelectionStore.setState({
+    selection: empty,
+    pendingRestore: null,
+  });
+});
+
+afterEach(() => {
+  window.localStorage.clear();
+  useWorkspaceSelectionStore.setState({
+    selection: empty,
+    pendingRestore: null,
+  });
 });
 
 describe("useWorkspaceSelectionStore", () => {
@@ -189,5 +199,133 @@ describe("useWorkspaceSelectionStore", () => {
       draftId: null,
     });
     cleanup.mockRestore();
+  });
+
+  it("persists selection to localStorage under the v1 key", () => {
+    useWorkspaceSelectionStore.getState().selectSession("s1", "t1", "p1");
+    const raw = window.localStorage.getItem(WORKSPACE_SELECTION_STORAGE_KEY);
+    expect(raw).not.toBeNull();
+    const parsed = JSON.parse(raw!) as {
+      state: {
+        selection: typeof empty;
+        pendingRestore: typeof empty | null;
+      };
+    };
+    expect(parsed.state.selection).toEqual({
+      projectId: "p1",
+      taskId: "t1",
+      sessionId: "s1",
+      workflowRunId: null,
+      draftId: null,
+    });
+    expect(parsed.state.pendingRestore).toBeNull();
+  });
+
+  it("rehydrates disk selection into pendingRestore and keeps live selection empty", async () => {
+    window.localStorage.setItem(
+      WORKSPACE_SELECTION_STORAGE_KEY,
+      JSON.stringify({
+        state: {
+          selection: {
+            projectId: "p1",
+            taskId: "t1",
+            sessionId: "s1",
+            workflowRunId: null,
+            draftId: null,
+          },
+          pendingRestore: null,
+        },
+        version: 0,
+      }),
+    );
+    await useWorkspaceSelectionStore.persist.rehydrate();
+    expect(useWorkspaceSelectionStore.getState().selection).toEqual(empty);
+    expect(useWorkspaceSelectionStore.getState().pendingRestore).toEqual({
+      projectId: "p1",
+      taskId: "t1",
+      sessionId: "s1",
+      workflowRunId: null,
+      draftId: null,
+    });
+  });
+
+  it("prefers an in-flight pendingRestore over the last live selection on rehydrate", async () => {
+    window.localStorage.setItem(
+      WORKSPACE_SELECTION_STORAGE_KEY,
+      JSON.stringify({
+        state: {
+          selection: {
+            projectId: "p-old",
+            taskId: null,
+            sessionId: null,
+            workflowRunId: null,
+            draftId: null,
+          },
+          pendingRestore: {
+            projectId: "p1",
+            taskId: "t1",
+            sessionId: "s1",
+            workflowRunId: null,
+            draftId: null,
+          },
+        },
+        version: 0,
+      }),
+    );
+    await useWorkspaceSelectionStore.persist.rehydrate();
+    expect(useWorkspaceSelectionStore.getState().selection).toEqual(empty);
+    expect(
+      useWorkspaceSelectionStore.getState().pendingRestore?.sessionId,
+    ).toBe("s1");
+  });
+
+  it("sanitizes illegal session+draft combos on rehydrate", async () => {
+    window.localStorage.setItem(
+      WORKSPACE_SELECTION_STORAGE_KEY,
+      JSON.stringify({
+        state: {
+          selection: {
+            projectId: "p1",
+            taskId: "t1",
+            sessionId: "s1",
+            workflowRunId: null,
+            draftId: "d1",
+          },
+          pendingRestore: null,
+        },
+        version: 0,
+      }),
+    );
+    await useWorkspaceSelectionStore.persist.rehydrate();
+    expect(useWorkspaceSelectionStore.getState().pendingRestore).toEqual({
+      projectId: "p1",
+      taskId: "t1",
+      sessionId: null,
+      workflowRunId: null,
+      draftId: "d1",
+    });
+  });
+
+  it("falls back to empty pendingRestore when persisted JSON is corrupt", async () => {
+    window.localStorage.setItem(WORKSPACE_SELECTION_STORAGE_KEY, "{not json");
+    await useWorkspaceSelectionStore.persist.rehydrate();
+    expect(useWorkspaceSelectionStore.getState().selection).toEqual(empty);
+    expect(useWorkspaceSelectionStore.getState().pendingRestore).toBeNull();
+  });
+
+  it("clearPendingRestore drops the candidate without changing live selection", () => {
+    useWorkspaceSelectionStore.setState({
+      selection: empty,
+      pendingRestore: {
+        projectId: "p1",
+        taskId: "t1",
+        sessionId: "s1",
+        workflowRunId: null,
+        draftId: null,
+      },
+    });
+    useWorkspaceSelectionStore.getState().clearPendingRestore();
+    expect(useWorkspaceSelectionStore.getState().pendingRestore).toBeNull();
+    expect(useWorkspaceSelectionStore.getState().selection).toEqual(empty);
   });
 });

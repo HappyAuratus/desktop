@@ -47,6 +47,7 @@ import { localizeContractError } from "../../i18n/contract-error";
 import { useProjects } from "../../state/hooks/use-projects";
 import { useTasks } from "../../state/hooks/use-tasks";
 import { useSessions } from "../../state/hooks/use-sessions";
+import { useRestoreWorkspaceSelection } from "../../state/hooks/use-restore-workspace-selection";
 import {
   useRenameWorkflowRun,
   useWorkflowRunsByProject,
@@ -174,6 +175,13 @@ export function WorkspaceSidebar({ user, onSignOut }: WorkspaceSidebarProps) {
   const loading =
     projectsQuery.isPending || tasksQuery.isPending || sessionsQuery.isPending;
   const error = projectsQuery.error ?? tasksQuery.error ?? sessionsQuery.error;
+
+  useRestoreWorkspaceSelection({
+    projects,
+    tasks,
+    sessions,
+    treePending: loading,
+  });
 
   const tasksByProjectId = useMemo(() => {
     const grouped = new Map<string, Task[]>();
