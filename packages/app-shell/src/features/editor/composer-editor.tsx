@@ -126,6 +126,7 @@ export const ComposerEditor = forwardRef<
   const enterKeyRef = useRef(enterKey);
   enterKeyRef.current = enterKey;
   const lastQueryRef = useRef<ComposerQueryState>(EMPTY_COMPOSER_QUERY);
+  const suppressNotifyRef = useRef(false);
   const platform = useOptionalPlatform();
   const platformRef = useRef(platform);
   platformRef.current = platform;
@@ -187,11 +188,19 @@ export const ComposerEditor = forwardRef<
       emitQuery(current, lastQueryRef, onQueryChangeRef);
     },
     onUpdate: ({ editor: current }) => {
+      if (suppressNotifyRef.current) {
+        syncComposerTextDataset(current, lastQueryRef);
+        return;
+      }
       emitQuery(current, lastQueryRef, onQueryChangeRef);
       onDocChangeRef.current?.();
       onTextChangeRef.current?.(documentPlainText(current.state.doc));
     },
     onSelectionUpdate: ({ editor: current }) => {
+      if (suppressNotifyRef.current) {
+        syncComposerTextDataset(current, lastQueryRef);
+        return;
+      }
       emitQuery(current, lastQueryRef, onQueryChangeRef);
     },
   });
@@ -253,17 +262,23 @@ export const ComposerEditor = forwardRef<
       },
       getJSON: () => editor.getJSON(),
       clear: () => {
-        editor.commands.clearContent(true);
+        withSuppressedNotify(suppressNotifyRef, () => {
+          editor.commands.clearContent(true);
+        });
       },
       replaceText: (text) => {
-        editor
-          .chain()
-          .setContent(markdownToComposerContent(text))
-          .focus("end")
-          .run();
+        withSuppressedNotify(suppressNotifyRef, () => {
+          editor
+            .chain()
+            .setContent(markdownToComposerContent(text))
+            .focus("end")
+            .run();
+        });
       },
       replaceDocument: (doc) => {
-        editor.chain().setContent(doc).focus("end").run();
+        withSuppressedNotify(suppressNotifyRef, () => {
+          editor.chain().setContent(doc).focus("end").run();
+        });
       },
       insertPromptToken: (kind, name) => {
         deleteTriggerToken(editor, SLASH_TRIGGER_PATTERN);
@@ -364,6 +379,39 @@ function deleteTriggerToken(editor: Editor, pattern: RegExp): void {
     .focus()
     .deleteRange({ from: $from.start() + match.index, to: $from.pos })
     .run();
+}
+
+/** Writes live query state to the DOM for tests without a React update. */
+function syncComposerTextDataset(
+  editor: Editor,
+  lastQueryRef: { current: ComposerQueryState },
+): void {
+  const text = documentPlainText(editor.state.doc);
+  const before = editor.state.doc.textBetween(
+    0,
+    editor.state.selection.from,
+    "\n",
+    "\n",
+  );
+  editor.view.dom.dataset.composerText = text;
+  lastQueryRef.current = queryStateFromText(text, before);
+}
+
+/**
+ * Programmatic setContent uses flushSync via React node views. Callers that
+ * must run outside React's commit (session hydrate) wrap with this so those
+ * transactions do not setState the parent composer.
+ */
+function withSuppressedNotify(
+  suppressNotifyRef: { current: boolean },
+  run: () => void,
+): void {
+  suppressNotifyRef.current = true;
+  try {
+    run();
+  } finally {
+    suppressNotifyRef.current = false;
+  }
 }
 
 /** Writes live query state to the DOM for tests without a React update. */

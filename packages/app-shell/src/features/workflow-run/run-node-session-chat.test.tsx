@@ -90,7 +90,13 @@ describe("RunNodeSessionChat", () => {
     renderDock("awaiting_input", false);
 
     expect(screen.getByRole("main")).toHaveClass("flex-1");
-    expect(screen.getByPlaceholderText(/描述一个任务/)).toBeInTheDocument();
+    // TipTap exposes the empty-state hint via data-placeholder, not a native input placeholder.
+    expect(
+      screen
+        .getByRole("textbox")
+        .querySelector("[data-placeholder]")
+        ?.getAttribute("data-placeholder"),
+    ).toMatch(/描述一个任务/);
   });
 
   it("places the shared conversation navigator inside the node session", () => {
@@ -137,7 +143,7 @@ describe("RunNodeSessionChat", () => {
       expect(loadSpy).toHaveBeenCalledWith({ sessionId }, expect.anything()),
     );
     expect(screen.getByRole("main")).toBeInTheDocument();
-    expect(screen.queryByPlaceholderText(/描述一个任务/)).toBeNull();
+    expect(screen.queryByRole("textbox")).toBeNull();
     expect(screen.queryByTestId("complete-current-node")).toBeNull();
     expect(
       screen.getByRole("button", { name: "返回阶段摘要" }),

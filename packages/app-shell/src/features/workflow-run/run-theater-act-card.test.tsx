@@ -216,7 +216,7 @@ describe("RunTheaterActCard conversation", () => {
       screen.getByRole("heading", { name: "Review complete" }),
     ).toBeInTheDocument();
     expect(screen.getByTestId("message-list")).toHaveClass("overflow-y-auto");
-    expect(screen.queryByPlaceholderText(/描述一个任务/)).toBeNull();
+    expect(screen.queryByRole("textbox")).toBeNull();
     expect(screen.queryByTestId("complete-current-node")).toBeNull();
     expect(
       screen.getByRole("button", { name: "返回阶段摘要" }),

@@ -191,10 +191,19 @@ describe("MarkdownMessage", () => {
     expect(view.container).not.toHaveTextContent("**");
 
     view.rerender(<MarkdownMessage content="Prefix **natural" streaming />);
+    // Frame-batched streaming only commits on rAF; flush it instead of racing waitFor
+    // under a loaded full-suite event loop.
+    await act(async () => {
+      await new Promise<void>((resolve) => {
+        const schedule =
+          window.requestAnimationFrame ??
+          ((callback: FrameRequestCallback) =>
+            window.setTimeout(() => callback(performance.now()), 0));
+        schedule(() => resolve());
+      });
+    });
 
-    await waitFor(() =>
-      expect(screen.getByText("natural").closest("strong")).not.toBeNull(),
-    );
+    expect(screen.getByText("natural").closest("strong")).not.toBeNull();
     expect(view.container).toHaveTextContent("Prefix natural");
   });
 
