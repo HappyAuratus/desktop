@@ -218,6 +218,10 @@ describe("delete mutations clear parked composer state", () => {
       text: "parked",
       images: [],
     });
+    useComposerInputStore.getState().setInput("task:t1", {
+      text: "task park",
+      images: [],
+    });
     const draftId = useDraftSessionsStore
       .getState()
       .ensureEmptyDraft({ projectId: "p1", taskId: null });
@@ -233,6 +237,7 @@ describe("delete mutations clear parked composer state", () => {
     });
 
     expect(useComposerInputStore.getState().byKey.s1).toBeUndefined();
+    expect(useComposerInputStore.getState().byKey["task:t1"]).toBeUndefined();
     expect(useDraftSessionsStore.getState().drafts).toHaveLength(0);
   });
 });

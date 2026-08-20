@@ -82,6 +82,44 @@ describe("useComposerInputStore", () => {
     );
   });
 
+  it("preserves existing destination input when rekeying", () => {
+    useComposerInputStore.getState().setInput("draft:d1", {
+      text: "draft text",
+      images: [],
+    });
+    useComposerInputStore.getState().setInput("session-1", {
+      text: "newer session text",
+      images: [],
+    });
+
+    useComposerInputStore.getState().rekey("draft:d1", "session-1");
+
+    expect(useComposerInputStore.getState().byKey).toEqual({
+      "session-1": { text: "newer session text", images: [] },
+    });
+  });
+
+  it("copies caller-owned image arrays", () => {
+    const images = [
+      {
+        id: "i1",
+        name: "a.png",
+        size: 1,
+        content: { mimeType: "image/png", data: "aa" },
+      },
+    ];
+    useComposerInputStore.getState().setInput("s1", { text: "", images });
+
+    images.push({
+      id: "i2",
+      name: "b.png",
+      size: 2,
+      content: { mimeType: "image/png", data: "bb" },
+    });
+
+    expect(useComposerInputStore.getState().byKey.s1?.images).toHaveLength(1);
+  });
+
   it("persists typed text to localStorage without image payloads", () => {
     useComposerInputStore.getState().setInput("s1", {
       text: "parked",
@@ -126,6 +164,41 @@ describe("useComposerInputStore", () => {
       text: "survive restart",
       images: [],
     });
+  });
+
+  it("drops malformed persisted entries without breaking rehydration", async () => {
+    window.localStorage.setItem(
+      COMPOSER_INPUT_STORAGE_KEY,
+      JSON.stringify({
+        state: {
+          byKey: {
+            valid: { text: "keep", images: "corrupt" },
+            number: 42,
+            missingText: { images: [] },
+          },
+        },
+        version: 0,
+      }),
+    );
+
+    await expect(
+      useComposerInputStore.persist.rehydrate(),
+    ).resolves.toBeUndefined();
+    expect(useComposerInputStore.getState().byKey).toEqual({
+      valid: { text: "keep", images: [] },
+    });
+  });
+
+  it("drops a malformed persisted byKey container", async () => {
+    window.localStorage.setItem(
+      COMPOSER_INPUT_STORAGE_KEY,
+      JSON.stringify({ state: { byKey: "corrupt" }, version: 0 }),
+    );
+
+    await expect(
+      useComposerInputStore.persist.rehydrate(),
+    ).resolves.toBeUndefined();
+    expect(useComposerInputStore.getState().byKey).toEqual({});
   });
 
   it("does not persist image-only parks", () => {

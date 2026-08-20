@@ -2,6 +2,7 @@ import {
   Fragment,
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -61,9 +62,13 @@ import {
   draftPlacements,
   draftPlacementsEqual,
   draftSidebarTitle,
+  type SessionDraft,
   useDraftSessionsStore,
 } from "../../state/stores/draft-sessions-store";
-import { startSessionDraft } from "../../state/session-drafts";
+import {
+  selectBoundDraftSession,
+  startSessionDraft,
+} from "../../state/session-drafts";
 import { OraMark } from "../../components/ora-mark";
 import { DragRegion } from "../../components/drag-region";
 import type { GraphWorkflowRunStatus } from "@ora/workflow-runtime";
@@ -74,6 +79,28 @@ import { useInlineTreeRename } from "./use-inline-tree-rename";
 
 const EMPTY_TASKS: Task[] = [];
 const EMPTY_SESSIONS: Session[] = [];
+type DraftSearchEntry = Pick<
+  SessionDraft,
+  "id" | "projectId" | "taskId" | "text"
+>;
+const EMPTY_DRAFT_SEARCH_ENTRIES: DraftSearchEntry[] = [];
+
+/** Compares only draft fields that can change sidebar search results. */
+function draftSearchEntriesEqual(
+  left: DraftSearchEntry[],
+  right: DraftSearchEntry[],
+): boolean {
+  if (left.length !== right.length) return false;
+  return left.every((entry, index) => {
+    const candidate = right[index]!;
+    return (
+      entry.id === candidate.id &&
+      entry.projectId === candidate.projectId &&
+      entry.taskId === candidate.taskId &&
+      entry.text === candidate.text
+    );
+  });
+}
 
 interface WorkspaceSidebarProps {
   user: CurrentUser;
@@ -84,6 +111,7 @@ interface WorkspaceSidebarProps {
 export function WorkspaceSidebar({ user, onSignOut }: WorkspaceSidebarProps) {
   const { t } = useTranslation();
   const [query, setQuery] = useState("");
+  const needle = query.trim().toLowerCase();
   const initializedTreeExpansion = useRef(false);
 
   const projectsQuery = useProjects();
@@ -121,8 +149,27 @@ export function WorkspaceSidebar({ user, onSignOut }: WorkspaceSidebarProps) {
     [placements, persistedSessionIds],
   );
 
-  useEffect(() => {
-    useDraftSessionsStore.getState().removeCommitted(persistedSessionIds);
+  useLayoutEffect(() => {
+    const draftStore = useDraftSessionsStore.getState();
+    const selectedDraftId =
+      useWorkspaceSelectionStore.getState().selection.draftId;
+    const selectedDraft = draftStore.drafts.find(
+      (draft) => draft.id === selectedDraftId,
+    );
+    // Move selection first so removing a newly persisted draft can never leave
+    // draftId pointing at a row that no longer exists.
+    if (
+      selectedDraft?.pendingSessionId !== null &&
+      selectedDraft?.pendingSessionId !== undefined &&
+      persistedSessionIds.has(selectedDraft.pendingSessionId)
+    ) {
+      selectBoundDraftSession({
+        projectId: selectedDraft.projectId,
+        taskId: selectedDraft.taskId,
+        pendingSessionId: selectedDraft.pendingSessionId,
+      });
+    }
+    draftStore.removeCommitted(persistedSessionIds);
   }, [persistedSessionIds]);
   const loading =
     projectsQuery.isPending || tasksQuery.isPending || sessionsQuery.isPending;
@@ -149,26 +196,22 @@ export function WorkspaceSidebar({ user, onSignOut }: WorkspaceSidebarProps) {
     return grouped;
   }, [sessions]);
 
-  const directDraftsByProjectId = useMemo(() => {
-    const grouped = new Map<string, typeof visiblePlacements>();
+  const { directDraftsByProjectId, worktreeDraftsByTaskId } = useMemo(() => {
+    const direct = new Map<string, typeof visiblePlacements>();
+    const worktree = new Map<string, typeof visiblePlacements>();
     for (const draft of visiblePlacements) {
-      if (draft.taskId !== null) continue;
-      const list = grouped.get(draft.projectId);
+      const grouped =
+        draft.taskId === null
+          ? { map: direct, key: draft.projectId }
+          : { map: worktree, key: draft.taskId };
+      const list = grouped.map.get(grouped.key);
       if (list) list.push(draft);
-      else grouped.set(draft.projectId, [draft]);
+      else grouped.map.set(grouped.key, [draft]);
     }
-    return grouped;
-  }, [visiblePlacements]);
-
-  const worktreeDraftsByTaskId = useMemo(() => {
-    const grouped = new Map<string, typeof visiblePlacements>();
-    for (const draft of visiblePlacements) {
-      if (draft.taskId === null) continue;
-      const list = grouped.get(draft.taskId);
-      if (list) list.push(draft);
-      else grouped.set(draft.taskId, [draft]);
-    }
-    return grouped;
+    return {
+      directDraftsByProjectId: direct,
+      worktreeDraftsByTaskId: worktree,
+    };
   }, [visiblePlacements]);
 
   const selection = useWorkspaceSelectionStore((s) => s.selection);
@@ -188,24 +231,29 @@ export function WorkspaceSidebar({ user, onSignOut }: WorkspaceSidebarProps) {
   const updateProject = useUpdateProject();
   const updateTask = useUpdateTask();
 
-  const needle = query.trim().toLowerCase();
-  // Titles are only needed while filtering the tree by search.
-  const draftTitleEpoch = useDraftSessionsStore((s) =>
-    needle.length === 0
-      ? ""
-      : s.drafts.map((draft) => `${draft.id}\0${draft.text}`).join("\n"),
+  // Subscribe to structured search data only while filtering. Equality ignores
+  // attachment and timestamp churn that cannot change a title match.
+  const searchableDrafts = useStoreWithEqualityFn(
+    useDraftSessionsStore,
+    (s) =>
+      needle.length === 0
+        ? EMPTY_DRAFT_SEARCH_ENTRIES
+        : s.drafts.map(({ id, projectId, taskId, text }) => ({
+            id,
+            projectId,
+            taskId,
+            text,
+          })),
+    draftSearchEntriesEqual,
   );
 
   const newSessionLabel = t("sidebar.newSession");
   const visibleProjects = useMemo(() => {
-    // Read the epoch so search results refresh when draft titles change.
-    void draftTitleEpoch;
     return projects.filter((project) => {
       if (!needle) return true;
       if (project.name.toLowerCase().includes(needle)) return true;
-      const drafts = useDraftSessionsStore.getState().drafts;
       if (
-        drafts.some(
+        searchableDrafts.some(
           (draft) =>
             draft.projectId === project.id &&
             draftSidebarTitle(draft.text, newSessionLabel)
@@ -219,7 +267,7 @@ export function WorkspaceSidebar({ user, onSignOut }: WorkspaceSidebarProps) {
       return projectTasks.some((task) => {
         if (task.title.toLowerCase().includes(needle)) return true;
         if (
-          drafts.some(
+          searchableDrafts.some(
             (draft) =>
               draft.taskId === task.id &&
               draftSidebarTitle(draft.text, newSessionLabel)
@@ -236,10 +284,10 @@ export function WorkspaceSidebar({ user, onSignOut }: WorkspaceSidebarProps) {
       });
     });
   }, [
-    draftTitleEpoch,
     needle,
     newSessionLabel,
     projects,
+    searchableDrafts,
     sessionsByTaskId,
     tasksByProjectId,
   ]);

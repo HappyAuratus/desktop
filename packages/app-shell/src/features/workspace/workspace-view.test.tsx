@@ -22,6 +22,7 @@ import {
 import { usePendingAgentStore } from "../../state/stores/pending-agent-store";
 import { useWorkspaceSelectionStore } from "../../state/stores/workspace-selection-store";
 import { useDraftSessionsStore } from "../../state/stores/draft-sessions-store";
+import { useComposerInputStore } from "../../state/stores/composer-input-store";
 import { startSessionDraft } from "../../state/session-drafts";
 import { useAgentModelStore } from "../../state/stores/agent-model-store";
 import { WorkspaceView } from "./workspace-view";
@@ -30,6 +31,7 @@ import { directChatTitle } from "./workspace-view-utils";
 beforeEach(() => {
   useWorkspaceSelectionStore.getState().clearSelection();
   useDraftSessionsStore.getState().clear();
+  useComposerInputStore.getState().reset();
   // Outlives a render on purpose — remembering one CLI's models across chat
   // surfaces is the point of the store — so each test has to start from a CLI
   // nothing has handshaken, or an earlier test's list would answer for it.
@@ -566,6 +568,63 @@ describe("WorkspaceView", () => {
     await waitFor(() => expect(composer).toHaveValue("from draft"));
     expect(attachCalls).toBe(1);
     expect(state.sessions).toHaveLength(0);
+  });
+
+  it("clears sendInFlight and restores the draft when synchronous send setup fails", async () => {
+    const user = userEvent.setup();
+    const state = createMockClientState();
+    state.projects = [{ id: "p1", name: "Ora", rootPath: "/ora" }];
+    const client = createMockClient(state);
+    const chatStore = createChatStore(client.session);
+    const Wrapper = createHookWrapper(
+      client,
+      createTestQueryClient(),
+      chatStore,
+    );
+    const draftId = startSessionDraft({ projectId: "p1", taskId: null });
+    const rekey = vi
+      .spyOn(useComposerInputStore.getState(), "rekey")
+      .mockImplementationOnce(() => {
+        throw new Error("rekey failed");
+      });
+
+    render(
+      <Wrapper>
+        <AppI18nProvider>
+          <PlatformProvider adapter={createStubPlatform()}>
+            <TooltipProvider>
+              <WorkspaceView userName="Eric" />
+            </TooltipProvider>
+          </PlatformProvider>
+        </AppI18nProvider>
+      </Wrapper>,
+    );
+
+    const composer = await screen.findByRole("textbox");
+    await waitFor(() => expect(composer).toBeEnabled());
+    await user.type(composer, "restore after setup");
+    await user.click(
+      screen.getByRole("button", { name: /发送消息|Send message/ }),
+    );
+
+    await waitFor(() => {
+      const draft = useDraftSessionsStore
+        .getState()
+        .drafts.find((candidate) => candidate.id === draftId);
+      expect(draft).toEqual(
+        expect.objectContaining({
+          pendingSessionId: null,
+          sendInFlight: false,
+          text: "restore after setup",
+        }),
+      );
+      expect(useWorkspaceSelectionStore.getState().selection.draftId).toBe(
+        draftId,
+      );
+    });
+    await waitFor(() => expect(composer).toHaveValue("restore after setup"));
+    expect(state.sessions).toHaveLength(0);
+    rekey.mockRestore();
   });
 
   it("keeps the persisted session selected when prompt fails after attach", async () => {

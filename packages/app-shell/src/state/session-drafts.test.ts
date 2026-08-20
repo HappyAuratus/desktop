@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import {
   dismissSessionDraft,
   recoverFailedDraftSend,
+  reparkDraftComposerContent,
   resetComposerSendAdoptionsForTests,
   selectBoundDraftSession,
   startSessionDraft,
@@ -114,6 +115,26 @@ describe("selectBoundDraftSession", () => {
 });
 
 describe("recoverFailedDraftSend", () => {
+  it("restores decoded image sizes so attachment limits remain accurate", () => {
+    const id = startSessionDraft({ projectId: "p1", taskId: null });
+
+    reparkDraftComposerContent({
+      draftId: id,
+      text: "retry",
+      images: [{ mimeType: "image/png", data: "YWJjZA==" }],
+    });
+
+    expect(
+      useDraftSessionsStore.getState().drafts.find((draft) => draft.id === id)
+        ?.images,
+    ).toEqual([
+      expect.objectContaining({
+        name: "image-1",
+        size: 4,
+      }),
+    ]);
+  });
+
   it("unbinds the dead warm id, reselects the draft, and re-parks the message", () => {
     const id = startSessionDraft({ projectId: "p1", taskId: null });
     useDraftSessionsStore.getState().updateContent(id, { text: "hello" });
@@ -244,6 +265,23 @@ describe("dismissSessionDraft", () => {
     expect(
       useDraftSessionsStore.getState().drafts.map((draft) => draft.id),
     ).toEqual([first]);
+  });
+
+  it("uses the draft id as a deterministic tie-breaker for siblings", () => {
+    const first = startSessionDraft({ projectId: "p1", taskId: null });
+    useDraftSessionsStore.getState().updateContent(first, { text: "first" });
+    const second = startSessionDraft({ projectId: "p1", taskId: null });
+    useDraftSessionsStore.getState().updateContent(second, { text: "second" });
+    const dismissed = startSessionDraft({ projectId: "p1", taskId: null });
+    useDraftSessionsStore.setState((state) => ({
+      drafts: state.drafts.map((draft) => ({ ...draft, updatedAt: 1 })),
+    }));
+
+    dismissSessionDraft(dismissed);
+
+    expect(useWorkspaceSelectionStore.getState().selection.draftId).toBe(
+      [first, second].sort((left, right) => left.localeCompare(right))[0],
+    );
   });
 
   it("falls back to the parent project when dismissing the last draft", () => {

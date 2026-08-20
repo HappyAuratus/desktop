@@ -297,6 +297,55 @@ describe("useDraftSessionsStore", () => {
     ]);
   });
 
+  it("drops malformed persisted drafts without breaking rehydration", async () => {
+    window.localStorage.setItem(
+      SESSION_DRAFTS_STORAGE_KEY,
+      JSON.stringify({
+        state: {
+          drafts: [
+            { id: "missing-text", projectId: "p1" },
+            42,
+            {
+              id: "valid",
+              projectId: "p1",
+              taskId: 99,
+              text: "recover me",
+              returnTo: "corrupt",
+              updatedAt: "yesterday",
+            },
+          ],
+        },
+        version: 0,
+      }),
+    );
+
+    await expect(
+      useDraftSessionsStore.persist.rehydrate(),
+    ).resolves.toBeUndefined();
+    expect(useDraftSessionsStore.getState().drafts).toEqual([
+      expect.objectContaining({
+        id: "valid",
+        projectId: "p1",
+        taskId: null,
+        text: "recover me",
+        images: [],
+        returnTo: null,
+      }),
+    ]);
+  });
+
+  it("drops a malformed persisted drafts container", async () => {
+    window.localStorage.setItem(
+      SESSION_DRAFTS_STORAGE_KEY,
+      JSON.stringify({ state: { drafts: "corrupt" }, version: 0 }),
+    );
+
+    await expect(
+      useDraftSessionsStore.persist.rehydrate(),
+    ).resolves.toBeUndefined();
+    expect(useDraftSessionsStore.getState().drafts).toEqual([]);
+  });
+
   it("clears returnTo entries that point at deleted sessions", () => {
     const id = useDraftSessionsStore
       .getState()

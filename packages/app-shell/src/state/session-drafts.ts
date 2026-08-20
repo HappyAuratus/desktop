@@ -52,6 +52,20 @@ export function resetComposerSendAdoptionsForTests(): void {
   adoptedSessionBySendKey.clear();
 }
 
+/** Returns decoded bytes for a base64 image without materializing another byte array. */
+function base64ByteLength(data: string): number {
+  const compact = data.replace(/\s/gu, "");
+  if (compact.length === 0) return 0;
+  const padding = compact.endsWith("==") ? 2 : compact.endsWith("=") ? 1 : 0;
+  return Math.max(0, Math.floor((compact.length * 3) / 4) - padding);
+}
+
+/** Expands the ancestors needed to keep a project-root or worktree draft visible. */
+function expandDraftScope(scope: DraftScope): void {
+  useUiStore.getState().expandProject(scope.projectId);
+  if (scope.taskId !== null) useUiStore.getState().expandTask(scope.taskId);
+}
+
 /** Parks send payload onto a draft so Stop/abandon can restore the composer. */
 export function reparkDraftComposerContent(args: {
   draftId: string;
@@ -62,7 +76,7 @@ export function reparkDraftComposerContent(args: {
   const parkedImages = images.map((content, index) => ({
     id: `recovered-${index}`,
     name: content.uri ?? `image-${index + 1}`,
-    size: 0,
+    size: base64ByteLength(content.data),
     content,
   }));
   useDraftSessionsStore.getState().updateContent(draftId, {
@@ -93,10 +107,7 @@ export function startSessionDraft(scope: DraftScope): string {
   useWorkspaceSelectionStore
     .getState()
     .selectDraft(id, scope.taskId, scope.projectId);
-  useUiStore.getState().expandProject(scope.projectId);
-  if (scope.taskId !== null) {
-    useUiStore.getState().expandTask(scope.taskId);
-  }
+  expandDraftScope(scope);
   return id;
 }
 
@@ -145,10 +156,7 @@ export function selectBoundDraftSession(draft: {
       .getState()
       .selectSessionBeforeTask(draft.pendingSessionId, draft.projectId);
   }
-  useUiStore.getState().expandProject(draft.projectId);
-  if (draft.taskId !== null) {
-    useUiStore.getState().expandTask(draft.taskId);
-  }
+  expandDraftScope(draft);
 }
 
 /**
@@ -187,10 +195,7 @@ export function recoverFailedDraftSend(args: {
   useWorkflowStore.getState().rekey(boundSessionId, draftKey);
   useComposerInputStore.getState().clear(boundSessionId);
   useWorkspaceSelectionStore.getState().selectDraft(draftId, taskId, projectId);
-  useUiStore.getState().expandProject(projectId);
-  if (taskId !== null) {
-    useUiStore.getState().expandTask(taskId);
-  }
+  expandDraftScope({ projectId, taskId });
 }
 
 /**
@@ -224,7 +229,10 @@ export function dismissSessionDraft(id: string): void {
         candidate.projectId === draft.projectId &&
         candidate.taskId === draft.taskId,
     )
-    .sort((left, right) => right.updatedAt - left.updatedAt)[0];
+    .sort(
+      (left, right) =>
+        right.updatedAt - left.updatedAt || left.id.localeCompare(right.id),
+    )[0];
   if (sibling !== undefined) {
     useWorkspaceSelectionStore
       .getState()
@@ -241,10 +249,7 @@ export function dismissSessionDraft(id: string): void {
         .getState()
         .selectSessionBeforeTask(returnTo.sessionId, returnTo.projectId);
     }
-    useUiStore.getState().expandProject(returnTo.projectId);
-    if (returnTo.taskId !== null) {
-      useUiStore.getState().expandTask(returnTo.taskId);
-    }
+    expandDraftScope(returnTo);
     return;
   }
   if (draft.taskId !== null) {

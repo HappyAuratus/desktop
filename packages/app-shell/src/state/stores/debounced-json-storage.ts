@@ -15,6 +15,18 @@ type PendingWrite = {
 const flushers = new Set<() => void>();
 let lifecycleBound = false;
 
+/** Flushes independent stores defensively so one unavailable storage cannot block the rest. */
+function flushAll(): void {
+  for (const flusher of flushers) {
+    try {
+      flusher();
+    } catch {
+      // Lifecycle teardown cannot surface a useful recovery UI. Keep moving so
+      // every other store still gets its final durability attempt.
+    }
+  }
+}
+
 /**
  * Registers a storage flush so pending localStorage writes survive tab close,
  * window hide, and Electron page teardown without waiting out the debounce.
@@ -23,9 +35,7 @@ function registerLifecycleFlusher(flush: () => void): void {
   flushers.add(flush);
   if (lifecycleBound || typeof window === "undefined") return;
   lifecycleBound = true;
-  const run = () => {
-    for (const flusher of flushers) flusher();
-  };
+  const run = flushAll;
   window.addEventListener("pagehide", run);
   window.addEventListener("beforeunload", run);
   document.addEventListener("visibilitychange", () => {
@@ -49,9 +59,15 @@ export function createDebouncedStateStorage(
     const storage = getStorage();
     for (const [name, entry] of pending) {
       clearTimeout(entry.timer);
-      storage.setItem(name, entry.value);
+      try {
+        storage.setItem(name, entry.value);
+        // A newer write may have replaced this entry while setItem ran.
+        if (pending.get(name) === entry) pending.delete(name);
+      } catch {
+        // Retain failed writes for a later lifecycle/manual flush. A quota or
+        // security failure for one key must not strand unrelated queued keys.
+      }
     }
-    pending.clear();
   };
 
   registerLifecycleFlusher(flush);
@@ -66,8 +82,15 @@ export function createDebouncedStateStorage(
       const previous = pending.get(name);
       if (previous !== undefined) clearTimeout(previous.timer);
       const timer = setTimeout(() => {
-        pending.delete(name);
-        getStorage().setItem(name, value);
+        const current = pending.get(name);
+        if (current === undefined || current.timer !== timer) return;
+        try {
+          getStorage().setItem(name, value);
+          pending.delete(name);
+        } catch {
+          // Keep the value readable from the pending map and retry it when a
+          // later explicit or lifecycle flush runs.
+        }
       }, debounceMs);
       pending.set(name, { value, timer });
     },
@@ -102,5 +125,5 @@ export function createDebouncedJSONStorage<S>(
 
 /** Drains every registered debounced persist queue (tests + rare sync needs). */
 export function flushDebouncedPersistStorage(): void {
-  for (const flusher of flushers) flusher();
+  flushAll();
 }
