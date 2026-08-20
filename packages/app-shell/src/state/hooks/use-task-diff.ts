@@ -16,15 +16,3 @@ export function useTaskDiff(
     enabled: enabled && taskId !== "",
   });
 }
-
-/** Loads every discussion message associated with one task diff. */
-export function useTaskDiffComments(taskId: string) {
-  const client = useContractsClient();
-  return useQuery({
-    queryKey: queryKeys.taskDiffComments(taskId),
-    queryFn: () =>
-      client.task
-        .listDiffComments({ taskId })
-        .then((response) => response.comments),
-  });
-}

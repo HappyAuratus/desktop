@@ -102,10 +102,6 @@ pub enum PublicError {
     TaskDiffBaselineUnavailable(EmptyErrorParams),
     TaskDiffCommitMessageBlank(EmptyErrorParams),
     TaskDiffTooLarge(EmptyErrorParams),
-    TaskDiffStale(EmptyErrorParams),
-    TaskDiffCommentNotFound(EmptyErrorParams),
-    TaskDiffCommentInvalid(EmptyErrorParams),
-    TaskDiffCommentConflict(EmptyErrorParams),
     SessionNotFound(EmptyErrorParams),
     AgentCliNotFound(EmptyErrorParams),
     AgentRuntimeUnavailable(EmptyErrorParams),
@@ -207,10 +203,6 @@ impl PublicError {
             Self::TaskDiffBaselineUnavailable(_) => "task_diff_baseline_unavailable",
             Self::TaskDiffCommitMessageBlank(_) => "task_diff_commit_message_blank",
             Self::TaskDiffTooLarge(_) => "task_diff_too_large",
-            Self::TaskDiffStale(_) => "task_diff_stale",
-            Self::TaskDiffCommentNotFound(_) => "task_diff_comment_not_found",
-            Self::TaskDiffCommentInvalid(_) => "task_diff_comment_invalid",
-            Self::TaskDiffCommentConflict(_) => "task_diff_comment_conflict",
             Self::SessionNotFound(_) => "session_not_found",
             Self::AgentCliNotFound(_) => "agent_cli_not_found",
             Self::AgentRuntimeUnavailable(_) => "agent_runtime_unavailable",
@@ -370,10 +362,6 @@ mod tests {
             PublicError::TaskDiffBaselineUnavailable(empty),
             PublicError::TaskDiffCommitMessageBlank(empty),
             PublicError::TaskDiffTooLarge(empty),
-            PublicError::TaskDiffStale(empty),
-            PublicError::TaskDiffCommentNotFound(empty),
-            PublicError::TaskDiffCommentInvalid(empty),
-            PublicError::TaskDiffCommentConflict(empty),
             PublicError::SessionNotFound(empty),
             PublicError::AgentCliNotFound(empty),
             PublicError::AgentRuntimeUnavailable(empty),
@@ -470,10 +458,6 @@ mod tests {
                 | PublicError::TaskDiffBaselineUnavailable(_)
                 | PublicError::TaskDiffCommitMessageBlank(_)
                 | PublicError::TaskDiffTooLarge(_)
-                | PublicError::TaskDiffStale(_)
-                | PublicError::TaskDiffCommentNotFound(_)
-                | PublicError::TaskDiffCommentInvalid(_)
-                | PublicError::TaskDiffCommentConflict(_)
                 | PublicError::SessionNotFound(_)
                 | PublicError::AgentCliNotFound(_)
                 | PublicError::AgentRuntimeUnavailable(_)
@@ -555,7 +539,7 @@ mod tests {
     #[test]
     fn public_error_codes_match_serde_tags_for_every_variant() {
         let samples = public_error_samples();
-        assert_eq!(samples.len(), 92);
+        assert_eq!(samples.len(), 88);
 
         for error in samples {
             let serialized = serde_json::to_value(&error).unwrap();

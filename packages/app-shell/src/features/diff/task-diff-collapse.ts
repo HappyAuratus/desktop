@@ -109,7 +109,7 @@ export function buildCollapsedDiffSegments(
   });
 }
 
-/** Finds the middle of long normal-line runs while retaining nearby review context. */
+/** Finds the middle of long normal-line runs while retaining nearby changed context. */
 function findCollapsedRanges(
   hunk: HunkData,
   hunkIndex: number,

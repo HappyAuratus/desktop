@@ -67,10 +67,6 @@ pub fn run() {
             commands::get_task_diff,
             commands::commit_task_changes,
             commands::push_task_branch,
-            commands::list_task_diff_comments,
-            commands::create_task_diff_comment,
-            commands::reply_task_diff_comment,
-            commands::set_task_diff_comment_status,
             // =============================================================================
             // fileSystem
             // =============================================================================

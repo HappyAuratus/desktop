@@ -20,7 +20,7 @@ Trailing applied migrations are rolled back in reverse order. Pending migrations
 
 An applied version absent from the catalog is an error. Reconciliation is otherwise idempotent when the database already matches the target.
 
-Schema contents stay in version-specific modules; repository query behavior belongs to the repository module. The compressed catalog has eight boundaries:
+Schema contents stay in version-specific modules; repository query behavior belongs to the repository module. The compressed catalog has nine boundaries:
 
 - `0001` installs the core project, task, worktree, session, and bookkeeping schema.
 - `0002` installs skills and configurable agents.
@@ -30,7 +30,8 @@ Schema contents stay in version-specific modules; repository query behavior belo
 - `0006` drops unused `tasks.status`.
 - `0007` installs durable plugin eligibility keyed only by filesystem-derived plugin id.
 - `0008` installs typed user preferences keyed by configuration name.
+- `0009` drops unused task-diff comment persistence.
 
-The catalog intentionally replaces the retired development history rather than providing a compatibility bridge. Databases created from the old history must be recreated. Rollback of `0003` or `0005` discards the corresponding comments or cleanup bookkeeping even though each step remains transactional.
+The catalog intentionally replaces the retired development history rather than providing a compatibility bridge. Databases created from the old history must be recreated. Rollback of `0005` discards cleanup bookkeeping even though each step remains transactional. Rollback of `0009` recreates the empty `0003` comment table shape.
 
 See the [ora-db overview](../../README.md) and [Database Migrations](../../../../docs/database-migrations.md).

@@ -52,7 +52,6 @@ describe("createTauriTransport", () => {
     const response = {
       baseCommitId: "base",
       headCommitId: "head",
-      diffId: "diff-1",
       patch: "diff --git a/README.md b/README.md",
     };
     const invoke = vi.fn().mockResolvedValue(response);

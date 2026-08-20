@@ -1,24 +1,17 @@
-use crate::clock::SystemClock;
 use crate::error::{BackendError, ErrorClassification};
 use crate::task::resolve_task_cwd;
 use ora_application::{
-    CommitTaskChangesHandler, CreateTaskDiffCommentHandler, GitTaskDiffReader, GitTaskGitWriter,
-    ListTaskDiffCommentsHandler, ProjectRepository, PushTaskBranchHandler, ReadTaskDiffRequest,
-    ReadTaskDiffScope, ReplyTaskDiffCommentHandler, SetTaskDiffCommentStatusHandler,
-    TaskDiffReader, TaskDiffReaderError, TaskRepository, UuidTaskDiffCommentIdGenerator,
-    WorktreeRepository, task_diff_id,
+    CommitTaskChangesHandler, GitTaskDiffReader, GitTaskGitWriter, ProjectRepository,
+    PushTaskBranchHandler, ReadTaskDiffRequest, ReadTaskDiffScope, TaskDiffReader,
+    TaskDiffReaderError, TaskRepository, WorktreeRepository,
 };
 use ora_contracts::{
-    CommitTaskChangesRequest, CommitTaskChangesResponse, CreateTaskDiffCommentRequest,
-    CreateTaskDiffCommentResponse, GetTaskDiffRequest, GetTaskDiffResponse,
-    ListTaskDiffCommentsRequest, ListTaskDiffCommentsResponse, PushTaskBranchRequest,
-    PushTaskBranchResponse, ReplyTaskDiffCommentRequest, ReplyTaskDiffCommentResponse,
-    SetTaskDiffCommentStatusRequest, SetTaskDiffCommentStatusResponse, TaskDiffScope,
+    CommitTaskChangesRequest, CommitTaskChangesResponse, GetTaskDiffRequest, GetTaskDiffResponse,
+    PushTaskBranchRequest, PushTaskBranchResponse, TaskDiffScope,
 };
 use ora_contracts::{EmptyErrorParams, PublicError};
 use ora_db::{
-    RepositoryPool, SqliteProjectRepository, SqliteTaskDiffCommentRepository, SqliteTaskRepository,
-    SqliteWorktreeRepository,
+    RepositoryPool, SqliteProjectRepository, SqliteTaskRepository, SqliteWorktreeRepository,
 };
 use ora_domain::{Project, Task, TaskId};
 use std::path::PathBuf;
@@ -26,22 +19,19 @@ use std::path::PathBuf;
 /// Owns task-scoped Git review operations shared by the Web and Desktop adapters.
 pub(crate) struct TaskDiffApi {
     pool: RepositoryPool,
-    clock: SystemClock,
     git_cleanup: crate::git_cleanup::GitCleanupHandle,
     relative_path_base: PathBuf,
 }
 
 impl TaskDiffApi {
-    /// Builds the shared task diff API from durable repositories and the system clock.
+    /// Builds the shared task diff API from durable repositories and Git cleanup.
     pub(crate) fn new(
         pool: RepositoryPool,
-        clock: SystemClock,
         git_cleanup: crate::git_cleanup::GitCleanupHandle,
         relative_path_base: PathBuf,
     ) -> Self {
         Self {
             pool,
-            clock,
             git_cleanup,
             relative_path_base,
         }
@@ -90,12 +80,10 @@ impl TaskDiffApi {
                     scope: map_diff_scope(request.scope),
                 })
                 .map_err(map_diff_reader_error)?;
-            let diff_id = task_diff_id(base_commit_id, &snapshot.head_commit_id, &snapshot.patch);
 
             return Ok(GetTaskDiffResponse {
                 base_commit_id: base_commit_id.to_string(),
                 head_commit_id: snapshot.head_commit_id,
-                diff_id,
                 patch: snapshot.patch,
             });
         }
@@ -111,12 +99,10 @@ impl TaskDiffApi {
         // Direct-chat tasks intentionally follow the main checkout. HEAD is resolved
         // per read so their review surface mirrors Codex's current working-tree view.
         let base_commit_id = snapshot.head_commit_id.clone();
-        let diff_id = task_diff_id(&base_commit_id, &snapshot.head_commit_id, &snapshot.patch);
 
         Ok(GetTaskDiffResponse {
             base_commit_id,
             head_commit_id: snapshot.head_commit_id,
-            diff_id,
             patch: snapshot.patch,
         })
     }
@@ -159,72 +145,6 @@ impl TaskDiffApi {
         .handle(PushTaskBranchRequest {
             task_id: task.id.to_string(),
         })
-        .map_err(BackendError::from)
-    }
-
-    /// Lists every persisted discussion message for one visible task.
-    pub(crate) fn list_comments(
-        &self,
-        request: ListTaskDiffCommentsRequest,
-    ) -> Result<ListTaskDiffCommentsResponse, BackendError> {
-        ListTaskDiffCommentsHandler::new(
-            SqliteTaskRepository::new(self.pool.clone()),
-            SqliteTaskDiffCommentRepository::new(self.pool.clone()),
-        )
-        .handle(request)
-        .map_err(BackendError::from)
-    }
-
-    /// Creates an anchored discussion for an isolated task worktree snapshot.
-    pub(crate) fn create_comment(
-        &self,
-        request: CreateTaskDiffCommentRequest,
-    ) -> Result<CreateTaskDiffCommentResponse, BackendError> {
-        let (task, project, worktree_path) = self.worktree_context(&request.task_id)?;
-        CreateTaskDiffCommentHandler::new(
-            SqliteTaskRepository::new(self.pool.clone()),
-            SqliteWorktreeRepository::new(self.pool.clone()),
-            GitTaskDiffReader::new(PathBuf::from(project.root_path)),
-            SqliteTaskDiffCommentRepository::new(self.pool.clone()),
-            UuidTaskDiffCommentIdGenerator::new(),
-            self.clock,
-            worktree_path,
-        )
-        .handle(CreateTaskDiffCommentRequest {
-            task_id: task.id.to_string(),
-            scope: request.scope,
-            anchor: request.anchor,
-            body: request.body,
-        })
-        .map_err(BackendError::from)
-    }
-
-    /// Adds one reply beneath an existing task diff discussion.
-    pub(crate) fn reply_comment(
-        &self,
-        request: ReplyTaskDiffCommentRequest,
-    ) -> Result<ReplyTaskDiffCommentResponse, BackendError> {
-        ReplyTaskDiffCommentHandler::new(
-            SqliteTaskRepository::new(self.pool.clone()),
-            SqliteTaskDiffCommentRepository::new(self.pool.clone()),
-            UuidTaskDiffCommentIdGenerator::new(),
-            self.clock,
-        )
-        .handle(request)
-        .map_err(BackendError::from)
-    }
-
-    /// Resolves or reopens one root task diff discussion.
-    pub(crate) fn set_comment_status(
-        &self,
-        request: SetTaskDiffCommentStatusRequest,
-    ) -> Result<SetTaskDiffCommentStatusResponse, BackendError> {
-        SetTaskDiffCommentStatusHandler::new(
-            SqliteTaskRepository::new(self.pool.clone()),
-            SqliteTaskDiffCommentRepository::new(self.pool.clone()),
-            self.clock,
-        )
-        .handle(request)
         .map_err(BackendError::from)
     }
 

@@ -21,6 +21,7 @@ Ora keeps SQLite migration definitions in Rust code inside `ora-db` rather than 
 | `0006`  | Drops unused `tasks.status`.                                                                                                                                                               |
 | `0007`  | Durable plugin eligibility keyed by filesystem-derived plugin id.                                                                                                                          |
 | `0008`  | Typed user preferences in `user_config`, keyed by configuration name.                                                                                                                      |
+| `0009`  | Drops unused `task_diff_comments` together with its indexes and root-parent trigger.                                                                                                       |
 
 `default_migration_catalog()` returns all migrations with every version as the active target.
 
@@ -38,7 +39,7 @@ Each migration's statements and its bookkeeping update run inside **one SQLite t
 
 The catalog is a clean replacement for the earlier development history. Databases created from that retired history are not supported and must be recreated; the runner compares version identifiers and does not attempt to reinterpret rewritten versions.
 
-Migration `0003` rollback drops all task-diff comments together with their indexes and trigger. Migration `0004` rollback removes workflow execution state before definitions and removes the task association columns in dependency order.
+Migration `0003` installs constrained task-diff comments. Migration `0009` drops that table for existing databases while keeping `0003` in history. Migration `0004` rollback removes workflow execution state before definitions and removes the task association columns in dependency order.
 
 Migration `0005` rollback drops all pending cleanup and provisioning bookkeeping, deliberately re-accepting the pre-migration behavior of leaking physical Git resources on aggregate deletion. The nullable `worktrees.checkout_root` remains part of the base schema because it is worktree identity used by cleanup rather than cleanup-job bookkeeping.
 

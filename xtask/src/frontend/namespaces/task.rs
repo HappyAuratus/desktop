@@ -68,32 +68,4 @@ pub(super) const ENDPOINTS: &[FrontendEndpoint] = &[
         request_type: "PushTaskBranchRequest",
         response_type: "PushTaskBranchResponse",
     },
-    FrontendEndpoint {
-        operation_name: "listTaskDiffComments",
-        namespace: NAMESPACE,
-        member_name: "listDiffComments",
-        request_type: "ListTaskDiffCommentsRequest",
-        response_type: "ListTaskDiffCommentsResponse",
-    },
-    FrontendEndpoint {
-        operation_name: "createTaskDiffComment",
-        namespace: NAMESPACE,
-        member_name: "createDiffComment",
-        request_type: "CreateTaskDiffCommentRequest",
-        response_type: "CreateTaskDiffCommentResponse",
-    },
-    FrontendEndpoint {
-        operation_name: "replyTaskDiffComment",
-        namespace: NAMESPACE,
-        member_name: "replyDiffComment",
-        request_type: "ReplyTaskDiffCommentRequest",
-        response_type: "ReplyTaskDiffCommentResponse",
-    },
-    FrontendEndpoint {
-        operation_name: "setTaskDiffCommentStatus",
-        namespace: NAMESPACE,
-        member_name: "setDiffCommentStatus",
-        request_type: "SetTaskDiffCommentStatusRequest",
-        response_type: "SetTaskDiffCommentStatusResponse",
-    },
 ];

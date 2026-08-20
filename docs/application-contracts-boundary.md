@@ -40,7 +40,7 @@ Public payloads expose documented business fields only. `isDeleted` and other in
 - Task worktrees are backend-owned, so no contract carries a `worktreeId`, and there are no standalone worktree DTOs or SDK operations. `CreateTaskRequest` takes `projectId`, `title`, `status`, and optional `workspaceMode` and `baseBranch` fields; worktree mode requires a base branch. `UpdateTaskRequest` takes `taskId`, `title`, and `status`. See [Task Worktrees](task-worktrees.md).
 - A session's private provider session id is never exposed. It is persisted and used internally for `session/load`, but the public `Session` payload omits it.
 
-Task Diff contracts expose a patch snapshot (`baseCommitId`, `headCommitId`, `diffId`, `patch`) and comments as a tagged `thread`/`reply` union. A thread carries its complete line anchor and status; a reply carries only its parent id. The contract intentionally carries neither filesystem paths nor Git command diagnostics.
+Task Diff contracts expose a patch snapshot (`baseCommitId`, `headCommitId`, `patch`). The contract intentionally carries neither filesystem paths nor Git command diagnostics.
 
 Because adapters and generated frontend types bind to `ora-contracts` rather than to domain models, the domain layer can add internal fields or invariants without those details leaking into the protocol.
 
@@ -48,7 +48,7 @@ Because adapters and generated frontend types bind to `ora-contracts` rather tha
 
 Public failures serialize directly as `{ code, params, requestId }`. `RequestId` is UUID-backed, and `PublicError` is a discriminated union with one named parameter shape per code, including explicit empty parameters. The contract exposes neither an internal message nor an outer error envelope.
 
-The backend maps the highest semantic application error exhaustively to both a public error and one transport-neutral classification: `InvalidRequest`, `PayloadTooLarge`, `NotFound`, `Conflict`, `Unprocessable`, or `Internal`. Task Diff uses `task_diff_commit_message_blank` for blank commit messages, `task_diff_stale` for snapshot races, and `task_diff_too_large` for bounded-patch failures. Infrastructure failures become `internal_error` while their Rust `Error::source()` chains remain available for diagnostics outside the serialized contract. Adapters never infer public codes by inspecting source chains or matching error strings. Skill upload limits and folder conflicts expose only bounded safe parameters such as `maxBytes`, `maxFiles`, and a validated destination name.
+The backend maps the highest semantic application error exhaustively to both a public error and one transport-neutral classification: `InvalidRequest`, `PayloadTooLarge`, `NotFound`, `Conflict`, `Unprocessable`, or `Internal`. Task Diff exposes `task_diff_commit_message_blank` for blank commit messages from application handlers, plus `task_diff_baseline_unavailable` and `task_diff_too_large` when `TaskDiffApi` cannot resolve a worktree baseline or the bounded patch exceeds the response limit. Infrastructure failures become `internal_error` while their Rust `Error::source()` chains remain available for diagnostics outside the serialized contract. Adapters never infer public codes by inspecting source chains or matching error strings. Skill upload limits and folder conflicts expose only bounded safe parameters such as `maxBytes`, `maxFiles`, and a validated destination name.
 
 ## Handlers
 
@@ -66,7 +66,7 @@ The handler set is intentionally narrower than full CRUD per entity, because som
 | `skill`            | create, get, list, update, delete, startup reconciliation                                                                       |
 | `skill_import`     | prepare, get, commit, cancel batch sessions                                                                                     |
 | `agent_definition` | create, get, list, update, delete                                                                                               |
-| `task_diff`        | read diff, create/list/reply/update comments, commit, push                                                                      |
+| `task_diff`        | read diff, commit, push                                                                                                         |
 | `workflow`         | create, get, list, update, delete, getDraft, updateDraft, publish, rollback, activate, listVersions, getVersion, deleteSnapshot |
 | `workflow_run`     | create, get, list, listNodeRuns, delete                                                                                         |
 | `worktree`         | none — ports only                                                                                                               |
@@ -100,5 +100,5 @@ Bootstrap, migration, state-transition, and secondary-cleanup events remain inde
 - Task creation resolves the requested project's Git root at creation time and commits its rows through a project-visibility-validating unit of work guarded by a provisioning lease. Deletion soft-deletes Ora database records and, in the same transaction, registers durable Git cleanup jobs; the backend worker then removes the linked worktree and its `ora/*` branch asynchronously with at-least-once, idempotent execution.
 - Worktree task creation resolves the selected local base ref to an immutable commit. Branch listing and creation do not fetch or merge remote-tracking refs.
 - Worktree paths are composed only when creating a new worktree. Existing paths are resolved from the persisted branch name and Git's authoritative metadata, never reconstructed from the configured creation root.
-- Isolated task diffs compare against the worktree creation commit; project-root task diffs resolve `HEAD` on every read so external edits appear without mutating a persisted baseline. `diffId` includes the complete patch and rejects comments anchored to an older snapshot.
+- Isolated task diffs compare against the worktree creation commit; project-root task diffs resolve `HEAD` on every read so external edits appear without mutating a persisted baseline.
 - Workspace file paths are validated as relative paths, canonicalized before containment checks, and returned with slash separators. The filesystem crate is read-only, bounds file reads and search output, and reports native watcher changes as cache-invalidating batches. See [Task Workspace Files](task-workspace-files.md).

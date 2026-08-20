@@ -12,7 +12,6 @@ mod session;
 mod session_title;
 mod skill;
 mod task;
-mod task_diff_comment;
 mod workflow;
 mod workflow_run;
 mod worktree;
@@ -30,8 +29,8 @@ pub use git_cleanup::{
     truncate_cleanup_error,
 };
 pub use ids::{
-    AgentDefinitionId, GitCleanupJobId, PluginId, ProjectId, SessionId, SkillId, TaskDiffCommentId,
-    TaskId, WorkflowId, WorkflowNodeRunId, WorkflowRunId, WorkflowSnapshotId, WorktreeId,
+    AgentDefinitionId, GitCleanupJobId, PluginId, ProjectId, SessionId, SkillId, TaskId,
+    WorkflowId, WorkflowNodeRunId, WorkflowRunId, WorkflowSnapshotId, WorktreeId,
     WorktreeProvisioningLeaseId,
 };
 pub use namespace::Namespace;
@@ -44,9 +43,6 @@ pub use skill::{
     SkillNameError, validate_skill_description, validate_skill_name,
 };
 pub use task::{Task, TaskType};
-pub use task_diff_comment::{
-    TaskDiffAnchor, TaskDiffComment, TaskDiffCommentKind, TaskDiffSide, TaskDiffThreadStatus,
-};
 pub use workflow::{
     CreatedWorkflow, Workflow, WorkflowDetail, WorkflowSnapshot, WorkflowSummary, WorkflowVersion,
 };

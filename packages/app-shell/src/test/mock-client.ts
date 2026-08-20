@@ -218,7 +218,6 @@ export function createMockClient(state: MockClientState): ContractsClient {
       getDiff: async () => ({
         baseCommitId: "base",
         headCommitId: "head",
-        diffId: "diff",
         patch: "",
       }),
       commitChanges: async () => {
@@ -226,16 +225,6 @@ export function createMockClient(state: MockClientState): ContractsClient {
       },
       pushBranch: async () => {
         throw new Error("pushBranch not implemented in mock");
-      },
-      listDiffComments: async () => ({ comments: [] }),
-      createDiffComment: async () => {
-        throw new Error("createDiffComment not implemented in mock");
-      },
-      replyDiffComment: async () => {
-        throw new Error("replyDiffComment not implemented in mock");
-      },
-      setDiffCommentStatus: async () => {
-        throw new Error("setDiffCommentStatus not implemented in mock");
       },
     },
     session: {

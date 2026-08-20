@@ -404,40 +404,10 @@ impl From<ApplicationError> for BackendError {
                 PublicError::WorktreeNotFound(EmptyErrorParams {}),
                 "worktree not found",
             ),
-            ApplicationError::TaskDiffBaselineUnavailable => (
-                ErrorClassification::Conflict,
-                PublicError::TaskDiffBaselineUnavailable(EmptyErrorParams {}),
-                "task diff baseline is unavailable",
-            ),
             ApplicationError::TaskDiffCommitMessageBlank => (
                 ErrorClassification::InvalidRequest,
                 PublicError::TaskDiffCommitMessageBlank(EmptyErrorParams {}),
                 "task diff commit message must not be blank",
-            ),
-            ApplicationError::TaskDiffTooLarge { .. } => (
-                ErrorClassification::PayloadTooLarge,
-                PublicError::TaskDiffTooLarge(EmptyErrorParams {}),
-                "task diff exceeds the response limit",
-            ),
-            ApplicationError::TaskDiffStale => (
-                ErrorClassification::Conflict,
-                PublicError::TaskDiffStale(EmptyErrorParams {}),
-                "task diff changed before the comment was created",
-            ),
-            ApplicationError::TaskDiffCommentNotFound { .. } => (
-                ErrorClassification::NotFound,
-                PublicError::TaskDiffCommentNotFound(EmptyErrorParams {}),
-                "task diff comment not found",
-            ),
-            ApplicationError::TaskDiffCommentInvalid { .. } => (
-                ErrorClassification::InvalidRequest,
-                PublicError::TaskDiffCommentInvalid(EmptyErrorParams {}),
-                "task diff comment is invalid",
-            ),
-            ApplicationError::TaskDiffCommentConflict { .. } => (
-                ErrorClassification::Conflict,
-                PublicError::TaskDiffCommentConflict(EmptyErrorParams {}),
-                "task diff comment conflicts with stored state",
             ),
             ApplicationError::SessionNotFound { .. } => (
                 ErrorClassification::NotFound,
@@ -464,7 +434,6 @@ impl From<ApplicationError> for BackendError {
             | ApplicationError::TaskFilesystem { .. }
             | ApplicationError::TaskWorktreeProvisioner { .. }
             | ApplicationError::TaskDiff { .. }
-            | ApplicationError::TaskDiffCommentRepository { .. }
             | ApplicationError::WorktreeRepository { .. }
             | ApplicationError::SessionRepository { .. }
             | ApplicationError::UserConfigRepository { .. }

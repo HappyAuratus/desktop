@@ -13,7 +13,7 @@ import type { CreateSkillRequest, CreateSkillResponse, DeleteSkillRequest, Delet
 import type { CancelSkillImportRequest, CancelSkillImportResponse, CommitSkillImportRequest, CommitSkillImportResponse, GetSkillImportSessionRequest, GetSkillImportSessionResponse, PrepareSkillImportRequest, PrepareSkillImportResponse } from "./skill-import.js";
 import type { GetSpecCatalogRequest, ReadSpecRequest, ReadSpecResponse, SpecCatalogResponse, WatchSpecsRequest } from "./spec.js";
 import type { CreateTaskRequest, CreateTaskResponse, DeleteTaskRequest, DeleteTaskResponse, GetTaskRequest, GetTaskResponse, GetTaskWorkspaceRequest, GetTaskWorkspaceResponse, ListTasksRequest, ListTasksResponse, UpdateTaskRequest, UpdateTaskResponse } from "./task.js";
-import type { CommitTaskChangesRequest, CommitTaskChangesResponse, CreateTaskDiffCommentRequest, CreateTaskDiffCommentResponse, GetTaskDiffRequest, GetTaskDiffResponse, ListTaskDiffCommentsRequest, ListTaskDiffCommentsResponse, PushTaskBranchRequest, PushTaskBranchResponse, ReplyTaskDiffCommentRequest, ReplyTaskDiffCommentResponse, SetTaskDiffCommentStatusRequest, SetTaskDiffCommentStatusResponse } from "./task_diff.js";
+import type { CommitTaskChangesRequest, CommitTaskChangesResponse, GetTaskDiffRequest, GetTaskDiffResponse, PushTaskBranchRequest, PushTaskBranchResponse } from "./task_diff.js";
 import type { ActivateWorkflowRequest, ActivateWorkflowResponse, CreateWorkflowRequest, CreateWorkflowResponse, DeleteSnapshotRequest, DeleteSnapshotResponse, DeleteWorkflowRequest, DeleteWorkflowResponse, GetDraftRequest, GetDraftResponse, GetVersionRequest, GetVersionResponse, GetWorkflowRequest, GetWorkflowResponse, GetWorkflowSnapshotRequest, GetWorkflowSnapshotResponse, ListVersionsRequest, ListVersionsResponse, ListWorkflowsRequest, ListWorkflowsResponse, PublishWorkflowRequest, PublishWorkflowResponse, RollbackWorkflowRequest, RollbackWorkflowResponse, UpdateDraftRequest, UpdateDraftResponse, UpdateWorkflowRequest, UpdateWorkflowResponse } from "./workflow.js";
 import type { CancelWorkflowRunRequest, CancelWorkflowRunResponse, CompleteWorkflowNodeRequest, CompleteWorkflowNodeResponse, CreateWorkflowRunRequest, CreateWorkflowRunResponse, DeleteWorkflowRunRequest, DeleteWorkflowRunResponse, GetWorkflowRunRequest, GetWorkflowRunResponse, ListWorkflowNodeRunsRequest, ListWorkflowNodeRunsResponse, ListWorkflowRunsByWorkflowRequest, ListWorkflowRunsByWorkflowResponse, ListWorkflowRunsRequest, ListWorkflowRunsResponse, RestartWorkflowRunRequest, RestartWorkflowRunResponse, StartWorkflowRunRequest, StartWorkflowRunResponse, UpdateWorkflowRunInputRequest, UpdateWorkflowRunInputResponse } from "./workflowRun.js";
 export type FrontendEndpointDefinition = {
@@ -45,10 +45,6 @@ export type RequestByOperation = {
   getTaskDiff: GetTaskDiffRequest;
   commitTaskChanges: CommitTaskChangesRequest;
   pushTaskBranch: PushTaskBranchRequest;
-  listTaskDiffComments: ListTaskDiffCommentsRequest;
-  createTaskDiffComment: CreateTaskDiffCommentRequest;
-  replyTaskDiffComment: ReplyTaskDiffCommentRequest;
-  setTaskDiffCommentStatus: SetTaskDiffCommentStatusRequest;
   warmSession: WarmSessionRequest;
   setSessionConfig: SetSessionConfigRequest;
   attachSession: AttachSessionRequest;
@@ -139,10 +135,6 @@ export type ResponseByOperation = {
   getTaskDiff: GetTaskDiffResponse;
   commitTaskChanges: CommitTaskChangesResponse;
   pushTaskBranch: PushTaskBranchResponse;
-  listTaskDiffComments: ListTaskDiffCommentsResponse;
-  createTaskDiffComment: CreateTaskDiffCommentResponse;
-  replyTaskDiffComment: ReplyTaskDiffCommentResponse;
-  setTaskDiffCommentStatus: SetTaskDiffCommentStatusResponse;
   warmSession: WarmSessionResponse;
   setSessionConfig: SetSessionConfigResponse;
   attachSession: AttachSessionResponse;
@@ -366,38 +358,6 @@ export const endpoints = {
     memberName: "pushBranch",
     requestType: "PushTaskBranchRequest",
     responseType: "PushTaskBranchResponse",
-    responseMode: "unary",
-  },
-  listTaskDiffComments: {
-    operationName: "listTaskDiffComments",
-    namespace: "task",
-    memberName: "listDiffComments",
-    requestType: "ListTaskDiffCommentsRequest",
-    responseType: "ListTaskDiffCommentsResponse",
-    responseMode: "unary",
-  },
-  createTaskDiffComment: {
-    operationName: "createTaskDiffComment",
-    namespace: "task",
-    memberName: "createDiffComment",
-    requestType: "CreateTaskDiffCommentRequest",
-    responseType: "CreateTaskDiffCommentResponse",
-    responseMode: "unary",
-  },
-  replyTaskDiffComment: {
-    operationName: "replyTaskDiffComment",
-    namespace: "task",
-    memberName: "replyDiffComment",
-    requestType: "ReplyTaskDiffCommentRequest",
-    responseType: "ReplyTaskDiffCommentResponse",
-    responseMode: "unary",
-  },
-  setTaskDiffCommentStatus: {
-    operationName: "setTaskDiffCommentStatus",
-    namespace: "task",
-    memberName: "setDiffCommentStatus",
-    requestType: "SetTaskDiffCommentStatusRequest",
-    responseType: "SetTaskDiffCommentStatusResponse",
     responseMode: "unary",
   },
   warmSession: {

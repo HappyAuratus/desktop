@@ -216,7 +216,6 @@ impl Backend {
             )),
             task_diff: Arc::new(TaskDiffApi::new(
                 pool.clone(),
-                clock,
                 git_cleanup.clone(),
                 relative_path_base.clone(),
             )),
@@ -817,38 +816,6 @@ impl Backend {
         request: PushTaskBranchRequest,
     ) -> Result<PushTaskBranchResponse, BackendError> {
         self.task_diff.push_branch(request)
-    }
-
-    /// Lists every persisted review discussion for one task.
-    pub fn list_task_diff_comments(
-        &self,
-        request: ListTaskDiffCommentsRequest,
-    ) -> Result<ListTaskDiffCommentsResponse, BackendError> {
-        self.task_diff.list_comments(request)
-    }
-
-    /// Creates one line-anchored task diff discussion.
-    pub fn create_task_diff_comment(
-        &self,
-        request: CreateTaskDiffCommentRequest,
-    ) -> Result<CreateTaskDiffCommentResponse, BackendError> {
-        self.task_diff.create_comment(request)
-    }
-
-    /// Adds one reply under an existing task diff discussion.
-    pub fn reply_task_diff_comment(
-        &self,
-        request: ReplyTaskDiffCommentRequest,
-    ) -> Result<ReplyTaskDiffCommentResponse, BackendError> {
-        self.task_diff.reply_comment(request)
-    }
-
-    /// Resolves or reopens one root task diff discussion.
-    pub fn set_task_diff_comment_status(
-        &self,
-        request: SetTaskDiffCommentStatusRequest,
-    ) -> Result<SetTaskDiffCommentStatusResponse, BackendError> {
-        self.task_diff.set_comment_status(request)
     }
 
     // =============================================================================

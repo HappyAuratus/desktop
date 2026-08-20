@@ -263,18 +263,10 @@ fn contract_module_for_type(type_name: &str) -> &'static str {
         // taskDiff
         "CommitTaskChangesRequest"
         | "CommitTaskChangesResponse"
-        | "CreateTaskDiffCommentRequest"
-        | "CreateTaskDiffCommentResponse"
         | "GetTaskDiffRequest"
         | "GetTaskDiffResponse"
-        | "ListTaskDiffCommentsRequest"
-        | "ListTaskDiffCommentsResponse"
         | "PushTaskBranchRequest"
         | "PushTaskBranchResponse"
-        | "ReplyTaskDiffCommentRequest"
-        | "ReplyTaskDiffCommentResponse"
-        | "SetTaskDiffCommentStatusRequest"
-        | "SetTaskDiffCommentStatusResponse"
         | "TaskDiffScope" => "task_diff",
         // session
         "AttachSessionRequest"

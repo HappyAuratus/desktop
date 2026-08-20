@@ -290,34 +290,6 @@ backend_command!(
     push_task_branch,
     "Pushes one task worktree branch through the shared Backend."
 );
-backend_command!(
-    list_task_diff_comments,
-    ListTaskDiffCommentsRequest,
-    ListTaskDiffCommentsResponse,
-    list_task_diff_comments,
-    "Lists task diff discussions through the shared Backend."
-);
-backend_command!(
-    create_task_diff_comment,
-    CreateTaskDiffCommentRequest,
-    CreateTaskDiffCommentResponse,
-    create_task_diff_comment,
-    "Creates one task diff discussion through the shared Backend."
-);
-backend_command!(
-    reply_task_diff_comment,
-    ReplyTaskDiffCommentRequest,
-    ReplyTaskDiffCommentResponse,
-    reply_task_diff_comment,
-    "Replies to one task diff discussion through the shared Backend."
-);
-backend_command!(
-    set_task_diff_comment_status,
-    SetTaskDiffCommentStatusRequest,
-    SetTaskDiffCommentStatusResponse,
-    set_task_diff_comment_status,
-    "Updates one task diff discussion through the shared Backend."
-);
 
 // =============================================================================
 // fileSystem

@@ -28,8 +28,6 @@ pub enum DatabaseError {
     ConnectionPool(#[from] r2d2::Error),
     #[error("domain model error: {0}")]
     DomainModel(#[from] ora_domain::DomainModelError),
-    #[error("task diff comment row is corrupt")]
-    CorruptCommentRow,
     #[error("workflow run state is corrupt: {0}")]
     CorruptWorkflowRunState(#[from] serde_json::Error),
     #[error("workflow run execution context is incomplete")]
