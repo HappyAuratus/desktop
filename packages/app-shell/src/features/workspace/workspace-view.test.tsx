@@ -28,6 +28,10 @@ import { useAgentModelStore } from "../../state/stores/agent-model-store";
 import { WorkspaceView } from "./workspace-view";
 import { directChatTitle } from "./workspace-view-utils";
 
+function composerText(element: HTMLElement): string {
+  return element.dataset.composerText ?? "";
+}
+
 beforeEach(() => {
   useWorkspaceSelectionStore.getState().clearSelection();
   useDraftSessionsStore.getState().clear();
@@ -567,7 +571,7 @@ describe("WorkspaceView", () => {
         draftId,
       );
     });
-    await waitFor(() => expect(composer).toHaveValue("from draft"));
+    await waitFor(() => expect(composerText(composer)).toBe("from draft"));
     expect(attachCalls).toBe(1);
     expect(state.sessions).toHaveLength(0);
   });
@@ -624,7 +628,9 @@ describe("WorkspaceView", () => {
         draftId,
       );
     });
-    await waitFor(() => expect(composer).toHaveValue("restore after setup"));
+    await waitFor(() =>
+      expect(composerText(composer)).toBe("restore after setup"),
+    );
     expect(state.sessions).toHaveLength(0);
     rekey.mockRestore();
   });
@@ -783,7 +789,7 @@ describe("WorkspaceView", () => {
     await act(() => {
       useWorkspaceSelectionStore.getState().selectDraft(draftId, null, "p1");
     });
-    await waitFor(() => expect(composer).toHaveValue("leave mid send"));
+    await waitFor(() => expect(composerText(composer)).toBe("leave mid send"));
     // Returning must not resurrect a forever-streaming pending turn.
     expect(
       screen.getByRole("button", { name: /发送消息|Send message/ }),
@@ -913,7 +919,7 @@ describe("WorkspaceView", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent(
       "task unavailable",
     );
-    expect(screen.getByRole("textbox")).toHaveValue("cannot start");
+    expect(composerText(screen.getByRole("textbox"))).toBe("cannot start");
     expect(state.tasks).toEqual([]);
     expect(state.sessions).toEqual([]);
     expect(useWorkspaceSelectionStore.getState().selection.taskId).toBeNull();

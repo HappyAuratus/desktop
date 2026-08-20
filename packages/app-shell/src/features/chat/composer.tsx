@@ -245,29 +245,46 @@ export function Composer({
     [conversationKey, draftId, selectedSessionId],
   );
 
+  // TipTap's replaceText/clear emit onTextChange; skipping park writes there keeps
+  // attachmentsRef and the store aligned during hydrate and send-failure restore.
+  const suppressPersistRef = useRef(false);
+
+  /** Sets editor text and attachments without re-entering persistComposerInput. */
+  const applyComposerContent = useCallback(
+    (text: string, images: ImageAttachment[]) => {
+      suppressPersistRef.current = true;
+      try {
+        replaceAttachments(images);
+        if (text.length === 0) {
+          editorRef.current?.clear();
+        } else {
+          editorRef.current?.replaceText(text);
+        }
+      } finally {
+        suppressPersistRef.current = false;
+      }
+    },
+    [replaceAttachments],
+  );
+
   const hydratedConversationKey = useRef<string | null>(null);
-  /* eslint-disable react-hooks/set-state-in-effect -- A reused controlled composer must synchronously swap to the selected conversation before paint. */
   useLayoutEffect(() => {
     if (hydratedConversationKey.current === conversationKey) return;
     hydratedConversationKey.current = conversationKey;
     const parked = useComposerInputStore.getState().byKey[conversationKey];
     if (parked !== undefined) {
-      editorRef.current?.replaceText(parked.text);
-      replaceAttachments(parked.images);
+      applyComposerContent(parked.text, parked.images);
       return;
     }
     if (draftId !== null && selectedSessionId === null) {
       const draft = useDraftSessionsStore
         .getState()
         .drafts.find((candidate) => candidate.id === draftId);
-      editorRef.current?.replaceText(draft?.text ?? "");
-      replaceAttachments(draft?.images ?? []);
+      applyComposerContent(draft?.text ?? "", draft?.images ?? []);
       return;
     }
-    editorRef.current?.clear();
-    replaceAttachments([]);
-  }, [conversationKey, draftId, replaceAttachments, selectedSessionId]);
-  /* eslint-enable react-hooks/set-state-in-effect */
+    applyComposerContent("", []);
+  }, [applyComposerContent, conversationKey, draftId, selectedSessionId]);
 
   useEffect(() => {
     if (
@@ -373,8 +390,7 @@ export function Composer({
       if (sentImages === undefined) await onSend(text);
       else await onSend(text, sentImages);
     })();
-    editorRef.current?.clear();
-    replaceAttachments([]);
+    applyComposerContent("", []);
     setAttachmentError(null);
     // Drop the conversation-keyed park so a later return cannot resurrect the
     // message that was just sent. Draft-store text is left alone so the muted
@@ -427,8 +443,7 @@ export function Composer({
           } else {
             persistComposerInput(text, sentAttachments);
           }
-          editorRef.current?.replaceText(text);
-          replaceAttachments(sentAttachments);
+          applyComposerContent(text, sentAttachments);
         } finally {
           clearComposerSendAdoption(sendConversationKey);
         }
@@ -731,7 +746,10 @@ export function Composer({
                       (item) => item.id !== attachment.id,
                     );
                     replaceAttachments(next);
-                    persistComposerInput(editorRef.current?.getText() ?? "", next);
+                    persistComposerInput(
+                      editorRef.current?.getText() ?? "",
+                      next,
+                    );
                   }}
                   aria-label={t("chat.attachments.remove", {
                     name: attachment.name,
@@ -767,7 +785,10 @@ export function Composer({
           onSubmit={submit}
           onQueryChange={setQuery}
           onDocChange={handleDocChange}
-          onTextChange={persistComposerInput}
+          onTextChange={(text) => {
+            if (suppressPersistRef.current) return;
+            persistComposerInput(text);
+          }}
           onPasteFiles={handlePasteFiles}
           onMenuKeyDown={handleMenuKeyDown}
         />
