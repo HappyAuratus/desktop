@@ -22,12 +22,14 @@ import {
 } from "../../test/mock-client";
 import { useUiStore } from "../../state/stores/ui-store";
 import { useWorkspaceSelectionStore } from "../../state/stores/workspace-selection-store";
+import { useDraftSessionsStore } from "../../state/stores/draft-sessions-store";
 import { WorkspaceDialogs } from "./workspace-dialogs";
 
 beforeEach(() => {
   useUiStore.getState().setDialog(null);
   useUiStore.getState().setDeleteTarget(null);
   useWorkspaceSelectionStore.getState().clearSelection();
+  useDraftSessionsStore.getState().clear();
 });
 
 describe("WorkspaceDialogs project creation", () => {
@@ -82,12 +84,15 @@ describe("WorkspaceDialogs project creation", () => {
       ]);
       expect(useUiStore.getState().dialog).toBeNull();
     });
-    expect(useWorkspaceSelectionStore.getState().selection).toEqual({
+    expect(useWorkspaceSelectionStore.getState().selection).toMatchObject({
       projectId: "p1",
       taskId: null,
       sessionId: null,
       workflowRunId: null,
     });
+    expect(useWorkspaceSelectionStore.getState().selection.draftId).toEqual(
+      expect.any(String),
+    );
   });
 });
 

@@ -16,6 +16,7 @@ import {
   createMockClientState,
 } from "../../test/mock-client";
 import { useWorkspaceSelectionStore } from "../../state/stores/workspace-selection-store";
+import { useDraftSessionsStore } from "../../state/stores/draft-sessions-store";
 import {
   useSettingsStore,
   DEFAULT_SETTINGS,
@@ -45,6 +46,7 @@ const TASK2: Task = {
 
 beforeEach(() => {
   useWorkspaceSelectionStore.getState().clearSelection();
+  useDraftSessionsStore.getState().clear();
   useSettingsStore.setState({ settings: DEFAULT_SETTINGS });
   usePendingAgentStore.setState({ selections: {} });
 });
@@ -71,12 +73,23 @@ function renderWorkspace() {
   );
 }
 
-/** Clicks a task row in the sidebar tree by its visible title. */
-async function clickTask(
+/**
+ * Opens a worktree's new-chat surface: expand the row, then click its hover
+ * plus. Row click alone only toggles expand and does not select a composer.
+ */
+async function openTaskComposer(
   user: ReturnType<typeof userEvent.setup>,
   title: string,
 ) {
-  await user.click(await screen.findByText(title));
+  const label = await screen.findByText(title);
+  const row = label.closest(".group\\/tree");
+  expect(row).not.toBeNull();
+  await user.click(label);
+  await user.click(
+    within(row as HTMLElement).getByRole("button", {
+      name: /新建会话|New session/,
+    }),
+  );
 }
 
 /** The collapsed picker, which names the agent the selected surface is on. */
@@ -106,21 +119,21 @@ describe("agent picker isolation across real sidebar navigation", () => {
     const user = userEvent.setup();
     renderWorkspace();
 
-    await clickTask(user, "Task One");
+    await openTaskComposer(user, "Task One");
     await pickAgent(user, /Claude Code/);
     expect(within(picker()).getByText("Claude Code")).not.toBeNull();
 
-    await clickTask(user, "Task Two");
+    await openTaskComposer(user, "Task Two");
     await pickAgent(user, /OpenCode/);
     expect(within(picker()).getByText("OpenCode")).not.toBeNull();
 
-    await clickTask(user, "Task One");
+    await openTaskComposer(user, "Task One");
     expect(within(picker()).getByText("Claude Code")).not.toBeNull();
 
-    await clickTask(user, "Task Two");
+    await openTaskComposer(user, "Task Two");
     expect(within(picker()).getByText("OpenCode")).not.toBeNull();
 
-    await clickTask(user, "Task One");
+    await openTaskComposer(user, "Task One");
     expect(within(picker()).getByText("Claude Code")).not.toBeNull();
   });
 });

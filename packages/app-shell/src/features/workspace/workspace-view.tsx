@@ -37,6 +37,14 @@ import {
 } from "../../state/stores/workflow-store";
 import { conversationKeyFor } from "../../state/stores/conversation-key";
 import { useComposerPluginSelectionStore } from "../../state/stores/composer-plugin-selection-store";
+import { useComposerInputStore } from "../../state/stores/composer-input-store";
+import { useDraftSessionsStore } from "../../state/stores/draft-sessions-store";
+import {
+  recoverFailedDraftSend,
+  DraftSendAbandonedError,
+  noteComposerSendAdoptedSession,
+  reparkDraftComposerContent,
+} from "../../state/session-drafts";
 import { useChatStore } from "../../chat-store-context";
 import { DragRegion } from "../../components/drag-region";
 import { WindowControls } from "../../components/window-controls";
@@ -87,6 +95,7 @@ function chatSurfaceKeyFor(selection: {
   projectId: string | null;
   taskId: string | null;
   sessionId: string | null;
+  draftId?: string | null;
 }): string {
   return `${conversationKeyFor(selection)}|${warmTargetKey(selection) ?? ""}`;
 }
@@ -327,13 +336,39 @@ export function WorkspaceView({ userName }: WorkspaceViewProps) {
     const surfaceKey = chatSurfaceKeyFor(selection);
     setPendingSend({ surfaceKey, turn: draftTurn(displayText, images) });
     let warmed: string | null;
+    const draftIdAtSend =
+      useWorkspaceSelectionStore.getState().selection.draftId;
+    // Hide × for the whole handshake — bind only happens after warm returns.
+    if (draftIdAtSend !== null) {
+      useDraftSessionsStore.getState().beginSend(draftIdAtSend);
+    }
+    const endDraftSend = () => {
+      if (draftIdAtSend !== null) {
+        useDraftSessionsStore.getState().endSend(draftIdAtSend);
+      }
+    };
     try {
       warmed = await ensureSessionId();
     } catch (error) {
       // The message never reached an agent, so it stays on screen carrying the
       // failure rather than disappearing with the composer's optimistic clear.
       const message = errorMessage(error);
-      if (token !== pendingSendToken.current) return;
+      if (token !== pendingSendToken.current) {
+        // Stop already cleared pendingSend; still drop it if a later path only
+        // bumped the token, so returning to this surface cannot resurrect a
+        // forever-streaming optimistic turn.
+        setPendingSend(null);
+        endDraftSend();
+        if (draftIdAtSend !== null) {
+          reparkDraftComposerContent({
+            draftId: draftIdAtSend,
+            text: displayText,
+            images,
+          });
+          throw new DraftSendAbandonedError();
+        }
+        return;
+      }
       setPendingSend((current) =>
         current === null
           ? null
@@ -342,29 +377,78 @@ export function WorkspaceView({ userName }: WorkspaceViewProps) {
               turn: { ...current.turn, status: "failed", error: message },
             },
       );
+      // Composer already cleared locally; re-park so a surface that never left
+      // the draft (or the composer's reject handler) can put the text back.
+      if (draftIdAtSend !== null) {
+        reparkDraftComposerContent({
+          draftId: draftIdAtSend,
+          text: displayText,
+          images,
+        });
+      }
+      endDraftSend();
       throw error;
     }
     // Stopped, or the user moved on while the handshake ran. The surface check is
     // not just cosmetic: proceeding would select the session below and drag the
     // user back to a chat they had left.
-    if (token !== pendingSendToken.current) return;
+    if (token !== pendingSendToken.current) {
+      setPendingSend(null);
+      endDraftSend();
+      if (draftIdAtSend !== null) {
+        reparkDraftComposerContent({
+          draftId: draftIdAtSend,
+          text: displayText,
+          images,
+        });
+        throw new DraftSendAbandonedError();
+      }
+      return;
+    }
     if (
       chatSurfaceKeyFor(useWorkspaceSelectionStore.getState().selection) !==
       surfaceKey
     ) {
+      setPendingSend(null);
+      endDraftSend();
+      if (draftIdAtSend !== null) {
+        reparkDraftComposerContent({
+          draftId: draftIdAtSend,
+          text: displayText,
+          images,
+        });
+        throw new DraftSendAbandonedError();
+      }
       return;
     }
-    if (warmed === null) return;
+    if (warmed === null) {
+      setPendingSend(null);
+      endDraftSend();
+      return;
+    }
     // Rebound as a const so the narrowing survives into `prepare` below.
     const sessionId = warmed;
+    const draftId = useWorkspaceSelectionStore.getState().selection.draftId;
+    if (draftId !== null) {
+      useDraftSessionsStore.getState().bindToSession(draftId, sessionId);
+    }
+    // Composer hard-fail restore needs the adopted id even after the user
+    // navigates away mid-attach; cleared once that catch settles. Keyed by the
+    // pre-rekey conversation so project/task landings (no draft) work too.
+    noteComposerSendAdoptedSession(currentKey, sessionId);
 
     const projectId = project.id;
     let taskId = task?.id ?? null;
+    // True once attach has written a persisted session. Failures after that
+    // belong to the live chat — rolling the draft back would yank the user onto
+    // a row removeCommitted may already have deleted.
+    let sessionAttached = false;
     // The workflow run and the composer's applied plugins both follow the
     // conversation onto its session id, which is now known, so this happens once
     // instead of tracking a moving key.
     useWorkflowStore.getState().rekey(currentKey, sessionId);
     useComposerPluginSelectionStore.getState().rekey(currentKey, sessionId);
+    useComposerInputStore.getState().rekey(currentKey, sessionId);
     // Point the workspace at this session before anything is awaited, so the
     // optimistic turn is on screen while its task and record are still forming.
     const selectionStore = useWorkspaceSelectionStore.getState();
@@ -426,9 +510,16 @@ export function WorkspaceView({ userName }: WorkspaceViewProps) {
             ),
           });
         }
+        sessionAttached = true;
         queryClient.setQueryData<Session[]>(queryKeys.sessions, (current) =>
           upsertById(current, response.session),
         );
+        // Drop the muted row as soon as the session is real; the sidebar also
+        // GCs on list updates, but doing it here covers prompt failures before
+        // that effect runs and avoids a bound zombie pointing at a live chat.
+        if (draftId !== null) {
+          useDraftSessionsStore.getState().removeCommitted([sessionId]);
+        }
         useUiStore.getState().expandProject(projectId);
         useUiStore.getState().expandTask(attachedTaskId);
         return { availableCommands: response.availableCommands };
@@ -437,7 +528,23 @@ export function WorkspaceView({ userName }: WorkspaceViewProps) {
     setPendingSend(null);
     try {
       await sent;
+    } catch (error) {
+      // Only unwind the muted row when attach never landed. A later prompt
+      // failure leaves a real session selected; recovering would reselect a
+      // draft that removeCommitted may already have dropped.
+      if (draftId !== null && !sessionAttached) {
+        recoverFailedDraftSend({
+          draftId,
+          projectId,
+          taskId,
+          text: displayText,
+          images,
+          boundSessionId: sessionId,
+        });
+      }
+      throw error;
     } finally {
+      endDraftSend();
       await Promise.all([
         sessionsQuery.refetch(),
         taskId === null
@@ -613,10 +720,9 @@ export function WorkspaceView({ userName }: WorkspaceViewProps) {
                 disabled={!canChat}
               />
             }
-            // Failures land in chatError; the rejection itself is expected.
-            onSend={(text, images) =>
-              void sendOrStartSession(text, images).catch(() => undefined)
-            }
+            // Failures land in chatError; the rejection also lets the composer
+            // restore unsent text when the surface never left the draft.
+            onSend={(text, images) => sendOrStartSession(text, images)}
             onEmptySubmit={
               quickLaunchNodeId === null
                 ? undefined

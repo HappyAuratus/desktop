@@ -1,4 +1,4 @@
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { createChatStore } from "@ora/chat";
 import type {
@@ -21,12 +21,15 @@ import {
 } from "../../test/mock-client";
 import { usePendingAgentStore } from "../../state/stores/pending-agent-store";
 import { useWorkspaceSelectionStore } from "../../state/stores/workspace-selection-store";
+import { useDraftSessionsStore } from "../../state/stores/draft-sessions-store";
+import { startSessionDraft } from "../../state/session-drafts";
 import { useAgentModelStore } from "../../state/stores/agent-model-store";
 import { WorkspaceView } from "./workspace-view";
 import { directChatTitle } from "./workspace-view-utils";
 
 beforeEach(() => {
   useWorkspaceSelectionStore.getState().clearSelection();
+  useDraftSessionsStore.getState().clear();
   // Outlives a render on purpose — remembering one CLI's models across chat
   // surfaces is the point of the store — so each test has to start from a CLI
   // nothing has handshaken, or an earlier test's list would answer for it.
@@ -396,6 +399,7 @@ describe("WorkspaceView", () => {
         taskId: null,
         sessionId: "s1",
         workflowRunId: null,
+        draftId: null,
       });
     });
     expect(screen.getByText(/你好\s+workspace mode/)).toBeInTheDocument();
@@ -431,6 +435,7 @@ describe("WorkspaceView", () => {
       taskId: "t1",
       sessionId: "s1",
       workflowRunId: null,
+      draftId: null,
     });
     expect(chatStore.getState().conversations.s1?.isLoaded).toBe(true);
   });
@@ -503,6 +508,225 @@ describe("WorkspaceView", () => {
     expect(taskCreateCalls).toBe(1);
     expect(attachCalls).toBe(2);
     expect(state.tasks).toHaveLength(1);
+  });
+
+  it("unbinds a draft and restores dismissibility when attach fails after bind", async () => {
+    const user = userEvent.setup();
+    const state = createMockClientState();
+    state.projects = [{ id: "p1", name: "Ora", rootPath: "/ora" }];
+    const baseClient = createMockClient(state);
+    let attachCalls = 0;
+    const client: ContractsClient = {
+      ...baseClient,
+      session: {
+        ...baseClient.session,
+        attach: async (request, options) => {
+          attachCalls += 1;
+          if (attachCalls === 1) throw new Error("session unavailable");
+          return baseClient.session.attach(request, options);
+        },
+      },
+    };
+    const chatStore = createChatStore(client.session);
+    const Wrapper = createHookWrapper(
+      client,
+      createTestQueryClient(),
+      chatStore,
+    );
+    const draftId = startSessionDraft({ projectId: "p1", taskId: null });
+
+    render(
+      <Wrapper>
+        <AppI18nProvider>
+          <PlatformProvider adapter={createStubPlatform()}>
+            <TooltipProvider>
+              <WorkspaceView userName="Eric" />
+            </TooltipProvider>
+          </PlatformProvider>
+        </AppI18nProvider>
+      </Wrapper>,
+    );
+
+    const composer = await screen.findByRole("textbox");
+    await waitFor(() => expect(composer).toBeEnabled());
+    await user.type(composer, "from draft");
+    await user.click(
+      screen.getByRole("button", { name: /发送消息|Send message/ }),
+    );
+
+    await waitFor(() => {
+      const draft = useDraftSessionsStore
+        .getState()
+        .drafts.find((candidate) => candidate.id === draftId);
+      expect(draft?.pendingSessionId).toBeNull();
+      expect(useWorkspaceSelectionStore.getState().selection.draftId).toBe(
+        draftId,
+      );
+    });
+    await waitFor(() => expect(composer).toHaveValue("from draft"));
+    expect(attachCalls).toBe(1);
+    expect(state.sessions).toHaveLength(0);
+  });
+
+  it("keeps the persisted session selected when prompt fails after attach", async () => {
+    const user = userEvent.setup();
+    const state = createMockClientState();
+    state.projects = [{ id: "p1", name: "Ora", rootPath: "/ora" }];
+    const baseClient = createMockClient(state);
+    const client: ContractsClient = {
+      ...baseClient,
+      session: {
+        ...baseClient.session,
+        prompt: async function* () {
+          yield* [];
+          throw new Error("provider disconnected");
+        },
+      },
+    };
+    const chatStore = createChatStore(client.session);
+    const Wrapper = createHookWrapper(
+      client,
+      createTestQueryClient(),
+      chatStore,
+    );
+    const draftId = startSessionDraft({ projectId: "p1", taskId: null });
+
+    render(
+      <Wrapper>
+        <AppI18nProvider>
+          <PlatformProvider adapter={createStubPlatform()}>
+            <TooltipProvider>
+              <WorkspaceView userName="Eric" />
+            </TooltipProvider>
+          </PlatformProvider>
+        </AppI18nProvider>
+      </Wrapper>,
+    );
+
+    const composer = await screen.findByRole("textbox");
+    await waitFor(() => expect(composer).toBeEnabled());
+    await user.type(composer, "after attach");
+    await user.click(
+      screen.getByRole("button", { name: /发送消息|Send message/ }),
+    );
+
+    await waitFor(() => expect(state.sessions).toHaveLength(1));
+    await waitFor(() =>
+      expect(useWorkspaceSelectionStore.getState().selection).toEqual(
+        expect.objectContaining({
+          sessionId: state.sessions[0]?.id,
+          draftId: null,
+        }),
+      ),
+    );
+    // recoverFailedDraftSend must not run after attach: stay on the session and
+    // drop the muted row immediately rather than unbound-retrying it.
+    expect(
+      useDraftSessionsStore.getState().drafts.find((d) => d.id === draftId),
+    ).toBeUndefined();
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "provider disconnected",
+    );
+  });
+
+  it("clears pending send when leaving a draft mid-handshake so return is not stuck", async () => {
+    const user = userEvent.setup();
+    const state = createMockClientState();
+    state.projects = [{ id: "p1", name: "Ora", rootPath: "/ora" }];
+    state.tasks = [
+      {
+        id: "t1",
+        projectId: "p1",
+        title: "Existing",
+        workspaceMode: "worktree",
+        type: "default",
+        workflowRunId: null,
+      },
+    ];
+    state.sessions = [
+      {
+        id: "s-other",
+        taskId: "t1",
+        agentCli: "open_code",
+        status: "running",
+        title: "Other",
+        historyState: { type: "writable" },
+      },
+    ];
+    const baseClient = createMockClient(state);
+    let releaseWarm!: () => void;
+    const warmGate = new Promise<void>((resolve) => {
+      releaseWarm = resolve;
+    });
+    const client: ContractsClient = {
+      ...baseClient,
+      session: {
+        ...baseClient.session,
+        warm: async (request, options) => {
+          await warmGate;
+          return baseClient.session.warm(request, options);
+        },
+      },
+    };
+    const chatStore = createChatStore(client.session);
+    const Wrapper = createHookWrapper(
+      client,
+      createTestQueryClient(),
+      chatStore,
+    );
+    const draftId = startSessionDraft({ projectId: "p1", taskId: null });
+
+    render(
+      <Wrapper>
+        <AppI18nProvider>
+          <PlatformProvider adapter={createStubPlatform()}>
+            <TooltipProvider>
+              <WorkspaceView userName="Eric" />
+            </TooltipProvider>
+          </PlatformProvider>
+        </AppI18nProvider>
+      </Wrapper>,
+    );
+
+    const composer = await screen.findByRole("textbox");
+    await waitFor(() => expect(composer).toBeEnabled());
+    await user.type(composer, "leave mid send");
+    await user.click(
+      screen.getByRole("button", { name: /发送消息|Send message/ }),
+    );
+    await waitFor(() =>
+      expect(
+        screen.getByRole("button", { name: /正在启动|Starting/i }),
+      ).toBeInTheDocument(),
+    );
+
+    await act(() => {
+      useWorkspaceSelectionStore
+        .getState()
+        .selectSession("s-other", "t1", "p1");
+    });
+    // Warm resolve continues through Promise chains after release; flush a
+    // macrotask so abandon repark / pendingSend clear stay inside act.
+    await act(async () => {
+      releaseWarm();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    await waitFor(() =>
+      expect(
+        useDraftSessionsStore.getState().drafts.find((d) => d.id === draftId)
+          ?.text,
+      ).toBe("leave mid send"),
+    );
+
+    await act(() => {
+      useWorkspaceSelectionStore.getState().selectDraft(draftId, null, "p1");
+    });
+    await waitFor(() => expect(composer).toHaveValue("leave mid send"));
+    // Returning must not resurrect a forever-streaming pending turn.
+    expect(
+      screen.getByRole("button", { name: /发送消息|Send message/ }),
+    ).toBeEnabled();
   });
 
   it("warms a fresh session for retry after attach fails, instead of reusing the consumed id", async () => {
@@ -628,7 +852,7 @@ describe("WorkspaceView", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent(
       "task unavailable",
     );
-    expect(screen.getByText("cannot start")).toBeInTheDocument();
+    expect(screen.getByRole("textbox")).toHaveValue("cannot start");
     expect(state.tasks).toEqual([]);
     expect(state.sessions).toEqual([]);
     expect(useWorkspaceSelectionStore.getState().selection.taskId).toBeNull();
