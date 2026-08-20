@@ -31,6 +31,7 @@ export {
   ComposerMarkdownRevert,
   handleComposerMarkdownBackspace,
 } from "./composer-markdown-revert";
+export { ComposerChipSelection } from "./composer-chip-selection";
 export { ComposerNewline } from "./composer-newline";
 export {
   resolveComposerEnter,

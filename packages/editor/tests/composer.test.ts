@@ -33,6 +33,7 @@ test("composer preset exposes the markdown minimum set plus exclusive chips", ()
     "link",
     "composerFile",
     "promptToken",
+    "composerChipSelection",
     "composerNewline",
     "composerCodeFence",
     "composerMarkdownPaste",
@@ -120,6 +121,44 @@ test("documentPlainText serializes prompt token chips back to $ / prefixes", () 
     ]),
   ]);
   assert.equal(documentPlainText(doc), "$code-review ");
+});
+
+test("documentPlainText inserts spaces between adjacent chips without doc spaces", () => {
+  const schema = new Schema({
+    nodes: {
+      doc: { content: "block+" },
+      paragraph: { content: "inline*", group: "block" },
+      text: { group: "inline" },
+      promptToken: {
+        group: "inline",
+        inline: true,
+        atom: true,
+        attrs: {
+          kind: { default: "skill" },
+          name: { default: "" },
+        },
+      },
+      composerFile: {
+        group: "inline",
+        inline: true,
+        atom: true,
+        attrs: {
+          path: { default: "" },
+          startLine: { default: null },
+          endLine: { default: null },
+        },
+      },
+    },
+  });
+  const doc = schema.node("doc", null, [
+    schema.node("paragraph", null, [
+      schema.node("promptToken", { kind: "skill", name: "dev-expert" }),
+      schema.node("composerFile", { path: ".codex" }),
+      schema.node("composerFile", { path: "hack.svg" }),
+      schema.text(" notes"),
+    ]),
+  ]);
+  assert.equal(documentPlainText(doc), "$dev-expert `.codex` `hack.svg` notes");
 });
 
 test("documentPlainText serializes markdown links and file chips for the agent payload", () => {
@@ -311,4 +350,38 @@ test("isComposerOpenableUrl matches Desktop open_external schemes", () => {
     false,
   );
   assert.equal(isComposerOpenableUrl(""), false);
+});
+
+test("range selection decorates intersecting chips for visual highlight", async () => {
+  const { Editor } = await import("@tiptap/core");
+  const { chipSelectionDecorations } =
+    await import("../src/composer/composer-chip-selection.ts");
+  const editor = new Editor({
+    extensions: createComposerExtensions({ placeholder: "Type" }),
+    content: {
+      type: "doc",
+      content: [
+        {
+          type: "paragraph",
+          content: [
+            { type: "text", text: "pre" },
+            {
+              type: "composerFile",
+              attrs: { path: "AGENTS.md", kind: "file" },
+            },
+            { type: "text", text: "post" },
+          ],
+        },
+      ],
+    },
+  });
+  const size = editor.state.doc.content.size;
+  editor.commands.setTextSelection({ from: 1, to: size - 1 });
+  const decorated = chipSelectionDecorations(editor.state);
+  const classes = decorated
+    .find()
+    .map((decoration) => decoration.type.attrs?.class)
+    .filter(Boolean);
+  assert.equal(classes.includes("composer-chip-in-selection"), true);
+  editor.destroy();
 });

@@ -5,6 +5,7 @@ import { Placeholder } from "@tiptap/extensions";
 import StarterKit from "@tiptap/starter-kit";
 import { HorizontalRule } from "../node/horizontal-rule-node/horizontal-rule-node-extension";
 import { ComposerCodeFence } from "./composer-code-fence";
+import { ComposerChipSelection } from "./composer-chip-selection";
 import { ComposerFile } from "./composer-file";
 import { ComposerHighlight } from "./composer-highlight";
 import { ComposerLink } from "./composer-link";
@@ -182,6 +183,7 @@ export function createComposerExtensions(
   }
 
   extensions.push(
+    ComposerChipSelection,
     ComposerNewline,
     ComposerCodeFence,
     ComposerMarkdownPaste,
