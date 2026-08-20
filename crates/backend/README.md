@@ -32,5 +32,5 @@ Dropping the last backend owner shuts down provider supervisors and initiates bo
 
 The application event stream is deliberately not an event log: events are not persisted or replayed, a bounded queue may terminate a slow subscription, and the Desktop shell refetches database-backed queries after stream loss. Every active channel may subscribe to the same broadcast. Adapters that abort consumption may use `SessionEventStream::try_recv` to observe a buffered terminal error without waiting for the next event.
 
-See [Application and Contracts Boundary](../../docs/application-contracts-boundary.md), [ACP Agent Runtime](../../docs/agent-runtime.md), and [Workflow](../../docs/workflow.md).
+See the [backend workflow module](src/workflow/README.md), [Application and Contracts Boundary](../../docs/application-contracts-boundary.md), [ACP Agent Runtime](../../docs/agent-runtime.md), and [Workflow](../../docs/workflow.md).
 See also [Specification management](../../docs/spec-management.md).

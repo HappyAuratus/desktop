@@ -16,15 +16,9 @@ use ora_application::{
 };
 use ora_db::{RepositoryPool, SqliteWorkflowRunEngineRepository};
 use ora_domain::{SessionId, WorkflowNodeRunId, WorkflowNodeStatus, WorkflowRunStatus};
-use std::collections::HashSet;
 use std::sync::Arc;
 
-/// The transient set of node runs a manual completion is currently claiming.
-///
-/// Never persisted, never a node status, and never exposed to the frontend or the future plugin
-/// protocol. Its only meaning is "this process is running a manual complete for this node right
-/// now", which is what blocks a concurrent prompt against the same node.
-pub(crate) type CompletingNodeRuns = std::sync::Mutex<HashSet<WorkflowNodeRunId>>;
+use super::CompletingNodeRuns;
 
 /// Validates and flips an awaiting interactive node to `Running` before a human turn.
 ///
@@ -162,6 +156,7 @@ mod tests {
     };
     use pretty_assertions::assert_eq;
     use std::cell::Cell;
+    use std::collections::HashSet;
     use tempfile::TempDir;
 
     const AGENT_GRAPH: &str = r#"{"nodes":[
@@ -478,7 +473,7 @@ mod tests {
         let (run_locks, completing) = locks();
 
         assert!(
-            crate::workflow_node_completion::claim_node_for_completion(
+            super::super::completion::claim_node_for_completion(
                 &pool,
                 &run_locks,
                 &completing,
@@ -489,7 +484,7 @@ mod tests {
         );
 
         assert!(
-            crate::workflow_node_completion::claim_node_for_completion(
+            super::super::completion::claim_node_for_completion(
                 &pool,
                 &run_locks,
                 &completing,

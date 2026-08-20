@@ -4,13 +4,11 @@
 //! future agent/CLI path can reuse the same commit through the engine. The session stop and the
 //! engine commit are done by the caller around [`prepare_completion`].
 
+use super::super::executor::{capture_worktree_snapshot, compute_file_changes, stop_reason_label};
+use super::CompletingNodeRuns;
 use crate::agent_runtime::AgentRuntimeManager;
 use crate::error::BackendError;
 use crate::git_cleanup::KeyedResourceLocks;
-use crate::workflow_node_session::CompletingNodeRuns;
-use crate::workflow_run_executor::{
-    capture_worktree_snapshot, compute_file_changes, stop_reason_label,
-};
 use agent_client_protocol_schema::v1::{ContentBlock, SessionUpdate, StopReason};
 use ora_application::{ApplicationError, FileChange, WorkflowGraph, WorkflowRunEngineRepository};
 use ora_db::{RepositoryPool, SqliteWorkflowRunEngineRepository};

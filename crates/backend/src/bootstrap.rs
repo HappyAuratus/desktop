@@ -13,8 +13,8 @@ use crate::task::TaskApi;
 use crate::task_diff::TaskDiffApi;
 use crate::user_config::{BackendPreferredLogLevelStore, UserConfigApi};
 use crate::workflow::WorkflowApi;
-use crate::workflow_run::WorkflowRunApi;
-use crate::workflow_run_engine::{
+use crate::workflow::run::WorkflowRunApi;
+use crate::workflow::run::{
     ConcreteWorkflowRunControl, ConcreteWorkflowRunEngine, build_workflow_run_engine,
 };
 use ora_application::{ApplicationError, Clock, WorkflowRunEngineRepository};
@@ -100,7 +100,7 @@ pub struct Backend {
     run_locks: Arc<KeyedResourceLocks>,
     /// Transient set of node runs a manual completion is currently claiming; blocks a concurrent
     /// prompt against the same node without adding any persisted status.
-    completing_node_runs: Arc<crate::workflow_node_session::CompletingNodeRuns>,
+    completing_node_runs: Arc<crate::workflow::run::interactive::CompletingNodeRuns>,
     sessions_root: PathBuf,
     baselines_root: PathBuf,
     app_events: Arc<AppEventHub>,
@@ -403,7 +403,7 @@ impl Backend {
             let run_id = run_id.clone();
             let node_id = node_id.clone();
             spawn_repository_work(move || {
-                crate::workflow_node_completion::claim_node_for_completion(
+                crate::workflow::run::interactive::claim_node_for_completion(
                     &pool,
                     &run_locks,
                     &completing,
@@ -424,7 +424,7 @@ impl Backend {
             let run_id = run_id.clone();
             let node_id = node_id.clone();
             match spawn_repository_work(move || {
-                crate::workflow_node_completion::prepare_completion(
+                crate::workflow::run::interactive::prepare_completion(
                     &pool,
                     &sessions_root,
                     &baselines_root,
@@ -456,7 +456,7 @@ impl Backend {
         let file_changes = prepared.file_changes.clone();
         let response = spawn_repository_work(move || {
             let _gate = run_locks.acquire_exclusive(run_id.as_ref());
-            let result = crate::workflow_node_completion::revalidate_completion(
+            let result = crate::workflow::run::interactive::revalidate_completion(
                 &pool,
                 &run_id,
                 &node_run_id,
@@ -902,7 +902,7 @@ impl Backend {
         &self,
         request: PromptSessionRequest,
     ) -> Result<SessionEventStream<PromptSessionEvent>, BackendError> {
-        let node_run_id = crate::workflow_node_session::begin_human_turn(
+        let node_run_id = crate::workflow::run::interactive::begin_human_turn(
             &self.pool,
             &self.run_locks,
             &self.completing_node_runs,
@@ -915,7 +915,8 @@ impl Backend {
                 // The turn never started; put the awaiting node back where it was.
                 if let Some(node_run_id) = node_run_id.as_ref() {
                     let _ =
-                        crate::workflow_node_session::end_human_turn(&self.pool, node_run_id).await;
+                        crate::workflow::run::interactive::end_human_turn(&self.pool, node_run_id)
+                            .await;
                 }
                 return Err(error);
             }
@@ -926,7 +927,8 @@ impl Backend {
         let pool = self.pool.clone();
         Ok(stream.attach_cleanup(move || {
             tokio::spawn(async move {
-                let _ = crate::workflow_node_session::end_human_turn(&pool, &node_run_id).await;
+                let _ =
+                    crate::workflow::run::interactive::end_human_turn(&pool, &node_run_id).await;
             });
         }))
     }
@@ -1362,7 +1364,7 @@ fn run_workflow_run_boot_sweep(
     {
         ora_error!(error = %error, "workflow run boot sweep failed to fail orphaned node runs");
     }
-    crate::workflow_run_engine::reconcile_running_workflow_runs(engine, run_locks, pool);
+    crate::workflow::run::reconcile_running_workflow_runs(engine, run_locks, pool);
 }
 
 /// Deletes worktree-baseline side files whose node run is missing or no longer awaiting input.
