@@ -16,12 +16,15 @@ App-shell wrapper around `@ora/editor` for prompt boxes.
   the newline inside those structures, and also opens a fence from an opener
   line.
 - Surface slash/`@` query state from the text immediately before the caret so
-  `/` still opens skills/commands after existing prompt text.
+  `/` still opens skills/commands after existing prompt text, and `@` drives
+  workspace file mentions (chips) owned by the chat composer palette.
 - Style kit nodes with Ora CSS variables. Links match the dashboard underline
-  and open in the host browser on click. Files stay chips; `==highlight==` is a
-  Typora yellow (`rgb(255, 255, 0)`; delimiters hidden), not a bordered pill. `/` skills and
-  commands are same-size mentions in OLED phosphor green (neon on dark with a
-  light halo; deeper green, no glow, in light mode).
+  and open in the host browser on click. File `@` mentions render as inline
+  type-icon + basename refs (Tabler via `WorkspaceFileIcon` / React node view),
+  not bordered pills: soft teal basename ink with type-colored icons.
+  `==highlight==` is a Typora yellow (`rgb(255, 255, 0)`; delimiters hidden).
+  `/` skills and `$` commands are mint-wash pills with forest green ink
+  (Cursor-style; no neon glow).
 - Sent user messages stay `documentPlainText` in the store and render read-only
   via chat `MarkdownDocument` (`density="compact"`). Compact mode expands
   TipTap single newlines outside fences and maps `==highlight==` to `<mark>`.

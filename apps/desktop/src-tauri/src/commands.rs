@@ -409,6 +409,65 @@ fn read_workspace_file_backend(
         .map_err(workspace_file_backend_error)
 }
 
+/// Lists one immediate directory in the selected project checkout root.
+#[tauri::command]
+pub async fn list_project_directory(
+    state: State<'_, DesktopState>,
+    request: ListProjectDirectoryRequest,
+) -> Result<ListWorkspaceDirectoryResponse, CommandError> {
+    run_workspace_backend(
+        "list_project_directory",
+        state.backend.clone(),
+        state.workspace_files.clone(),
+        request,
+        list_project_directory_backend,
+    )
+    .await
+}
+
+/// Searches the selected project checkout with bounded ripgrep output.
+#[tauri::command]
+pub async fn search_project(
+    state: State<'_, DesktopState>,
+    request: SearchProjectRequest,
+) -> Result<SearchWorkspaceResponse, CommandError> {
+    let backend = state.backend.clone();
+    let workspace_files = state.workspace_files.clone();
+    let project_id = request.project_id;
+    let query = request.query;
+    let kind = request.kind;
+    run_async_backend("search_project", async move {
+        let root =
+            tauri::async_runtime::spawn_blocking(move || backend.resolve_project_cwd(&project_id))
+                .await
+                .map_err(|source| {
+                    BackendError::internal("Desktop project root resolution failed", source)
+                })??;
+        workspace_files
+            .search(&root, &query, kind)
+            .await
+            .map_err(workspace_file_backend_error)
+    })
+    .await
+}
+
+/// Resolves a project checkout and lists the requested relative directory.
+fn list_project_directory_backend(
+    backend: &Backend,
+    workspace_files: &WorkspaceFileApi,
+    request: ListProjectDirectoryRequest,
+) -> Result<ListWorkspaceDirectoryResponse, BackendError> {
+    let root = backend.resolve_project_cwd(&request.project_id)?;
+    let path = request
+        .path
+        .as_deref()
+        .map(Path::new)
+        .unwrap_or_else(|| Path::new(""));
+    workspace_files
+        .list_directory(&root, path)
+        .map_err(workspace_file_backend_error)
+}
+
 // =============================================================================
 // session
 // =============================================================================

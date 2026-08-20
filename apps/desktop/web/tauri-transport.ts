@@ -62,6 +62,8 @@ const tauriCommands = {
   listWorkspaceDirectory: "list_workspace_directory",
   readWorkspaceFile: "read_workspace_file",
   searchWorkspace: "search_workspace",
+  listProjectDirectory: "list_project_directory",
+  searchProject: "search_project",
 
   // =============================================================================
   // spec

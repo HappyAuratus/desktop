@@ -12,6 +12,7 @@ import { useTranslation } from "react-i18next";
 
 interface ChatViewProps {
   taskId?: string;
+  projectId?: string;
   turns: ChatTurn[];
   /** Model switches to draw between the turns they happened after. */
   modelChanges?: ChatModelChange[];
@@ -78,6 +79,7 @@ const SLIDE_EASING = "cubic-bezier(0.32, 0.72, 0, 1)";
  */
 export function ChatView({
   taskId,
+  projectId,
   turns,
   modelChanges,
   userName,
@@ -266,6 +268,7 @@ export function ChatView({
               <TooltipTrigger render={<div />}>
                 <Composer
                   taskId={taskId}
+                  projectId={projectId}
                   autoFocus
                   onSend={onSend}
                   onEmptySubmit={onEmptySubmit}

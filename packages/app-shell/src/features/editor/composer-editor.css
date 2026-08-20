@@ -346,16 +346,63 @@
   box-shadow: 0 0 0 2px var(--ring);
 }
 
-.composer-mention {
-  /* Trial: design-system OLED phosphor (Neon Green #39FF14), not Ora chart-2. */
-  --composer-oled-green: oklch(0.45 0.16 142);
-  display: inline;
-  margin: 0 0.06em;
-  border-radius: 0.2rem;
-  background: color-mix(in oklch, var(--composer-oled-green) 12%, transparent);
-  padding: 0.02em 0.28em;
+/*
+ * Cursor-style @ file mention: type icon keeps its own hue; basename uses a
+ * bright teal ink — higher L / soft chroma for a clear, airy feel.
+ */
+.composer-editor-shell .composer-file-ref {
+  --composer-file-ink: oklch(0.55 0.09 195);
+  display: inline-flex;
+  max-width: 14rem;
+  align-items: center;
+  gap: 0.28em;
+  margin: 0 0.08em;
   vertical-align: baseline;
-  color: var(--composer-oled-green);
+  color: var(--composer-file-ink);
+  font-size: inherit;
+  font-weight: 500;
+  line-height: inherit;
+  cursor: default;
+  user-select: none;
+}
+
+.dark .composer-editor-shell .composer-file-ref {
+  /* Bright aqua on dark chrome; stays readable without neon glow. */
+  --composer-file-ink: oklch(0.82 0.1 195);
+}
+
+.composer-editor-shell .composer-file-ref-icon {
+  width: 0.95em;
+  height: 0.95em;
+  flex-shrink: 0;
+}
+
+.composer-editor-shell .composer-file-ref-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.composer-editor-shell .composer-file-ref.ProseMirror-selectednode {
+  border-radius: 0.2rem;
+  outline: 2px solid
+    color-mix(in oklch, var(--composer-file-ink) 45%, var(--ring));
+  outline-offset: 1px;
+}
+
+/*
+ * Skill / slash mentions: bright mint wash + clear green ink (Cursor $chip).
+ */
+.composer-mention {
+  --composer-skill-ink: oklch(0.48 0.12 155);
+  --composer-skill-wash: oklch(0.96 0.045 155);
+  display: inline;
+  margin: 0 0.08em;
+  border-radius: 9999px;
+  background: var(--composer-skill-wash);
+  padding: 0.08em 0.42em;
+  vertical-align: baseline;
+  color: var(--composer-skill-ink);
   font-weight: 500;
   text-shadow: none;
   box-decoration-break: clone;
@@ -364,14 +411,15 @@
 }
 
 .dark .composer-mention {
-  --composer-oled-green: oklch(0.86 0.24 142);
-  background: color-mix(in oklch, var(--composer-oled-green) 14%, transparent);
-  text-shadow: 0 0 0.55em
-    color-mix(in oklch, var(--composer-oled-green) 55%, transparent);
+  --composer-skill-ink: oklch(0.88 0.11 155);
+  --composer-skill-wash: oklch(0.34 0.055 155);
+  text-shadow: none;
 }
 
 .composer-mention.ProseMirror-selectednode {
-  background: color-mix(in oklch, var(--composer-oled-green) 22%, transparent);
+  outline: 2px solid
+    color-mix(in oklch, var(--composer-skill-ink) 40%, var(--ring));
+  outline-offset: 1px;
 }
 
 .composer-editor-shell .tiptap.is-editor-empty p.is-empty::before {

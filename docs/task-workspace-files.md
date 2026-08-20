@@ -36,6 +36,12 @@ The layers remain narrow:
   rejects rooted paths. Desktop File Manager reveals the OS-absolute path
   in the system file manager instead of launching Cursor.
 
+## Project checkout files (draft / no task)
+
+When a chat has a selected project but no task yet (blank or draft composer), `@` file mentions resolve against the **project checkout root** instead of a task worktree. The root is the same `resolve_project_cwd` path used for warm sessions and for tasks created in `project_root` mode on first send.
+
+These operations reuse the same `ora-fs` list/search bounds and relative-path rules as the task APIs. They deliberately omit read/watch: the Files panel remains task-scoped. When both `taskId` and `projectId` are present, the composer prefers the task worktree so linked-worktree checkouts stay authoritative.
+
 ## Desktop operations
 
 | Operation                | Request                            | Delivery                        |
@@ -44,6 +50,8 @@ The layers remain narrow:
 | `readWorkspaceFile`      | `taskId`, relative `path`          | `read_workspace_file`           |
 | `searchWorkspace`        | task id and bounded search query   | `search_workspace`              |
 | `watchWorkspace`         | `taskId`                           | `stream_contract` Tauri channel |
+| `listProjectDirectory`   | `projectId`, optional relative `path` | `list_project_directory`     |
+| `searchProject`          | project id and bounded search query | `search_project`               |
 
 All returned paths are slash-separated and relative to the resolved task
 workspace. `watchWorkspace` emits `data`, `error`, and `end` frames. Its error

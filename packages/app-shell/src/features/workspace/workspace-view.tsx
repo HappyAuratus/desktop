@@ -677,6 +677,7 @@ export function WorkspaceView({ userName }: WorkspaceViewProps) {
         <WorkspaceReviewLayout context={reviewContext}>
           <ChatView
             taskId={task?.id}
+            projectId={project?.id}
             turns={turns}
             modelChanges={conversation?.modelChanges}
             userName={userName}

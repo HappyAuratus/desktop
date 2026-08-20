@@ -417,10 +417,12 @@ fn contract_module_for_type(type_name: &str) -> &'static str {
         // fileSystem
         "ListWorkspaceDirectoryRequest"
         | "ListWorkspaceDirectoryResponse"
+        | "ListProjectDirectoryRequest"
         | "ReadWorkspaceFileRequest"
         | "ReadWorkspaceFileResponse"
         | "SearchWorkspaceRequest"
         | "SearchWorkspaceResponse"
+        | "SearchProjectRequest"
         | "WatchWorkspaceRequest"
         | "WorkspaceFileEventBatch" => "file-system",
         // spec

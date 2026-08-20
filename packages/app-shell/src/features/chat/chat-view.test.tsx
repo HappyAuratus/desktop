@@ -41,6 +41,7 @@ import {
   reparkDraftComposerContent,
   resetComposerSendAdoptionsForTests,
 } from "../../state/session-drafts";
+import { FILE_MENTION_DEBOUNCE_MS } from "./use-composer-file-mentions";
 
 function composerText(element: HTMLElement): string {
   return element.dataset.composerText ?? "";
@@ -349,6 +350,33 @@ describe("Composer", () => {
     expect(screen.getByRole("button", { name: "显示另外 7 项" })).toBeVisible();
   });
 
+  it("does not scroll the action menu when the pointer retargets a row", async () => {
+    const user = userEvent.setup();
+    const scrollIntoView = vi.fn();
+    Object.defineProperty(HTMLElement.prototype, "scrollIntoView", {
+      configurable: true,
+      value: scrollIntoView,
+    });
+    renderWithI18n(
+      <Composer
+        onSend={() => {}}
+        isResponding={false}
+        availableCommands={Array.from({ length: 12 }, (_, index) => ({
+          name: `command-${index}`,
+          description: `Command ${index}`,
+        }))}
+      />,
+    );
+
+    await user.type(screen.getByRole("textbox"), "/");
+    const options = await screen.findAllByRole("option");
+    scrollIntoView.mockClear();
+    await user.hover(options[3]!);
+
+    expect(options[3]).toHaveAttribute("aria-selected", "true");
+    expect(scrollIntoView).not.toHaveBeenCalled();
+  });
+
   it("opens the same grouped palette from plus and inserts a selected skill", async () => {
     const user = userEvent.setup();
     renderWithI18n(
@@ -474,7 +502,7 @@ describe("Composer", () => {
         .getState()
         .selectSession("session-b", "task-1", "project-1");
     });
-    expect(textarea).toHaveValue("");
+    expect(composerText(textarea)).toBe("");
 
     await user.type(textarea, "on B");
     act(() => {
@@ -482,14 +510,14 @@ describe("Composer", () => {
         .getState()
         .selectSession("session-a", "task-1", "project-1");
     });
-    expect(textarea).toHaveValue("parked on A");
+    expect(composerText(textarea)).toBe("parked on A");
 
     act(() => {
       useWorkspaceSelectionStore
         .getState()
         .selectSession("session-b", "task-1", "project-1");
     });
-    expect(textarea).toHaveValue("on B");
+    expect(composerText(textarea)).toBe("on B");
   });
 
   it("hydrates independently when switching between task-only surfaces", async () => {
@@ -504,13 +532,13 @@ describe("Composer", () => {
     act(() => {
       useWorkspaceSelectionStore.getState().selectTask("task-b", "project-1");
     });
-    expect(textarea).toHaveValue("");
+    expect(composerText(textarea)).toBe("");
     await user.type(textarea, "task B");
 
     act(() => {
       useWorkspaceSelectionStore.getState().selectTask("task-a", "project-1");
     });
-    expect(textarea).toHaveValue("parked on task A");
+    expect(composerText(textarea)).toBe("parked on task A");
   });
 
   it("keeps typed draft text when leaving and returning to a draft", async () => {
@@ -534,7 +562,7 @@ describe("Composer", () => {
         .getState()
         .selectSession("session-a", "task-1", "project-1");
     });
-    expect(textarea).toHaveValue("");
+    expect(composerText(textarea)).toBe("");
     expect(
       useDraftSessionsStore.getState().drafts.find((d) => d.id === draftId)
         ?.text,
@@ -545,7 +573,7 @@ describe("Composer", () => {
         .getState()
         .selectDraft(draftId, null, "project-1");
     });
-    expect(textarea).toHaveValue("draft note");
+    expect(composerText(textarea)).toBe("draft note");
   });
 
   it("clears parked input after send so a later return stays empty", async () => {
@@ -572,7 +600,7 @@ describe("Composer", () => {
         .getState()
         .selectSession("session-a", "task-1", "project-1");
     });
-    expect(textarea).toHaveValue("");
+    expect(composerText(textarea)).toBe("");
   });
 
   it("restores composer text when onSend rejects on the same surface", async () => {
@@ -593,7 +621,7 @@ describe("Composer", () => {
     await user.type(textarea, "try again{Enter}");
 
     expect(onSend).toHaveBeenCalledWith("try again");
-    await waitFor(() => expect(textarea).toHaveValue("try again"));
+    await waitFor(() => expect(composerText(textarea)).toBe("try again"));
     expect(
       useComposerInputStore.getState().byKey[`draft:${draftId}`]?.text,
     ).toBe("try again");
@@ -614,7 +642,7 @@ describe("Composer", () => {
     await user.type(textarea, "restore me{Enter}");
 
     expect(onSend).toHaveBeenCalledWith("restore me");
-    await waitFor(() => expect(textarea).toHaveValue("restore me"));
+    await waitFor(() => expect(composerText(textarea)).toBe("restore me"));
   });
 
   it("restores composer text when onSend abandons without a hard failure", async () => {
@@ -634,7 +662,7 @@ describe("Composer", () => {
     const textarea = screen.getByRole("textbox");
     await user.type(textarea, "stopped{Enter}");
 
-    await waitFor(() => expect(textarea).toHaveValue("stopped"));
+    await waitFor(() => expect(composerText(textarea)).toBe("stopped"));
   });
 
   it("does not paint an abandoned send onto a different conversation", async () => {
@@ -674,7 +702,7 @@ describe("Composer", () => {
         .getState()
         .selectDraft(draftB, null, "project-1");
     });
-    await waitFor(() => expect(textarea).toHaveValue(""));
+    await waitFor(() => expect(composerText(textarea)).toBe(""));
 
     // Mirror workspace-view's abandon repark onto the original draft only.
     await act(async () => {
@@ -693,7 +721,7 @@ describe("Composer", () => {
     expect(
       useComposerInputStore.getState().byKey[`draft:${draftA}`]?.text,
     ).toBe("abandoned");
-    expect(textarea).toHaveValue("");
+    expect(composerText(textarea)).toBe("");
     expect(
       useComposerInputStore.getState().byKey[`draft:${draftB}`],
     ).toBeUndefined();
@@ -727,7 +755,7 @@ describe("Composer", () => {
 
     await user.type(textarea, "second{Enter}");
     expect(onSend).toHaveBeenCalledTimes(2);
-    expect(textarea).toHaveValue("");
+    expect(composerText(textarea)).toBe("");
 
     // First send abandons after the second submit already cleared the composer.
     await act(async () => {
@@ -738,7 +766,7 @@ describe("Composer", () => {
       );
       await Promise.resolve();
     });
-    expect(textarea).toHaveValue("");
+    expect(composerText(textarea)).toBe("");
 
     // Second send still owns the surface and can restore its own text.
     await act(async () => {
@@ -749,7 +777,7 @@ describe("Composer", () => {
       );
       await Promise.resolve();
     });
-    expect(textarea).toHaveValue("second");
+    expect(composerText(textarea)).toBe("second");
   });
 
   it("does not paint a hard-fail restore onto an unrelated conversation", async () => {
@@ -784,7 +812,7 @@ describe("Composer", () => {
         .getState()
         .selectSession("session-other", "task-1", "project-1");
     });
-    await waitFor(() => expect(textarea).toHaveValue(""));
+    await waitFor(() => expect(composerText(textarea)).toBe(""));
 
     await act(async () => {
       rejectSend(new Error("attach failed"));
@@ -794,7 +822,7 @@ describe("Composer", () => {
       );
       await Promise.resolve();
     });
-    expect(textarea).toHaveValue("");
+    expect(composerText(textarea)).toBe("");
     expect(
       useComposerInputStore.getState().byKey["session-other"],
     ).toBeUndefined();
@@ -830,7 +858,7 @@ describe("Composer", () => {
         .getState()
         .selectSession("warm-adopted", "task-1", "project-1");
     });
-    await waitFor(() => expect(textarea).toHaveValue(""));
+    await waitFor(() => expect(composerText(textarea)).toBe(""));
 
     await act(async () => {
       rejectSend(new Error("attach failed"));
@@ -840,7 +868,351 @@ describe("Composer", () => {
       );
       await Promise.resolve();
     });
-    expect(textarea).toHaveValue("keep on warm");
+    expect(composerText(textarea)).toBe("keep on warm");
+  });
+
+  it("mentions a workspace file with @ and inserts a path chip", async () => {
+    const user = userEvent.setup();
+    const client = createMockClient(createMockClientState());
+    client.fileSystem.searchWorkspace = async ({ query }) => {
+      const paths = ["src/app.ts", "src/lib/util.ts", "README.md"].filter(
+        (path) => path.toLowerCase().includes(query.toLowerCase()),
+      );
+      return {
+        results: paths.map((path) => ({ kind: "file" as const, path })),
+        truncated: false,
+      };
+    };
+    client.fileSystem.listWorkspaceDirectory = async () => ({
+      path: "",
+      entries: [
+        {
+          name: "README.md",
+          path: "README.md",
+          kind: "file",
+          isSymbolicLink: false,
+        },
+      ],
+    });
+
+    const queryClient = createTestQueryClient();
+    const chatStore = createChatStore(client.session);
+    const wrapper = ({ children }: { children: ReactNode }) =>
+      createElement(
+        QueryClientProvider,
+        { client: queryClient },
+        createElement(
+          ContractsClientContext.Provider,
+          { value: client },
+          createElement(
+            ChatStoreContext.Provider,
+            { value: chatStore },
+            createElement(AppI18nProvider, null, children),
+          ),
+        ),
+      );
+    render(<Composer taskId="task-1" onSend={vi.fn()} isResponding={false} />, {
+      wrapper,
+    });
+
+    const textarea = screen.getByRole("textbox");
+    await user.type(textarea, "@app");
+    expect(
+      await screen.findByRole("listbox", { name: "快捷操作" }),
+    ).toBeVisible();
+    expect(
+      await screen.findByRole("option", { name: /app\.ts/ }),
+    ).toBeVisible();
+    expect(screen.queryByText("Plugins")).toBeNull();
+
+    await user.click(screen.getByRole("option", { name: /app\.ts/ }));
+
+    expect(composerText(textarea)).toContain("`src/app.ts`");
+    expect(
+      textarea.querySelector("[data-composer-file='src/app.ts']"),
+    ).not.toBeNull();
+    expect(screen.queryByRole("listbox")).not.toBeInTheDocument();
+  });
+
+  it("keeps plugins on the plus menu after @ became file mentions", async () => {
+    const user = userEvent.setup();
+    renderWithI18n(<Composer onSend={vi.fn()} isResponding={false} />);
+
+    await user.type(screen.getByRole("textbox"), "@");
+    expect(
+      await screen.findByRole("listbox", { name: "快捷操作" }),
+    ).toBeVisible();
+    expect(screen.queryByText("Plugins")).toBeNull();
+    expect(
+      screen.getByText(
+        /选择项目后即可用 @ 引用文件或文件夹|Select a project to mention files or folders/,
+      ),
+    ).toBeVisible();
+
+    await user.keyboard("{Escape}");
+    await user.click(screen.getByRole("button", { name: "打开快捷操作" }));
+    expect(screen.getByText("Actions")).toBeVisible();
+  });
+
+  it("mentions a project file with @ when no task is selected yet", async () => {
+    const user = userEvent.setup();
+    const client = createMockClient(createMockClientState());
+    client.fileSystem.listProjectDirectory = async () => ({
+      path: "",
+      entries: [
+        {
+          name: "README.md",
+          path: "README.md",
+          kind: "file",
+          isSymbolicLink: false,
+        },
+      ],
+    });
+    client.fileSystem.searchProject = async ({ query }) => ({
+      results: ["src/draft.ts"]
+        .filter((path) => path.toLowerCase().includes(query.toLowerCase()))
+        .map((path) => ({ kind: "file" as const, path })),
+      truncated: false,
+    });
+
+    const queryClient = createTestQueryClient();
+    const chatStore = createChatStore(client.session);
+    const wrapper = ({ children }: { children: ReactNode }) =>
+      createElement(
+        QueryClientProvider,
+        { client: queryClient },
+        createElement(
+          ContractsClientContext.Provider,
+          { value: client },
+          createElement(
+            ChatStoreContext.Provider,
+            { value: chatStore },
+            createElement(AppI18nProvider, null, children),
+          ),
+        ),
+      );
+    render(
+      <Composer projectId="project-1" onSend={vi.fn()} isResponding={false} />,
+      { wrapper },
+    );
+
+    const textarea = screen.getByRole("textbox");
+    await user.type(textarea, "@draft");
+    await user.click(await screen.findByRole("option", { name: /draft\.ts/ }));
+
+    expect(composerText(textarea)).toContain("`src/draft.ts`");
+    expect(
+      textarea.querySelector("[data-composer-file='src/draft.ts']"),
+    ).not.toBeNull();
+  });
+
+  it("mentions a workspace folder with @ and inserts a path chip", async () => {
+    const user = userEvent.setup();
+    const client = createMockClient(createMockClientState());
+    client.fileSystem.listWorkspaceDirectory = async () => ({
+      path: "",
+      entries: [
+        {
+          name: "src",
+          path: "src",
+          kind: "directory",
+          isSymbolicLink: false,
+        },
+        {
+          name: "README.md",
+          path: "README.md",
+          kind: "file",
+          isSymbolicLink: false,
+        },
+      ],
+    });
+    client.fileSystem.searchWorkspace = async ({ query }) => ({
+      results: ["src/app.ts"]
+        .filter((path) => path.toLowerCase().includes(query.toLowerCase()))
+        .map((path) => ({ kind: "file" as const, path })),
+      truncated: false,
+    });
+
+    const queryClient = createTestQueryClient();
+    const chatStore = createChatStore(client.session);
+    const wrapper = ({ children }: { children: ReactNode }) =>
+      createElement(
+        QueryClientProvider,
+        { client: queryClient },
+        createElement(
+          ContractsClientContext.Provider,
+          { value: client },
+          createElement(
+            ChatStoreContext.Provider,
+            { value: chatStore },
+            createElement(AppI18nProvider, null, children),
+          ),
+        ),
+      );
+    render(<Composer taskId="task-1" onSend={vi.fn()} isResponding={false} />, {
+      wrapper,
+    });
+
+    const textarea = screen.getByRole("textbox");
+    await user.type(textarea, "@");
+    const folderOption = await screen.findByRole("option", { name: /^src/ });
+    expect(folderOption).toBeVisible();
+    await user.click(folderOption);
+
+    expect(composerText(textarea)).toContain("`src`");
+    expect(textarea.querySelector("[data-composer-file='src']")).not.toBeNull();
+  });
+
+  it("keeps root file hits during debounce but disables selection until search settles", async () => {
+    const user = userEvent.setup();
+    const client = createMockClient(createMockClientState());
+    client.fileSystem.listWorkspaceDirectory = async () => ({
+      path: "",
+      entries: [
+        {
+          name: "README.md",
+          path: "README.md",
+          kind: "file",
+          isSymbolicLink: false,
+        },
+      ],
+    });
+    let releaseSearch: (value: {
+      results: Array<{ kind: "file"; path: string }>;
+      truncated: boolean;
+    }) => void = () => {};
+    client.fileSystem.searchWorkspace = () =>
+      new Promise((resolve) => {
+        releaseSearch = resolve;
+      });
+
+    const queryClient = createTestQueryClient();
+    const chatStore = createChatStore(client.session);
+    const wrapper = ({ children }: { children: ReactNode }) =>
+      createElement(
+        QueryClientProvider,
+        { client: queryClient },
+        createElement(
+          ContractsClientContext.Provider,
+          { value: client },
+          createElement(
+            ChatStoreContext.Provider,
+            { value: chatStore },
+            createElement(AppI18nProvider, null, children),
+          ),
+        ),
+      );
+    render(<Composer taskId="task-1" onSend={vi.fn()} isResponding={false} />, {
+      wrapper,
+    });
+
+    const textarea = screen.getByRole("textbox");
+    await user.type(textarea, "@");
+    const rootOption = await screen.findByRole("option", {
+      name: /README\.md/,
+    });
+    expect(rootOption).toBeVisible();
+    expect(rootOption).toBeEnabled();
+
+    await user.type(textarea, "app");
+    expect(
+      await screen.findByRole("option", { name: /README\.md/ }),
+    ).toHaveAttribute("aria-disabled", "true");
+    expect(screen.queryByText(/正在搜索文件|Searching files/)).toBeNull();
+
+    await act(async () => {
+      await new Promise((resolve) =>
+        setTimeout(resolve, FILE_MENTION_DEBOUNCE_MS + 40),
+      );
+    });
+    // Fetch keeps prior hits visible (locked) with searching chrome above.
+    expect(screen.getByRole("option", { name: /README\.md/ })).toHaveAttribute(
+      "aria-disabled",
+      "true",
+    );
+    expect(screen.getByText(/正在搜索文件|Searching files/)).toBeVisible();
+
+    await act(async () => {
+      releaseSearch({
+        results: [{ kind: "file", path: "src/app.ts" }],
+        truncated: false,
+      });
+    });
+    const appOption = await screen.findByRole("option", { name: /app\.ts/ });
+    expect(appOption).toHaveAttribute("aria-disabled", "false");
+  });
+
+  it("shows an error when workspace file search fails", async () => {
+    const user = userEvent.setup();
+    const client = createMockClient(createMockClientState());
+    client.fileSystem.searchWorkspace = async () => {
+      throw new Error("search failed");
+    };
+
+    const queryClient = createTestQueryClient();
+    const chatStore = createChatStore(client.session);
+    const wrapper = ({ children }: { children: ReactNode }) =>
+      createElement(
+        QueryClientProvider,
+        { client: queryClient },
+        createElement(
+          ContractsClientContext.Provider,
+          { value: client },
+          createElement(
+            ChatStoreContext.Provider,
+            { value: chatStore },
+            createElement(AppI18nProvider, null, children),
+          ),
+        ),
+      );
+    render(<Composer taskId="task-1" onSend={vi.fn()} isResponding={false} />, {
+      wrapper,
+    });
+
+    await user.type(screen.getByRole("textbox"), "@app");
+    expect(
+      await screen.findByText(
+        /无法搜索工作区文件|Could not search workspace files/,
+      ),
+    ).toBeVisible();
+    expect(screen.queryByRole("option")).toBeNull();
+  });
+
+  it("keeps typing after an @ file chip inserted mid-prompt", async () => {
+    const user = userEvent.setup();
+    const client = createMockClient(createMockClientState());
+    client.fileSystem.searchWorkspace = async () => ({
+      results: [{ kind: "file", path: "src/mid.ts" }],
+      truncated: false,
+    });
+
+    const queryClient = createTestQueryClient();
+    const chatStore = createChatStore(client.session);
+    const wrapper = ({ children }: { children: ReactNode }) =>
+      createElement(
+        QueryClientProvider,
+        { client: queryClient },
+        createElement(
+          ContractsClientContext.Provider,
+          { value: client },
+          createElement(
+            ChatStoreContext.Provider,
+            { value: chatStore },
+            createElement(AppI18nProvider, null, children),
+          ),
+        ),
+      );
+    render(<Composer taskId="task-1" onSend={vi.fn()} isResponding={false} />, {
+      wrapper,
+    });
+
+    const textarea = screen.getByRole("textbox");
+    await user.type(textarea, "check @mid");
+    await user.click(await screen.findByRole("option", { name: /mid\.ts/ }));
+    await user.keyboard("please");
+
+    // Chip serialization already inserts a trailing space after the atom.
+    expect(composerText(textarea)).toBe("check `src/mid.ts` please");
   });
 });
 
