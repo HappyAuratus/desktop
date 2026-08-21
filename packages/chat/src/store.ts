@@ -248,7 +248,16 @@ export function createChatStore(
         const preview = staged.preview(previous.configOptions);
         if (preview.isResponding) {
           updateConversation(set, oraSessionId, () => preview);
+          return;
         }
+        // Historical turns look open between their first chunk and turn_ended.
+        // Always clear a previously published live flag when the turn settles;
+        // otherwise the sidebar keeps the working icon until the whole load ends.
+        updateConversation(set, oraSessionId, (conversation) =>
+          conversation.isResponding
+            ? { ...conversation, isResponding: false }
+            : conversation,
+        );
       };
 
       /** Matches live prompt rendering by limiting text-only replay updates to one per frame. */

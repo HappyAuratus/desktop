@@ -24,7 +24,7 @@ interface WorkspaceReviewFilesPanelProps {
   fileRequest?: WorkspaceFileRequest;
 }
 
-/** Hosts task file browsing and the read-only Spec catalog inside one review panel. */
+/** Hosts project/task file browsing and the read-only Spec catalog in one review panel. */
 export function WorkspaceReviewFilesPanel({
   projectId,
   taskId,
@@ -33,10 +33,7 @@ export function WorkspaceReviewFilesPanel({
 }: WorkspaceReviewFilesPanelProps) {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
-  const specsOnly = taskId === undefined;
-  const [surface, setSurface] = useState<FilesSurface>(
-    specsOnly ? "specs" : "explorer",
-  );
+  const [surface, setSurface] = useState<FilesSurface>("explorer");
   const [appliedFileRequestId, setAppliedFileRequestId] = useState<
     number | null
   >(null);
@@ -45,7 +42,6 @@ export function WorkspaceReviewFilesPanel({
 
   if (
     fileRequest !== undefined &&
-    taskId !== undefined &&
     fileRequest.requestId !== appliedFileRequestId
   ) {
     setAppliedFileRequestId(fileRequest.requestId);
@@ -54,35 +50,36 @@ export function WorkspaceReviewFilesPanel({
 
   const refreshSpecs = () => void specsRef.current?.refresh();
   const refreshFiles = () => {
-    if (taskId === undefined) return;
+    if (taskId !== undefined) {
+      void queryClient.invalidateQueries({
+        queryKey: queryKeys.workspaceFiles(taskId),
+      });
+      return;
+    }
     void queryClient.invalidateQueries({
-      queryKey: queryKeys.workspaceFiles(taskId),
+      queryKey: queryKeys.projectFiles(projectId),
     });
   };
 
   return (
     <section className="flex h-full min-h-0 flex-col bg-background">
       <header className="flex h-12 shrink-0 items-center gap-1 border-b border-border px-3">
-        {!specsOnly && (
-          <>
-            <Button
-              size="sm"
-              variant={surface === "explorer" ? "secondary" : "ghost"}
-              onClick={() => setSurface("explorer")}
-            >
-              <IconFolderOpen />
-              {t("files.explorer")}
-            </Button>
-            <Button
-              size="sm"
-              variant={surface === "search" ? "secondary" : "ghost"}
-              onClick={() => setSurface("search")}
-            >
-              <IconSearch />
-              {t("files.search")}
-            </Button>
-          </>
-        )}
+        <Button
+          size="sm"
+          variant={surface === "explorer" ? "secondary" : "ghost"}
+          onClick={() => setSurface("explorer")}
+        >
+          <IconFolderOpen />
+          {t("files.explorer")}
+        </Button>
+        <Button
+          size="sm"
+          variant={surface === "search" ? "secondary" : "ghost"}
+          onClick={() => setSurface("search")}
+        >
+          <IconSearch />
+          {t("files.search")}
+        </Button>
         <Button
           size="sm"
           variant={surface === "specs" ? "secondary" : "ghost"}
@@ -131,7 +128,8 @@ export function WorkspaceReviewFilesPanel({
           />
         ) : (
           <WorkspaceFilesView
-            taskId={taskId!}
+            projectId={projectId}
+            taskId={taskId}
             surface={surface}
             hideHeader
             fileRequest={fileRequest}

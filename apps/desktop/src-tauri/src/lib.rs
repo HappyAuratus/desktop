@@ -74,6 +74,7 @@ pub fn run() {
             commands::read_workspace_file,
             commands::search_workspace,
             commands::list_project_directory,
+            commands::read_project_file,
             commands::search_project,
             spec_commands::get_spec_catalog,
             spec_commands::read_spec,

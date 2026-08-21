@@ -411,11 +411,13 @@ fn contract_module_for_type(type_name: &str) -> &'static str {
         | "ListWorkspaceDirectoryResponse"
         | "ListProjectDirectoryRequest"
         | "ReadWorkspaceFileRequest"
+        | "ReadProjectFileRequest"
         | "ReadWorkspaceFileResponse"
         | "SearchWorkspaceRequest"
         | "SearchWorkspaceResponse"
         | "SearchProjectRequest"
         | "WatchWorkspaceRequest"
+        | "WatchProjectRequest"
         | "WorkspaceFileEventBatch" => "file-system",
         // spec
         "GetSpecCatalogRequest"

@@ -155,6 +155,8 @@ async function renderMessageList(
     openDiff?: (path: string, line?: number) => void;
     openWorkspaceFile?: (path: string, line?: number, column?: number) => void;
     workspaceRoot?: string;
+    taskId?: string;
+    projectId?: string;
   } = {},
 ) {
   const queryClient = new QueryClient({
@@ -164,6 +166,17 @@ async function renderMessageList(
   if (options.workspaceRoot) {
     mockClient.task.getWorkspace = vi.fn(async () => ({
       workspace: { rootPath: options.workspaceRoot!, branchName: "main" },
+    }));
+  }
+  if (options.projectId !== undefined && options.taskId === undefined) {
+    mockClient.project.list = vi.fn(async () => ({
+      projects: [
+        {
+          id: options.projectId!,
+          name: "Ora",
+          rootPath: options.workspaceRoot ?? "C:/repo",
+        },
+      ],
     }));
   }
   const view = render(
@@ -176,7 +189,10 @@ async function renderMessageList(
               onOpenWorkspaceFile={options.openWorkspaceFile ?? vi.fn()}
             >
               <MessageList
-                taskId="task-1"
+                taskId={
+                  options.taskId ?? (options.projectId ? undefined : "task-1")
+                }
+                projectId={options.projectId}
                 turns={turns}
                 userName="Ada"
                 isResponding={false}
@@ -219,6 +235,7 @@ function renderMissingFilesPreview(path: string) {
     );
   return render(
     <WorkspaceFilesView
+      projectId="project-1"
       taskId="task-1"
       hideHeader
       fileRequest={{ path, requestId: 1 }}
@@ -274,6 +291,32 @@ describe("chat link usage scenarios", () => {
 
       await user.click(buttons[1]!);
       expect(openDiff).toHaveBeenCalledWith("src/main.rs", undefined);
+    });
+    it("opens a read-only mention in Files for a project draft without a task", async () => {
+      const user = userEvent.setup();
+      const openDiff = vi.fn();
+      const openWorkspaceFile = vi.fn();
+      await renderMessageList(
+        [turn("turn-1", [readTool("src/lib.rs")], "See `src/lib.rs`")],
+        {
+          openDiff,
+          openWorkspaceFile,
+          projectId: "project-1",
+          workspaceRoot: "C:/repo",
+        },
+      );
+
+      await user.click(
+        screen.getByRole("button", {
+          name: /打开文件 src\/lib\.rs|Open file src\/lib\.rs/,
+        }),
+      );
+      expect(openWorkspaceFile).toHaveBeenCalledWith(
+        "src/lib.rs",
+        undefined,
+        undefined,
+      );
+      expect(openDiff).not.toHaveBeenCalled();
     });
   });
 

@@ -25,7 +25,8 @@ type TauriStreamOperation =
   | "promptSession"
   | "watchAppEvents"
   | "watchSpecs"
-  | "watchWorkspace";
+  | "watchWorkspace"
+  | "watchProject";
 type SupportedTauriOperation = Exclude<EndpointOperation, TauriStreamOperation>;
 
 const tauriCommands = {
@@ -59,6 +60,7 @@ const tauriCommands = {
   readWorkspaceFile: "read_workspace_file",
   searchWorkspace: "search_workspace",
   listProjectDirectory: "list_project_directory",
+  readProjectFile: "read_project_file",
   searchProject: "search_project",
 
   // =============================================================================
@@ -237,7 +239,8 @@ function isTauriStreamOperation(
     operation === "promptSession" ||
     operation === "watchAppEvents" ||
     operation === "watchSpecs" ||
-    operation === "watchWorkspace"
+    operation === "watchWorkspace" ||
+    operation === "watchProject"
   );
 }
 

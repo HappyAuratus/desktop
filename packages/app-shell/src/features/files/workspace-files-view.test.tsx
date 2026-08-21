@@ -39,6 +39,7 @@ function renderMissingFile() {
     );
   return render(
     <WorkspaceFilesView
+      projectId="project-1"
       taskId="f06fdb43-1297-4ba3-9143-a7a95ee85b0b"
       hideHeader
       fileRequest={{ path: "crates/acp/src/lib.rs", requestId: 1 }}
@@ -86,6 +87,7 @@ function renderRequestedFile(path: string, line?: number) {
     );
   const view = render(
     <WorkspaceFilesView
+      projectId="project-1"
       taskId="task-1"
       hideHeader
       fileRequest={{
@@ -108,10 +110,13 @@ describe("WorkspaceFilesView file requests", () => {
     );
 
     expect(await screen.findByText("src/main.rs:2:1")).toBeInTheDocument();
-    expect(readWorkspaceFile).toHaveBeenCalledWith({
-      taskId: "task-1",
-      path: "src/main.rs",
-    });
+    expect(readWorkspaceFile).toHaveBeenCalledWith(
+      {
+        taskId: "task-1",
+        path: "src/main.rs",
+      },
+      expect.objectContaining({ signal: expect.any(AbortSignal) }),
+    );
     await waitFor(() => {
       expect(container.querySelector('[data-line-number="2"]')).toHaveAttribute(
         "aria-current",
@@ -159,6 +164,7 @@ describe("WorkspaceFilesView file requests", () => {
       );
     const { rerender } = render(
       <WorkspaceFilesView
+        projectId="project-1"
         taskId="task-1"
         hideHeader
         fileRequest={{ path: "src/main.rs", requestId: 1 }}
@@ -171,6 +177,7 @@ describe("WorkspaceFilesView file requests", () => {
     missing = true;
     rerender(
       <WorkspaceFilesView
+        projectId="project-1"
         taskId="task-1"
         hideHeader
         fileRequest={{ path: "src/main.rs", requestId: 2 }}
@@ -180,5 +187,138 @@ describe("WorkspaceFilesView file requests", () => {
       await screen.findByText(/所选路径不存在|The selected path was not found/),
     ).toBeInTheDocument();
     expect(document.body.textContent).not.toMatch(/fn\s*main/);
+  });
+});
+
+describe("WorkspaceFilesView project scope", () => {
+  it("reads from the project checkout when no task is selected", async () => {
+    const client = createMockClient(createMockClientState());
+    const readProjectFile = vi.fn(async (request: { path: string }) => ({
+      path: request.path,
+      content: "# Project\n",
+      version: "test",
+      sizeBytes: 10,
+    }));
+    client.fileSystem.readProjectFile = readProjectFile;
+    client.project.list = async () => ({
+      projects: [{ id: "project-1", name: "Ora", rootPath: "C:/repo" }],
+    });
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false, staleTime: 0 } },
+    });
+    const wrapper = ({ children }: { children: ReactNode }) =>
+      createElement(
+        QueryClientProvider,
+        { client: queryClient },
+        createElement(
+          ContractsClientContext.Provider,
+          { value: client },
+          createElement(AppI18nProvider, null, children),
+        ),
+      );
+
+    render(
+      <WorkspaceFilesView
+        projectId="project-1"
+        hideHeader
+        fileRequest={{ path: "README.md", requestId: 1 }}
+      />,
+      { wrapper },
+    );
+
+    expect(await screen.findByText("README.md")).toBeInTheDocument();
+    expect(readProjectFile).toHaveBeenCalledWith(
+      { projectId: "project-1", path: "README.md" },
+      expect.objectContaining({ signal: expect.any(AbortSignal) }),
+    );
+  });
+
+  it("opens a project watch stream when no task is selected", async () => {
+    const client = createMockClient(createMockClientState());
+    const watchProject = vi.fn(() =>
+      (async function* () {
+        yield* [];
+      })(),
+    );
+    client.fileSystem.watchProject = watchProject;
+    client.project.list = async () => ({
+      projects: [{ id: "project-1", name: "Ora", rootPath: "C:/repo" }],
+    });
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false, staleTime: 0 } },
+    });
+    const wrapper = ({ children }: { children: ReactNode }) =>
+      createElement(
+        QueryClientProvider,
+        { client: queryClient },
+        createElement(
+          ContractsClientContext.Provider,
+          { value: client },
+          createElement(AppI18nProvider, null, children),
+        ),
+      );
+
+    render(<WorkspaceFilesView projectId="project-1" hideHeader />, {
+      wrapper,
+    });
+
+    await waitFor(() => {
+      expect(watchProject).toHaveBeenCalledWith(
+        { projectId: "project-1" },
+        expect.objectContaining({ signal: expect.any(AbortSignal) }),
+      );
+    });
+  });
+
+  it("waits for the project root before stripping an absolute file request", async () => {
+    const client = createMockClient(createMockClientState());
+    let resolveProjects!: (value: {
+      projects: Array<{ id: string; name: string; rootPath: string }>;
+    }) => void;
+    const projectsPromise = new Promise<{
+      projects: Array<{ id: string; name: string; rootPath: string }>;
+    }>((resolve) => {
+      resolveProjects = resolve;
+    });
+    const readProjectFile = vi.fn(async (request: { path: string }) => ({
+      path: request.path,
+      content: "fn main() {}\n",
+      version: "test",
+      sizeBytes: 12,
+    }));
+    client.fileSystem.readProjectFile = readProjectFile;
+    client.project.list = () => projectsPromise;
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false, staleTime: 0 } },
+    });
+    const wrapper = ({ children }: { children: ReactNode }) =>
+      createElement(
+        QueryClientProvider,
+        { client: queryClient },
+        createElement(
+          ContractsClientContext.Provider,
+          { value: client },
+          createElement(AppI18nProvider, null, children),
+        ),
+      );
+
+    render(
+      <WorkspaceFilesView
+        projectId="project-1"
+        hideHeader
+        fileRequest={{ path: "C:/repo/src/main.rs", requestId: 1 }}
+      />,
+      { wrapper },
+    );
+
+    expect(readProjectFile).not.toHaveBeenCalled();
+    resolveProjects({
+      projects: [{ id: "project-1", name: "Ora", rootPath: "C:/repo" }],
+    });
+    expect(await screen.findByText("src/main.rs")).toBeInTheDocument();
+    expect(readProjectFile).toHaveBeenCalledWith(
+      { projectId: "project-1", path: "src/main.rs" },
+      expect.objectContaining({ signal: expect.any(AbortSignal) }),
+    );
   });
 });

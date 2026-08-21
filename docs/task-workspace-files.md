@@ -38,38 +38,41 @@ The layers remain narrow:
 
 ## Project checkout files (draft / no task)
 
-When a chat has a selected project but no task yet (blank or draft composer), `@` file mentions resolve against the **project checkout root** instead of a task worktree. The root is the same `resolve_project_cwd` path used for warm sessions and for tasks created in `project_root` mode on first send.
+When a chat has a selected project but no task yet (blank or draft composer), Files panel Explorer/Search and `@` file mentions resolve against the **project checkout root** instead of a task worktree. The root is the same `resolve_project_cwd` path used for warm sessions and for tasks created in `project_root` mode on first send.
 
-These operations reuse the same `ora-fs` list/search bounds and relative-path rules as the task APIs. They deliberately omit read/watch: the Files panel remains task-scoped. When both `taskId` and `projectId` are present, the composer prefers the task worktree so linked-worktree checkouts stay authoritative.
+These operations reuse the same `ora-fs` list/search/read bounds and relative-path rules as the task APIs. Live watching uses `watchProject` against the project checkout the same way `watchWorkspace` watches a task worktree. When both `taskId` and `projectId` are present, Files and the composer prefer the task worktree so linked-worktree checkouts stay authoritative.
 
 ## Desktop operations
 
-| Operation                | Request                            | Delivery                        |
-| ------------------------ | ---------------------------------- | ------------------------------- |
-| `listWorkspaceDirectory` | `taskId`, optional relative `path` | `list_workspace_directory`      |
-| `readWorkspaceFile`      | `taskId`, relative `path`          | `read_workspace_file`           |
-| `searchWorkspace`        | task id and bounded search query   | `search_workspace`              |
-| `watchWorkspace`         | `taskId`                           | `stream_contract` Tauri channel |
-| `listProjectDirectory`   | `projectId`, optional relative `path` | `list_project_directory`     |
-| `searchProject`          | project id and bounded search query | `search_project`               |
+| Operation                | Request                               | Delivery                        |
+| ------------------------ | ------------------------------------- | ------------------------------- |
+| `listWorkspaceDirectory` | `taskId`, optional relative `path`    | `list_workspace_directory`      |
+| `readWorkspaceFile`      | `taskId`, relative `path`             | `read_workspace_file`           |
+| `searchWorkspace`        | task id and bounded search query      | `search_workspace`              |
+| `watchWorkspace`         | `taskId`                              | `stream_contract` Tauri channel |
+| `listProjectDirectory`   | `projectId`, optional relative `path` | `list_project_directory`        |
+| `readProjectFile`        | `projectId`, relative `path`          | `read_project_file`             |
+| `searchProject`          | project id and bounded search query   | `search_project`                |
+| `watchProject`           | `projectId`                           | `stream_contract` Tauri channel |
 
-All returned paths are slash-separated and relative to the resolved task
-workspace. `watchWorkspace` emits `data`, `error`, and `end` frames. Its error
+All returned paths are slash-separated and relative to the resolved checkout.
+`watchWorkspace` and `watchProject` emit `data`, `error`, and `end` frames. Their error
 frame uses the shared `{ code, params, requestId }` contract, so the frontend
 uses the same decoder as unary commands. A terminal error already queued during
 shutdown is emitted as `error` rather than a successful `end`.
 
 ## Safety and UI behavior
 
-Workspace roots are resolved from persisted task identity. Paths are validated
-as relative paths, canonicalized before containment checks, and bounded before
-reads or searches. The filesystem service is read-only and watcher changes are
-cache-invalidating batches rather than an event log.
+Workspace roots are resolved from persisted task or project identity. Paths are
+validated as relative paths, canonicalized before containment checks, and
+bounded before reads or searches. The filesystem service is read-only and
+watcher changes are cache-invalidating batches rather than an event log.
 
-The Files panel opens Explorer by default for a task and keeps Specs as a
-dedicated read-only sub-view. Search and file reads are cancellable through the
-injected contracts client, and a mounted watcher is stopped when the panel is
-unmounted or its task changes.
+The Files panel opens Explorer by default for both task and project review
+contexts and keeps Specs as a dedicated read-only sub-view. Search and file
+reads are cancellable through the injected contracts client. A mounted
+watcher is stopped when the panel is unmounted or its Files scope (task vs
+project) changes.
 
 Rust contracts live in `crates/contracts/src/file_system.rs` and export to
 `packages/contracts/src/file-system.ts`. The endpoint catalog in

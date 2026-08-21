@@ -1212,6 +1212,40 @@ describe("WorkspaceSidebar", () => {
     await waitFor(() => expect(workingIndicator()).toBeNull());
   });
 
+  it("hides the working indicator while session history is still loading", async () => {
+    const store = createChatStore(
+      createMockClient(createMockClientState()).session,
+    );
+    const { chatStore } = renderSidebar(workspaceWithOneSession(), store);
+    await waitFor(() => expect(treeRow(NEW_SESSION_LABEL)).not.toBeNull());
+
+    act(() =>
+      chatStore.setState({
+        conversations: {
+          [SESSION.id]: conversation({
+            isLoading: true,
+            isResponding: true,
+            isLoaded: false,
+          }),
+        },
+      }),
+    );
+    await waitFor(() => expect(workingIndicator()).toBeNull());
+
+    act(() =>
+      chatStore.setState({
+        conversations: {
+          [SESSION.id]: conversation({
+            isLoading: false,
+            isResponding: true,
+            isLoaded: true,
+          }),
+        },
+      }),
+    );
+    await waitFor(() => expect(workingIndicator()).not.toBeNull());
+  });
+
   // Matches the unread-mark aria-label in either shipped locale.
   const unreadMark = () => screen.queryByLabelText(/有未读更新|Unread/);
 

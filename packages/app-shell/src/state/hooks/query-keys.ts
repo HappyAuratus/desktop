@@ -40,8 +40,11 @@ export const queryKeys = {
     ["workspace-files", taskId, "file", path] as const,
   workspaceSearch: (taskId: string, kind: string, query: string) =>
     ["workspace-files", taskId, "search", kind, query] as const,
+  projectFiles: (projectId: string) => ["project-files", projectId] as const,
   projectDirectory: (projectId: string, path: string) =>
     ["project-files", projectId, "directory", path] as const,
+  projectFile: (projectId: string, path: string) =>
+    ["project-files", projectId, "file", path] as const,
   projectSearch: (projectId: string, kind: string, query: string) =>
     ["project-files", projectId, "search", kind, query] as const,
   /**

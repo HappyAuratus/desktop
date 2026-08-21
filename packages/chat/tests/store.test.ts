@@ -183,6 +183,55 @@ test("publishes an active prompt incrementally while its session loads", async (
   assert.equal(completed?.turns[0]?.stopReason, "end_turn");
 });
 
+test("clears isResponding at each turn_ended during history replay", async () => {
+  let finishAfterFirstTurn: () => void = () => {};
+  const afterFirstTurn = new Promise<void>((resolve) => {
+    finishAfterFirstTurn = resolve;
+  });
+  let finishAfterSecondOpen: () => void = () => {};
+  const afterSecondOpen = new Promise<void>((resolve) => {
+    finishAfterSecondOpen = resolve;
+  });
+  const client: ChatSessionClient = {
+    load: () => ({
+      async *[Symbol.asyncIterator]() {
+        yield textEvent("user_message_chunk", "hello", "user-1");
+        yield textEvent("agent_message_chunk", "hi", "agent-1");
+        yield { type: "turn_ended", stopReason: "end_turn" } as const;
+        await afterFirstTurn;
+        yield textEvent("user_message_chunk", "again", "user-2");
+        yield textEvent("agent_message_chunk", "there", "agent-2");
+        await afterSecondOpen;
+        yield { type: "turn_ended", stopReason: "end_turn" } as const;
+        yield { type: "completed" } as const;
+      },
+    }),
+    prompt: () => events<PromptSessionEvent>([]),
+    respondToPermission: async () => ({}),
+    setConfig: async () => ({ configOptions: [] }),
+  };
+  const store = createChatStore(client, {
+    createId: () => "local",
+    now: () => 42,
+  });
+
+  const loading = store.getState().loadSession("ora-1");
+  await new Promise<void>((resolve) => setTimeout(resolve, 25));
+  // Completed historical turns must not leave the working flag stuck.
+  assert.equal(store.getState().conversations["ora-1"]?.isLoading, true);
+  assert.equal(store.getState().conversations["ora-1"]?.isResponding, false);
+
+  finishAfterFirstTurn();
+  await new Promise<void>((resolve) => setTimeout(resolve, 25));
+  assert.equal(store.getState().conversations["ora-1"]?.isResponding, true);
+
+  finishAfterSecondOpen();
+  await loading;
+
+  assert.equal(store.getState().conversations["ora-1"]?.isResponding, false);
+  assert.equal(store.getState().conversations["ora-1"]?.isLoaded, true);
+});
+
 test("flushes batched replay text together with a following tool boundary", async () => {
   let finishStream: () => void = () => {};
   const streamFinished = new Promise<void>((resolve) => {

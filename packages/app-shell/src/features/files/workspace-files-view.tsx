@@ -2,7 +2,6 @@ import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import type {
   WorkspaceEntry,
-  WorkspaceFileChange,
   WorkspaceSearchKind,
   WorkspaceSearchResult,
 } from "@ora/contracts";
@@ -28,13 +27,14 @@ import {
 import { useTranslation } from "react-i18next";
 import { localizeContractError } from "../../i18n/contract-error";
 import { useContractsClient } from "../../contracts-client-context";
-import { queryKeys } from "../../state/hooks/query-keys";
 import { displayPath } from "../chat/turn-diff-files";
 import {
+  isAbsoluteWorkspacePath,
   normalizeDiffPath,
   stripTaskCwdPrefix,
 } from "../../lib/workspace-path";
 import { useTaskWorkspace } from "../../state/hooks/use-task-workspace";
+import { useProjects } from "../../state/hooks/use-projects";
 import { useComposerFileContextStore } from "../../state/stores/composer-file-context-store";
 import { conversationKeyFor } from "../../state/stores/conversation-key";
 import { useWorkspaceSelectionStore } from "../../state/stores/workspace-selection-store";
@@ -48,9 +48,20 @@ import {
   workspaceFileVisual,
 } from "./workspace-file-visuals";
 import { watchWorkspaceContinuously } from "./workspace-watch";
+import {
+  directoryQueryKey,
+  fileQueryKey,
+  filesScopeApi,
+  filesScopeQueryKey,
+  invalidateScopedFileQueries,
+  resolveFilesScope,
+  searchQueryKey,
+  type FilesScope,
+} from "./files-scope";
 
 interface WorkspaceFilesViewProps {
-  taskId: string;
+  projectId: string;
+  taskId?: string;
   toolbar?: ReactNode;
   hideHeader?: boolean;
   surface?: "explorer" | "search";
@@ -67,7 +78,7 @@ export interface WorkspaceFileRequest {
 }
 
 interface DirectoryTreeProps {
-  taskId: string;
+  scope: FilesScope;
   path: string;
   depth: number;
   expanded: ReadonlySet<string>;
@@ -78,8 +89,9 @@ interface DirectoryTreeProps {
 
 const MAX_VISIBLE_SEARCH_RESULTS = 500;
 
-/** Renders the task worktree explorer, ripgrep search, and bounded read-only file viewer. */
+/** Renders the task or project explorer, ripgrep search, and bounded read-only file viewer. */
 export function WorkspaceFilesView({
+  projectId,
   taskId,
   toolbar,
   hideHeader = false,
@@ -90,8 +102,24 @@ export function WorkspaceFilesView({
   const { t } = useTranslation();
   const client = useContractsClient();
   const queryClient = useQueryClient();
-  const workspaceQuery = useTaskWorkspace(taskId);
-  const cwd = workspaceQuery.data?.rootPath;
+  const scope = useMemo(
+    () => resolveFilesScope(projectId, taskId),
+    [projectId, taskId],
+  );
+  const scopeApi = useMemo(() => filesScopeApi(client, scope), [client, scope]);
+  const workspaceQuery = useTaskWorkspace(
+    scope.kind === "task" ? scope.taskId : undefined,
+  );
+  const projectsQuery = useProjects({ enabled: scope.kind === "project" });
+  const cwd =
+    scope.kind === "task"
+      ? workspaceQuery.data?.rootPath
+      : projectsQuery.data?.find((project) => project.id === projectId)
+          ?.rootPath;
+  // Absolute ACP paths need the checkout root before we consume requestId; otherwise
+  // a later cwd load cannot re-strip and readWorkspaceFile/readProjectFile reject roots.
+  const checkoutPending =
+    scope.kind === "task" ? workspaceQuery.isPending : projectsQuery.isPending;
   const [internalSurface, setInternalSurface] = useState<"explorer" | "search">(
     "explorer",
   );
@@ -117,35 +145,40 @@ export function WorkspaceFilesView({
     fileRequest !== undefined &&
     fileRequest.requestId !== appliedFileRequestId
   ) {
-    setAppliedFileRequestId(fileRequest.requestId);
     const rawPath = fileRequest.path;
-    const stripped = cwd
-      ? (stripTaskCwdPrefix(rawPath, cwd) ??
-        stripTaskCwdPrefix(normalizeDiffPath(rawPath), cwd))
-      : null;
-    const targetPath = stripped ?? normalizeDiffPath(displayPath(rawPath));
-    setSelectedPath(targetPath);
-    const parts = targetPath.split("/");
-    if (parts.length > 1) {
-      setExpanded((prev) => {
-        const next = new Set(prev);
-        let current = "";
-        for (let i = 0; i < parts.length - 1; i++) {
-          current = current === "" ? parts[i]! : `${current}/${parts[i]!}`;
-          next.add(current);
-        }
-        return next;
-      });
+    const absolute =
+      isAbsoluteWorkspacePath(rawPath) ||
+      isAbsoluteWorkspacePath(normalizeDiffPath(displayPath(rawPath)));
+    if (!(absolute && checkoutPending && (cwd === undefined || cwd === ""))) {
+      setAppliedFileRequestId(fileRequest.requestId);
+      const stripped = cwd
+        ? (stripTaskCwdPrefix(rawPath, cwd) ??
+          stripTaskCwdPrefix(normalizeDiffPath(rawPath), cwd))
+        : null;
+      const targetPath = stripped ?? normalizeDiffPath(displayPath(rawPath));
+      setSelectedPath(targetPath);
+      const parts = targetPath.split("/");
+      if (parts.length > 1) {
+        setExpanded((prev) => {
+          const next = new Set(prev);
+          let current = "";
+          for (let i = 0; i < parts.length - 1; i++) {
+            current = current === "" ? parts[i]! : `${current}/${parts[i]!}`;
+            next.add(current);
+          }
+          return next;
+        });
+      }
+      setSelectedTarget(
+        fileRequest.line === undefined
+          ? null
+          : {
+              line: fileRequest.line,
+              column: fileRequest.column ?? 1,
+              matchedText: "",
+            },
+      );
     }
-    setSelectedTarget(
-      fileRequest.line === undefined
-        ? null
-        : {
-            line: fileRequest.line,
-            column: fileRequest.column ?? 1,
-            matchedText: "",
-          },
-    );
   }
 
   useEffect(() => {
@@ -167,35 +200,30 @@ export function WorkspaceFilesView({
   useEffect(() => {
     if (fileRequestId === undefined || selectedPath === null) return;
     void queryClient.invalidateQueries({
-      queryKey: queryKeys.workspaceFile(taskId, selectedPath),
+      queryKey: fileQueryKey(scope, selectedPath),
     });
-  }, [fileRequestId, queryClient, selectedPath, taskId]);
+  }, [fileRequestId, queryClient, scope, selectedPath]);
 
   useEffect(() => {
     const controller = new AbortController();
     void watchWorkspaceContinuously({
       signal: controller.signal,
-      openStream: (signal) =>
-        client.fileSystem.watchWorkspace({ taskId }, { signal }),
+      openStream: (signal) => scopeApi.watch(signal),
       onBatch: (batch) =>
-        invalidateWorkspaceQueries(queryClient, taskId, batch.changes),
+        invalidateScopedFileQueries(queryClient, scope, batch.changes),
     });
     return () => controller.abort();
-  }, [client, queryClient, taskId]);
+  }, [queryClient, scope, scopeApi]);
 
   const fileQuery = useQuery({
-    queryKey: queryKeys.workspaceFile(taskId, selectedPath ?? ""),
-    queryFn: () =>
-      client.fileSystem.readWorkspaceFile({ taskId, path: selectedPath! }),
+    queryKey: fileQueryKey(scope, selectedPath ?? ""),
+    queryFn: ({ signal }) => scopeApi.readFile(selectedPath!, signal),
     enabled: selectedPath !== null,
   });
   const searchQuery = useQuery({
-    queryKey: queryKeys.workspaceSearch(taskId, searchKind, debouncedSearch),
+    queryKey: searchQueryKey(scope, searchKind, debouncedSearch),
     queryFn: ({ signal }) =>
-      client.fileSystem.searchWorkspace(
-        { taskId, query: debouncedSearch, kind: searchKind },
-        { signal },
-      ),
+      scopeApi.search(debouncedSearch, searchKind, signal),
     enabled: surface === "search" && debouncedSearch.length > 0,
   });
   const visibleSearchResults = useMemo(
@@ -203,12 +231,9 @@ export function WorkspaceFilesView({
     [searchQuery.data],
   );
   const fileFilterQuery = useQuery({
-    queryKey: queryKeys.workspaceSearch(taskId, "files", debouncedFileFilter),
+    queryKey: searchQueryKey(scope, "files", debouncedFileFilter),
     queryFn: ({ signal }) =>
-      client.fileSystem.searchWorkspace(
-        { taskId, query: debouncedFileFilter, kind: "files" },
-        { signal },
-      ),
+      scopeApi.search(debouncedFileFilter, "files", signal),
     enabled: surface === "explorer" && debouncedFileFilter.length > 0,
   });
   const visibleFileFilterResults = useMemo(
@@ -253,7 +278,7 @@ export function WorkspaceFilesView({
   };
   const refresh = () =>
     queryClient.invalidateQueries({
-      queryKey: queryKeys.workspaceFiles(taskId),
+      queryKey: filesScopeQueryKey(scope),
     });
 
   const body = (
@@ -372,7 +397,7 @@ export function WorkspaceFilesView({
                     />
                   ) : (
                     <DirectoryTree
-                      taskId={taskId}
+                      scope={scope}
                       path=""
                       depth={0}
                       expanded={expanded}
@@ -454,68 +479,9 @@ export function WorkspaceFilesView({
   );
 }
 
-/** Invalidates only the workspace queries affected by one native event batch. */
-async function invalidateWorkspaceQueries(
-  queryClient: ReturnType<typeof useQueryClient>,
-  taskId: string,
-  changes: WorkspaceFileChange[],
-): Promise<void> {
-  const directoryPaths = new Set<string>();
-  const filePaths = new Set<string>();
-  let invalidateSearch = false;
-  let invalidateWorkspace = false;
-
-  for (const change of changes) {
-    if (change.kind === "rescanRequired") {
-      invalidateWorkspace = true;
-      break;
-    }
-    invalidateSearch = true;
-    filePaths.add(change.path);
-    directoryPaths.add(parentPath(change.path));
-    if (change.kind === "renamed") {
-      filePaths.add(change.from);
-      directoryPaths.add(parentPath(change.from));
-    }
-  }
-
-  if (invalidateWorkspace) {
-    await queryClient.invalidateQueries({
-      queryKey: queryKeys.workspaceFiles(taskId),
-    });
-    return;
-  }
-
-  await Promise.all([
-    ...Array.from(directoryPaths, (path) =>
-      queryClient.invalidateQueries({
-        queryKey: queryKeys.workspaceDirectory(taskId, path),
-      }),
-    ),
-    ...Array.from(filePaths, (path) =>
-      queryClient.invalidateQueries({
-        queryKey: queryKeys.workspaceFile(taskId, path),
-      }),
-    ),
-    ...(invalidateSearch
-      ? [
-          queryClient.invalidateQueries({
-            queryKey: ["workspace-files", taskId, "search"],
-          }),
-        ]
-      : []),
-  ]);
-}
-
-/** Returns the parent directory for a normalized workspace-relative path. */
-function parentPath(path: string): string {
-  const separator = path.lastIndexOf("/");
-  return separator <= 0 ? "" : path.slice(0, separator);
-}
-
 /** Loads one expanded directory lazily and renders its descendants recursively. */
 function DirectoryTree({
-  taskId,
+  scope,
   path,
   depth,
   expanded,
@@ -525,13 +491,10 @@ function DirectoryTree({
 }: DirectoryTreeProps) {
   const client = useContractsClient();
   const { t } = useTranslation();
+  const scopeApi = useMemo(() => filesScopeApi(client, scope), [client, scope]);
   const directoryQuery = useQuery({
-    queryKey: queryKeys.workspaceDirectory(taskId, path),
-    queryFn: () =>
-      client.fileSystem.listWorkspaceDirectory({
-        taskId,
-        ...(path === "" ? {} : { path }),
-      }),
+    queryKey: directoryQueryKey(scope, path),
+    queryFn: ({ signal }) => scopeApi.listDirectory(path, signal),
   });
 
   if (directoryQuery.isLoading) {
@@ -553,7 +516,7 @@ function DirectoryTree({
     <WorkspaceTreeEntry
       key={entry.path}
       entry={entry}
-      taskId={taskId}
+      scope={scope}
       depth={depth}
       expanded={expanded}
       selectedPath={selectedPath}
@@ -566,7 +529,7 @@ function DirectoryTree({
 /** Renders one tree row and mounts its lazy child query only while expanded. */
 function WorkspaceTreeEntry({
   entry,
-  taskId,
+  scope,
   depth,
   expanded,
   selectedPath,
@@ -607,7 +570,7 @@ function WorkspaceTreeEntry({
       </button>
       {isExpanded && (
         <DirectoryTree
-          taskId={taskId}
+          scope={scope}
           path={entry.path}
           depth={depth + 1}
           expanded={expanded}

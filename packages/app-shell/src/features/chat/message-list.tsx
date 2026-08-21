@@ -11,6 +11,7 @@ import { MessageBubble } from "./message-bubble";
 import { ResponseTurn } from "./response-turn";
 import type { ChatModelChange, ChatTurn } from "@ora/chat";
 import { useTaskWorkspace } from "../../state/hooks/use-task-workspace";
+import { useProjects } from "../../state/hooks/use-projects";
 import {
   collectCumulativeArtifactIndices,
   type TurnArtifactCacheEntry,
@@ -24,6 +25,7 @@ interface MessageListProps {
   userName: string;
   isResponding: boolean;
   taskId?: string;
+  projectId?: string;
   /** Optional presentation override for chats embedded inside another surface. */
   conversationNavigation?: ConversationNavigationPresentation;
 }
@@ -35,12 +37,19 @@ export function MessageList({
   userName,
   isResponding,
   taskId,
+  projectId,
   conversationNavigation,
 }: MessageListProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
   const workspaceQuery = useTaskWorkspace(taskId);
-  const cwd = workspaceQuery.data?.rootPath ?? null;
+  const projectsQuery = useProjects({
+    enabled: taskId === undefined && projectId !== undefined,
+  });
+  const cwd =
+    workspaceQuery.data?.rootPath ??
+    projectsQuery.data?.find((project) => project.id === projectId)?.rootPath ??
+    null;
   const [artifactCache] = useState(
     () => new Map<string, TurnArtifactCacheEntry>(),
   );
@@ -52,10 +61,15 @@ export function MessageList({
     () => artifactIndices.at(-1) ?? { edited: [], referenced: [] },
     [artifactIndices],
   );
-  const chatLinkValue = useMemo(
-    () => (taskId === undefined ? null : { index: artifactIndex, taskId, cwd }),
-    [artifactIndex, cwd, taskId],
-  );
+  const chatLinkValue = useMemo(() => {
+    if (taskId !== undefined) {
+      return { index: artifactIndex, taskId, projectId, cwd };
+    }
+    if (projectId !== undefined) {
+      return { index: artifactIndex, projectId, cwd };
+    }
+    return null;
+  }, [artifactIndex, cwd, projectId, taskId]);
   const lastTurn = turns.at(-1);
   const lastAnchorId =
     lastTurn === undefined
@@ -103,7 +117,11 @@ export function MessageList({
                 referenced: [],
               };
               const turnChatLinkValue =
-                taskId === undefined ? null : { index: turnIndex, taskId, cwd };
+                taskId !== undefined
+                  ? { index: turnIndex, taskId, projectId, cwd }
+                  : projectId !== undefined
+                    ? { index: turnIndex, projectId, cwd }
+                    : null;
               return (
                 <div key={turn.id}>
                   {/* Markers sit between turns rather than inside them, so they are

@@ -19,6 +19,11 @@ export type ListWorkspaceDirectoryResponse = {
 };
 
 /**
+ * Identifies one text file inside a project's checkout root.
+ */
+export type ReadProjectFileRequest = { projectId: string; path: string };
+
+/**
  * Identifies one text file inside a task's managed worktree.
  */
 export type ReadWorkspaceFileRequest = { taskId: string; path: string };
@@ -58,6 +63,11 @@ export type SearchWorkspaceResponse = {
   results: Array<WorkspaceSearchResult>;
   truncated: boolean;
 };
+
+/**
+ * Starts one workspace watcher stream scoped to a project's checkout root.
+ */
+export type WatchProjectRequest = { projectId: string };
 
 /**
  * Starts one workspace watcher stream scoped to a task's managed worktree.
