@@ -91,8 +91,6 @@ const tauriCommands = {
   // agentRuntime
   // =============================================================================
   getAgentRuntimeStatus: "get_agent_runtime_status",
-  listAgentModels: "list_agent_models",
-
   // =============================================================================
   // skill
   // =============================================================================
@@ -119,7 +117,16 @@ const tauriCommands = {
   // =============================================================================
   // plugin
   // =============================================================================
+  listAvailablePlugins: "list_available_plugins",
+  syncAvailablePlugins: "sync_available_plugins",
   listInstalledPlugins: "list_installed_plugins",
+  scanPlugins: "scan_plugins",
+  enablePlugin: "enable_plugin",
+  disablePlugin: "disable_plugin",
+  activatePlugin: "activate_plugin",
+  stopPlugin: "stop_plugin",
+  uninstallPlugin: "uninstall_plugin",
+  installPlugin: "install_plugin",
 
   // =============================================================================
   // gitIdentity

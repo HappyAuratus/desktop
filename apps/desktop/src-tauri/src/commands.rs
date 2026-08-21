@@ -971,6 +971,20 @@ backend_command!(
     list_installed_plugins,
     "Lists the cached installed-plugin lifecycle snapshot."
 );
+backend_command!(
+    list_available_plugins,
+    ListAvailablePluginsRequest,
+    ListAvailablePluginsResponse,
+    list_available_plugins,
+    "Lists the cached marketplace registry index."
+);
+backend_command!(
+    sync_available_plugins,
+    SyncAvailablePluginsRequest,
+    SyncAvailablePluginsResponse,
+    sync_available_plugins,
+    "Pulls the marketplace source and rebuilds the cached registry index."
+);
 async_backend_command!(
     scan_plugins,
     ScanPluginsRequest,
@@ -1012,6 +1026,13 @@ async_backend_command!(
     UninstallPluginResponse,
     uninstall_plugin,
     "Stops and removes one installed plugin."
+);
+async_backend_command!(
+    install_plugin,
+    InstallPluginRequest,
+    InstallPluginResponse,
+    install_plugin,
+    "Installs one marketplace plugin by downloading, verifying, and extracting it."
 );
 
 // =============================================================================

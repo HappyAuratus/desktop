@@ -7,9 +7,18 @@
 
 #[cfg(feature = "archive")]
 pub mod archive;
+pub mod atomic;
 mod git_branch;
+#[cfg(feature = "validation")]
+pub mod hash;
+#[cfg(feature = "validation")]
+pub mod html;
+#[cfg(feature = "http")]
+pub mod http;
 pub mod path;
 mod slug;
+#[cfg(feature = "validation")]
+pub mod svg;
 
 pub use git_branch::{GitBranchName, GitBranchNameError};
 pub use slug::{Slug, SlugError};

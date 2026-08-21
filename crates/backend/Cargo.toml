@@ -24,11 +24,12 @@ ora-logging = { workspace = true }
 ora-plugin-lifecycle = { workspace = true }
 ora-plugin-manager = { workspace = true }
 ora-plugin-runtime = { workspace = true }
+ora-plugin-registry = { workspace = true }
 ora-process = { workspace = true }
 ora-runtime-settings = { workspace = true }
 ora-scheduler = { workspace = true }
 ora-skill-package = { workspace = true }
-ora-utils = { workspace = true }
+ora-utils = { workspace = true, features = ["http-reqwest"] }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
 similar = { workspace = true }
