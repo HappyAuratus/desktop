@@ -4,6 +4,7 @@ import {
   recoverFailedDraftSend,
   reparkDraftComposerContent,
   resetComposerSendAdoptionsForTests,
+  resolveNewChatScope,
   selectBoundDraftSession,
   startSessionDraft,
 } from "./session-drafts";
@@ -24,6 +25,79 @@ beforeEach(() => {
   useUiStore.setState({
     expandedProjects: new Set(),
     expandedTasks: new Set(),
+  });
+});
+
+describe("resolveNewChatScope", () => {
+  const emptySelection = {
+    projectId: null,
+    taskId: null,
+    sessionId: null,
+    workflowRunId: null,
+    draftId: null,
+  };
+
+  it("prefers createFocus over live selection", () => {
+    expect(
+      resolveNewChatScope(
+        { projectId: "p2", taskId: null },
+        {
+          ...emptySelection,
+          projectId: "p1",
+          taskId: "t1",
+          sessionId: "s1",
+        },
+        "p-first",
+      ),
+    ).toEqual({ projectId: "p2", taskId: null });
+  });
+
+  it("uses the selection task when createFocus is absent", () => {
+    expect(
+      resolveNewChatScope(
+        null,
+        {
+          ...emptySelection,
+          projectId: "p1",
+          taskId: "t1",
+          sessionId: "s1",
+        },
+        "p-first",
+      ),
+    ).toEqual({ projectId: "p1", taskId: "t1" });
+  });
+
+  it("falls back to the first project, then null", () => {
+    expect(resolveNewChatScope(null, emptySelection, "p-first")).toEqual({
+      projectId: "p-first",
+      taskId: null,
+    });
+    expect(resolveNewChatScope(null, emptySelection, null)).toBeNull();
+  });
+
+  it("ignores createFocus whose project is missing from the tree", () => {
+    expect(
+      resolveNewChatScope(
+        { projectId: "gone", taskId: null },
+        emptySelection,
+        "p-first",
+        { projects: [{ id: "p1" }], tasks: [] },
+      ),
+    ).toEqual({ projectId: "p-first", taskId: null });
+  });
+
+  it("demotes createFocus to project-root when its task is missing", () => {
+    expect(
+      resolveNewChatScope(
+        { projectId: "p1", taskId: "gone" },
+        emptySelection,
+        "p-first",
+        {
+          projects: [{ id: "p1" }],
+          tasks: [{ id: "t1", projectId: "p1" }],
+        },
+      ),
+    ).toEqual({ projectId: "p1", taskId: null });
   });
 });
 

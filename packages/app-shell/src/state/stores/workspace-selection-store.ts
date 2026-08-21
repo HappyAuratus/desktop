@@ -12,6 +12,16 @@ export type { WorkspaceSelection };
 
 export const WORKSPACE_SELECTION_STORAGE_KEY = "ora.workspace-selection.v1";
 
+/**
+ * Where global New chat / Ctrl+N should create a draft. Ephemeral: not written
+ * to disk. Updated by tree row clicks (without changing the composer selection)
+ * and kept in sync when the live selection moves to a leaf.
+ */
+export interface WorkspaceCreateFocus {
+  projectId: string;
+  taskId: string | null;
+}
+
 interface WorkspaceSelectionState {
   selection: WorkspaceSelection;
   /**
@@ -20,6 +30,21 @@ interface WorkspaceSelectionState {
    * cannot warm a new provider session before sessions settle.
    */
   pendingRestore: WorkspaceSelection | null;
+  /**
+   * Last project/worktree the user pointed at for creating a chat. Independent
+   * of `selection` so expand/collapse clicks can retarget New chat without
+   * yanking the composer off the current session.
+   */
+  createFocus: WorkspaceCreateFocus | null;
+  /** Records where the next global New chat should land without changing selection. */
+  setCreateFocus: (focus: WorkspaceCreateFocus) => void;
+  /** Drops create focus when its project is deleted and selection did not move there. */
+  clearCreateFocusForProject: (projectId: string) => void;
+  /**
+   * Drops or demotes create focus when its task is deleted. A worktree focus
+   * becomes project-root so New chat still has a valid home.
+   */
+  clearCreateFocusForTask: (taskId: string) => void;
   /** Selects a project and clears any task/session/run underneath. */
   selectProject: (projectId: string) => void;
   /** Selects a task under a project and clears any session/run underneath. */
@@ -62,6 +87,14 @@ interface WorkspaceSelectionState {
   clearPendingRestore: () => void;
 }
 
+/** Maps a live selection onto the New-chat create target when a project is set. */
+function createFocusFromSelection(
+  selection: WorkspaceSelection,
+): WorkspaceCreateFocus | null {
+  if (selection.projectId === null) return null;
+  return { projectId: selection.projectId, taskId: selection.taskId };
+}
+
 /**
  * Owns the workspace tree selection without coupling to query data. Callers pass
  * the owning project/task ids they already have from react-query results, which
@@ -70,6 +103,7 @@ interface WorkspaceSelectionState {
  * Live selection is mirrored to localStorage. On cold start the disk value is
  * staged in `pendingRestore` only — never applied to `selection` until tree
  * data validates it — so a missing sessions list cannot trigger a warm race.
+ * `createFocus` stays memory-only so restart does not resurrect a stale create target.
  */
 export const useWorkspaceSelectionStore = create<WorkspaceSelectionState>()(
   persist(
@@ -77,11 +111,17 @@ export const useWorkspaceSelectionStore = create<WorkspaceSelectionState>()(
       /**
        * Replaces the complete selection before settling the draft being left.
        * Navigation must remain responsive even if draft persistence cleanup fails.
+       * Create focus follows the new selection so New chat stays coherent after
+       * opening a leaf; empty selection clears focus.
        */
       const replaceSelection = (selection: WorkspaceSelection): void => {
         const previousDraftId = get().selection.draftId;
         // User navigation cancels any outstanding restore candidate.
-        set({ selection, pendingRestore: null });
+        set({
+          selection,
+          pendingRestore: null,
+          createFocus: createFocusFromSelection(selection),
+        });
         if (previousDraftId !== null && previousDraftId !== selection.draftId) {
           useDraftSessionsStore.getState().discardIfEmpty(previousDraftId);
         }
@@ -90,6 +130,29 @@ export const useWorkspaceSelectionStore = create<WorkspaceSelectionState>()(
       return {
         selection: EMPTY_WORKSPACE_SELECTION,
         pendingRestore: null,
+        createFocus: null,
+        setCreateFocus: (focus) => {
+          const current = get().createFocus;
+          if (
+            current !== null &&
+            current.projectId === focus.projectId &&
+            current.taskId === focus.taskId
+          ) {
+            return;
+          }
+          set({ createFocus: focus });
+        },
+        clearCreateFocusForProject: (projectId) => {
+          const focus = get().createFocus;
+          if (focus?.projectId === projectId) set({ createFocus: null });
+        },
+        clearCreateFocusForTask: (taskId) => {
+          const focus = get().createFocus;
+          if (focus === null || focus.taskId !== taskId) return;
+          set({
+            createFocus: { projectId: focus.projectId, taskId: null },
+          });
+        },
         selectProject: (projectId) => {
           replaceSelection({
             projectId,
@@ -192,6 +255,7 @@ export const useWorkspaceSelectionStore = create<WorkspaceSelectionState>()(
     {
       name: WORKSPACE_SELECTION_STORAGE_KEY,
       storage: createJSONStorage(() => window.localStorage),
+      // createFocus is intentionally omitted — it is a session gesture, not a restore target.
       partialize: (state) => ({
         selection: state.selection,
         pendingRestore: state.pendingRestore,
@@ -214,6 +278,7 @@ export const useWorkspaceSelectionStore = create<WorkspaceSelectionState>()(
           pendingRestore: isWorkspaceSelectionEmpty(candidate)
             ? null
             : candidate,
+          createFocus: null,
         };
       },
     },

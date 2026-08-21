@@ -21,7 +21,7 @@ const TASK: Task = {
 const SESSION: Session = {
   id: "s1",
   taskId: "t1",
-  agentCli: "open_code",
+  agentRef: "ora-space.opencode",
   status: "running",
   title: null,
   historyState: { type: "writable" },

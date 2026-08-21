@@ -181,6 +181,7 @@ beforeEach(() => {
       draftId: null,
     },
     pendingRestore: null,
+    createFocus: null,
   });
   useDraftSessionsStore.getState().clear();
   useUiStore.setState({
@@ -237,6 +238,10 @@ describe("WorkspaceSidebar", () => {
       workflowRunId: null,
       draftId: null,
     });
+    expect(useWorkspaceSelectionStore.getState().createFocus).toEqual({
+      projectId: PROJECT.id,
+      taskId: null,
+    });
     expect(useUiStore.getState().expandedProjects.has(PROJECT.id)).toBe(false);
   });
 
@@ -273,9 +278,10 @@ describe("WorkspaceSidebar", () => {
       await screen.findByRole("button", { name: /新建对话|New chat/ }),
     );
 
+    // Selection was a worktree session, so New chat lands under that worktree.
     expect(useWorkspaceSelectionStore.getState().selection).toMatchObject({
       projectId: PROJECT.id,
-      taskId: null,
+      taskId: TASK.id,
       sessionId: null,
       workflowRunId: null,
     });
@@ -283,6 +289,78 @@ describe("WorkspaceSidebar", () => {
       expect.any(String),
     );
     await waitFor(() => expect(treeRow(NEW_SESSION_LABEL)).not.toBeNull());
+  });
+
+  it("creates under the project last clicked even while another session stays selected", async () => {
+    const user = userEvent.setup();
+    const other: Project = {
+      id: "p2",
+      name: "Other App",
+      rootPath: "/other",
+    };
+    const state = workspaceWithOneSession();
+    state.projects = [PROJECT, other];
+    useWorkspaceSelectionStore
+      .getState()
+      .selectSession(SESSION.id, TASK.id, PROJECT.id);
+    renderSidebar(state);
+
+    await waitFor(() => expect(treeRow(other.name)).not.toBeNull());
+    await user.click(screen.getByText(other.name));
+    expect(useWorkspaceSelectionStore.getState().selection.sessionId).toBe(
+      SESSION.id,
+    );
+    expect(useWorkspaceSelectionStore.getState().createFocus).toEqual({
+      projectId: other.id,
+      taskId: null,
+    });
+
+    await user.click(
+      await screen.findByRole("button", { name: /新建对话|New chat/ }),
+    );
+
+    expect(useWorkspaceSelectionStore.getState().selection).toMatchObject({
+      projectId: other.id,
+      taskId: null,
+      sessionId: null,
+      workflowRunId: null,
+    });
+    expect(useWorkspaceSelectionStore.getState().selection.draftId).toEqual(
+      expect.any(String),
+    );
+  });
+
+  it("creates under a worktree after clicking that worktree row", async () => {
+    const user = userEvent.setup();
+    const state = createMockClientState();
+    state.projects = [PROJECT];
+    state.tasks = [TASK];
+    state.sessions = [];
+    renderSidebar(state);
+
+    await waitFor(() => expect(treeRow(TASK.title)).not.toBeNull());
+    await user.click(screen.getByText(TASK.title));
+    expect(useWorkspaceSelectionStore.getState().createFocus).toEqual({
+      projectId: PROJECT.id,
+      taskId: TASK.id,
+    });
+    expect(
+      useWorkspaceSelectionStore.getState().selection.sessionId,
+    ).toBeNull();
+
+    await user.click(
+      await screen.findByRole("button", { name: /新建对话|New chat/ }),
+    );
+
+    expect(useWorkspaceSelectionStore.getState().selection).toMatchObject({
+      projectId: PROJECT.id,
+      taskId: TASK.id,
+      sessionId: null,
+      workflowRunId: null,
+    });
+    expect(useWorkspaceSelectionStore.getState().selection.draftId).toEqual(
+      expect.any(String),
+    );
   });
 
   it("discards an empty draft when another session is selected", async () => {

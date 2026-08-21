@@ -92,6 +92,10 @@ export function useDeleteProject() {
         const projects = readCache<Project>(queryClient, queryKeys.projects);
         const next = projects.find((project) => project.id !== projectId);
         useWorkspaceSelectionStore.getState().setProject(next?.id ?? null);
+      } else {
+        useWorkspaceSelectionStore
+          .getState()
+          .clearCreateFocusForProject(projectId);
       }
     },
   });
@@ -180,6 +184,8 @@ export function useDeleteTask() {
         useWorkspaceSelectionStore
           .getState()
           .clearTaskSelection(selection.projectId ?? "");
+      } else {
+        useWorkspaceSelectionStore.getState().clearCreateFocusForTask(taskId);
       }
     },
   });
