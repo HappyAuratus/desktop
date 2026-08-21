@@ -14,6 +14,7 @@ beforeEach(() => {
   useWorkspaceSelectionStore.setState({
     selection: empty,
     pendingRestore: null,
+    createFocus: null,
   });
 });
 
@@ -22,6 +23,7 @@ afterEach(() => {
   useWorkspaceSelectionStore.setState({
     selection: empty,
     pendingRestore: null,
+    createFocus: null,
   });
 });
 
@@ -327,5 +329,69 @@ describe("useWorkspaceSelectionStore", () => {
     useWorkspaceSelectionStore.getState().clearPendingRestore();
     expect(useWorkspaceSelectionStore.getState().pendingRestore).toBeNull();
     expect(useWorkspaceSelectionStore.getState().selection).toEqual(empty);
+  });
+
+  it("setCreateFocus records a create target without changing selection", () => {
+    useWorkspaceSelectionStore.getState().selectSession("s1", "t1", "p1");
+    useWorkspaceSelectionStore
+      .getState()
+      .setCreateFocus({ projectId: "p2", taskId: null });
+    expect(useWorkspaceSelectionStore.getState().selection.sessionId).toBe(
+      "s1",
+    );
+    expect(useWorkspaceSelectionStore.getState().createFocus).toEqual({
+      projectId: "p2",
+      taskId: null,
+    });
+  });
+
+  it("selectSession syncs createFocus to the session's project and task", () => {
+    useWorkspaceSelectionStore
+      .getState()
+      .setCreateFocus({ projectId: "p-old", taskId: null });
+    useWorkspaceSelectionStore.getState().selectSession("s1", "t1", "p1");
+    expect(useWorkspaceSelectionStore.getState().createFocus).toEqual({
+      projectId: "p1",
+      taskId: "t1",
+    });
+  });
+
+  it("does not persist createFocus across rehydrate", async () => {
+    useWorkspaceSelectionStore
+      .getState()
+      .setCreateFocus({ projectId: "p1", taskId: "t1" });
+    const raw = window.localStorage.getItem(WORKSPACE_SELECTION_STORAGE_KEY);
+    expect(raw).not.toBeNull();
+    expect(raw!).not.toContain("createFocus");
+
+    useWorkspaceSelectionStore.setState({
+      selection: empty,
+      pendingRestore: null,
+      createFocus: { projectId: "p1", taskId: "t1" },
+    });
+    await useWorkspaceSelectionStore.persist.rehydrate();
+    expect(useWorkspaceSelectionStore.getState().createFocus).toBeNull();
+  });
+
+  it("setCreateFocus is a no-op when the focus is unchanged", () => {
+    useWorkspaceSelectionStore
+      .getState()
+      .setCreateFocus({ projectId: "p1", taskId: null });
+    const before = useWorkspaceSelectionStore.getState().createFocus;
+    useWorkspaceSelectionStore
+      .getState()
+      .setCreateFocus({ projectId: "p1", taskId: null });
+    expect(useWorkspaceSelectionStore.getState().createFocus).toBe(before);
+  });
+
+  it("clearCreateFocusForTask demotes a worktree focus to the project", () => {
+    useWorkspaceSelectionStore
+      .getState()
+      .setCreateFocus({ projectId: "p1", taskId: "t1" });
+    useWorkspaceSelectionStore.getState().clearCreateFocusForTask("t1");
+    expect(useWorkspaceSelectionStore.getState().createFocus).toEqual({
+      projectId: "p1",
+      taskId: null,
+    });
   });
 });

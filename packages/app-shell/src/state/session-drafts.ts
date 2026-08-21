@@ -7,6 +7,8 @@ import { useComposerPluginSelectionStore } from "./stores/composer-plugin-select
 import { useUiStore } from "./stores/ui-store";
 import { useWorkflowStore } from "./stores/workflow-store";
 import { useWorkspaceSelectionStore } from "./stores/workspace-selection-store";
+import type { WorkspaceCreateFocus } from "./stores/workspace-selection-store";
+import type { WorkspaceSelection } from "./stores/sanitize-workspace-selection";
 
 /**
  * Thrown when a first send is abandoned (Stop / navigated away) so the
@@ -91,6 +93,67 @@ export function reparkDraftComposerContent(args: {
     images: parkedImages,
     ...(doc !== undefined ? { doc } : {}),
   });
+}
+
+/**
+ * Picks where global New chat / Ctrl+N should create a draft.
+ *
+ * Prefers the last tree create-focus (project/worktree row click), then the
+ * live selection's project/task, then the first project. Returns null only when
+ * the workspace has no projects at all.
+ *
+ * When `tree` is provided, a create-focus whose project vanished is ignored, and
+ * a missing worktree is demoted to project-root so New chat never orphans a draft.
+ */
+export function resolveNewChatScope(
+  createFocus: WorkspaceCreateFocus | null,
+  selection: WorkspaceSelection,
+  firstProjectId: string | null,
+  tree?: {
+    projects: readonly { id: string }[];
+    tasks: readonly { id: string; projectId: string }[];
+  },
+): DraftScope | null {
+  const focus = clampCreateFocus(createFocus, tree);
+  if (focus !== null) {
+    return {
+      projectId: focus.projectId,
+      taskId: focus.taskId,
+    };
+  }
+  if (selection.projectId !== null) {
+    return {
+      projectId: selection.projectId,
+      taskId: selection.taskId,
+    };
+  }
+  if (firstProjectId !== null) {
+    return { projectId: firstProjectId, taskId: null };
+  }
+  return null;
+}
+
+/** Drops or demotes create-focus that no longer matches the loaded tree. */
+function clampCreateFocus(
+  createFocus: WorkspaceCreateFocus | null,
+  tree:
+    | {
+        projects: readonly { id: string }[];
+        tasks: readonly { id: string; projectId: string }[];
+      }
+    | undefined,
+): WorkspaceCreateFocus | null {
+  if (createFocus === null) return null;
+  if (tree === undefined) return createFocus;
+  if (!tree.projects.some((project) => project.id === createFocus.projectId)) {
+    return null;
+  }
+  if (createFocus.taskId === null) return createFocus;
+  const task = tree.tasks.find((item) => item.id === createFocus.taskId);
+  if (task === undefined || task.projectId !== createFocus.projectId) {
+    return { projectId: createFocus.projectId, taskId: null };
+  }
+  return createFocus;
 }
 
 /**

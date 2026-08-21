@@ -23,7 +23,7 @@ const TASK: Task = {
 const SESSION: Session = {
   id: "s1",
   taskId: "t1",
-  agentCli: "open_code",
+  agentRef: "ora-space.opencode",
   status: "running",
   title: null,
   historyState: { type: "writable" },
@@ -35,6 +35,7 @@ beforeEach(() => {
   useWorkspaceSelectionStore.setState({
     selection: EMPTY_WORKSPACE_SELECTION,
     pendingRestore: null,
+    createFocus: null,
   });
   useUiStore.setState({
     expandedProjects: new Set(),
@@ -317,6 +318,46 @@ describe("useRestoreWorkspaceSelection", () => {
       EMPTY_WORKSPACE_SELECTION,
     );
   });
+
+  it("preserves a user createFocus when applying a restored session", async () => {
+    useWorkspaceSelectionStore.setState({
+      selection: EMPTY_WORKSPACE_SELECTION,
+      pendingRestore: {
+        projectId: "p1",
+        taskId: "t1",
+        sessionId: "s1",
+        workflowRunId: null,
+        draftId: null,
+      },
+      createFocus: { projectId: "p2", taskId: null },
+    });
+    const state = createMockClientState();
+    state.projects = [PROJECT, { id: "p2", name: "Other", rootPath: "/other" }];
+    state.tasks = [TASK];
+    state.sessions = [SESSION];
+    const client = createMockClient(state);
+
+    renderHookWithClient(
+      () =>
+        useRestoreWorkspaceSelection({
+          projects: state.projects,
+          tasks: state.tasks,
+          sessions: state.sessions,
+          treePending: false,
+        }),
+      client,
+    );
+
+    await waitFor(() => {
+      expect(useWorkspaceSelectionStore.getState().selection.sessionId).toBe(
+        "s1",
+      );
+    });
+    expect(useWorkspaceSelectionStore.getState().createFocus).toEqual({
+      projectId: "p2",
+      taskId: null,
+    });
+  });
 });
 
 describe("useWarmSession restore gate", () => {
@@ -352,7 +393,7 @@ describe("useWarmSession restore gate", () => {
             taskId: "t1",
             sessionId: null,
           },
-          "open_code",
+          "ora-space.opencode",
         ),
       client,
       undefined,

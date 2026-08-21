@@ -122,6 +122,11 @@ function applyRestoredSelection(selection: {
     return;
   }
 
+  // A tree click during restore only sets createFocus (selection stays empty).
+  // Preserve that gesture so New chat still follows the row the user pointed at
+  // instead of being overwritten when select* syncs focus from the restored leaf.
+  const createFocusBefore = store.createFocus;
+
   if (selection.sessionId !== null && selection.taskId !== null) {
     store.selectSession(
       selection.sessionId,
@@ -136,6 +141,10 @@ function applyRestoredSelection(selection: {
     store.selectTask(selection.taskId, selection.projectId);
   } else {
     store.selectProject(selection.projectId);
+  }
+
+  if (createFocusBefore !== null) {
+    store.setCreateFocus(createFocusBefore);
   }
 
   useUiStore.getState().expandProject(selection.projectId);

@@ -69,6 +69,7 @@ import {
 import {
   selectBoundDraftSession,
   startSessionDraft,
+  resolveNewChatScope,
 } from "../../state/session-drafts";
 import { OraMark } from "../../components/ora-mark";
 import { DragRegion } from "../../components/drag-region";
@@ -223,6 +224,8 @@ export function WorkspaceSidebar({ user, onSignOut }: WorkspaceSidebarProps) {
   }, [visiblePlacements]);
 
   const selection = useWorkspaceSelectionStore((s) => s.selection);
+  const createFocus = useWorkspaceSelectionStore((s) => s.createFocus);
+  const setCreateFocus = useWorkspaceSelectionStore((s) => s.setCreateFocus);
   const selectTask = useWorkspaceSelectionStore((s) => s.selectTask);
   const selectWorkflowRun = useWorkspaceSelectionStore(
     (s) => s.selectWorkflowRun,
@@ -317,24 +320,31 @@ export function WorkspaceSidebar({ user, onSignOut }: WorkspaceSidebarProps) {
   }, [loading, projects, tasks]);
 
   const openProject = (projectId: string) => {
+    // Remember create target without selecting — composer stays on the current chat.
+    setCreateFocus({ projectId, taskId: null });
     toggleProjectExpand(projectId);
   };
 
-  /** Same as projects: row click only toggles; new chat is the hover plus. */
-  const openTask = (taskId: string) => {
+  /** Same as projects: row click only toggles; New chat follows createFocus. */
+  const openTask = (taskId: string, projectId: string) => {
+    setCreateFocus({ projectId, taskId });
     toggleTaskExpand(taskId);
   };
 
-  const createProjectId = selection.projectId ?? projects[0]?.id ?? null;
-
-  /** Starts a blank direct chat in the current (or first) project; no project yet opens create. */
+  /** Starts a blank chat under create focus, selection, or the first project. */
   const startNewChat = useCallback(() => {
-    if (createProjectId === null) {
+    const scope = resolveNewChatScope(
+      useWorkspaceSelectionStore.getState().createFocus,
+      useWorkspaceSelectionStore.getState().selection,
+      projects[0]?.id ?? null,
+      { projects, tasks },
+    );
+    if (scope === null) {
       setDialog({ kind: "project" });
       return;
     }
-    startSessionDraft({ projectId: createProjectId, taskId: null });
-  }, [createProjectId, setDialog]);
+    startSessionDraft(scope);
+  }, [projects, setDialog, tasks]);
 
   // Match desktop IDE conventions while preventing the browser's new-window shortcut.
   useEffect(() => {
@@ -462,6 +472,15 @@ export function WorkspaceSidebar({ user, onSignOut }: WorkspaceSidebarProps) {
                     selection.sessionId === null &&
                     selection.draftId === null &&
                     selection.workflowRunId === null
+                  }
+                  createFocused={
+                    createFocus !== null &&
+                    createFocus.projectId === project.id &&
+                    createFocus.taskId === null &&
+                    !(
+                      selection.projectId === createFocus.projectId &&
+                      selection.taskId === createFocus.taskId
+                    )
                   }
                   icon={
                     projectOpen ? (
@@ -597,6 +616,13 @@ export function WorkspaceSidebar({ user, onSignOut }: WorkspaceSidebarProps) {
                             selection.sessionId === null &&
                             selection.draftId === null
                           }
+                          createFocused={
+                            createFocus?.taskId === task.id &&
+                            !(
+                              selection.projectId === createFocus.projectId &&
+                              selection.taskId === createFocus.taskId
+                            )
+                          }
                           icon={
                             <IconGitBranch
                               className="size-4 text-muted-foreground"
@@ -605,7 +631,7 @@ export function WorkspaceSidebar({ user, onSignOut }: WorkspaceSidebarProps) {
                           }
                           label={task.title}
                           expanded={taskOpen}
-                          onClick={() => openTask(task.id)}
+                          onClick={() => openTask(task.id, task.projectId)}
                           action={
                             <NewSessionButton
                               onClick={() =>
@@ -735,6 +761,11 @@ interface TreeRowCommand {
 interface TreeRowProps {
   depth: 0 | 1 | 2;
   active: boolean;
+  /**
+   * Soft highlight for create-focus rows that are not the live selection — shows
+   * where New chat will land without implying the composer already switched.
+   */
+  createFocused?: boolean;
   icon: React.ReactNode;
   label: string;
   meta?: string;
@@ -758,6 +789,7 @@ interface TreeRowProps {
 function TreeRow({
   depth,
   active,
+  createFocused = false,
   icon,
   label,
   meta,
@@ -780,9 +812,16 @@ function TreeRow({
     maxLength,
   } = useInlineTreeRename({ value: label, onCommit: onRename });
 
+  const rowTone = active
+    ? "bg-sidebar-accent text-sidebar-accent-foreground"
+    : createFocused
+      ? "bg-sidebar-accent/45 text-sidebar-foreground ring-1 ring-inset ring-sidebar-accent/60"
+      : "hover:bg-sidebar-accent/70";
+
   return (
     <div
-      className={`group/tree flex h-9 items-center rounded-md transition-colors ${active ? "bg-sidebar-accent text-sidebar-accent-foreground" : "hover:bg-sidebar-accent/70"}`}
+      className={`group/tree flex h-9 items-center rounded-md transition-colors ${rowTone}`}
+      data-create-focus={createFocused && !active ? "true" : undefined}
     >
       <ContextMenu>
         <ContextMenuTrigger
