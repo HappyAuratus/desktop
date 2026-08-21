@@ -63,10 +63,10 @@ export function MessageList({
   );
   const chatLinkValue = useMemo(() => {
     if (taskId !== undefined) {
-      return { index: artifactIndex, taskId, projectId, cwd };
+      return { index: artifactIndex, taskId, cwd };
     }
     if (projectId !== undefined) {
-      return { index: artifactIndex, projectId, cwd };
+      return { index: artifactIndex, cwd };
     }
     return null;
   }, [artifactIndex, cwd, projectId, taskId]);
@@ -116,12 +116,15 @@ export function MessageList({
                 edited: [],
                 referenced: [],
               };
-              const turnChatLinkValue =
-                taskId !== undefined
-                  ? { index: turnIndex, taskId, projectId, cwd }
-                  : projectId !== undefined
-                    ? { index: turnIndex, projectId, cwd }
-                    : null;
+              const turnChatLinkValue = (() => {
+                if (taskId !== undefined) {
+                  return { index: turnIndex, taskId, cwd };
+                }
+                if (projectId !== undefined) {
+                  return { index: turnIndex, cwd };
+                }
+                return null;
+              })();
               return (
                 <div key={turn.id}>
                   {/* Markers sit between turns rather than inside them, so they are

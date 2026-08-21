@@ -1,10 +1,11 @@
 import { createElement, type ReactNode } from "react";
-import { render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import { RemoteContractError } from "@ora/contracts";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { describe, expect, it, vi } from "vitest";
 import { AppI18nProvider } from "../../i18n/i18n";
 import { ContractsClientContext } from "../../contracts-client-context";
+import { queryKeys } from "../../state/hooks/query-keys";
 import {
   createMockClient,
   createMockClientState,
@@ -320,5 +321,60 @@ describe("WorkspaceFilesView project scope", () => {
       { projectId: "project-1", path: "src/main.rs" },
       expect.objectContaining({ signal: expect.any(AbortSignal) }),
     );
+  });
+
+  it("defers an absolute file request when the project list query errors", async () => {
+    const client = createMockClient(createMockClientState());
+    const readProjectFile = vi.fn(async (request: { path: string }) => ({
+      path: request.path,
+      content: "fn main() {}\n",
+      version: "test",
+      sizeBytes: 12,
+    }));
+    client.fileSystem.readProjectFile = readProjectFile;
+    client.project.list = async () => {
+      throw new RemoteContractError(
+        {
+          code: "internal_error",
+          params: {},
+          requestId: "eb093a72-6961-4e9f-966a-3d5187958476",
+        },
+        null,
+      );
+    };
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false, staleTime: 0 } },
+    });
+    const wrapper = ({ children }: { children: ReactNode }) =>
+      createElement(
+        QueryClientProvider,
+        { client: queryClient },
+        createElement(
+          ContractsClientContext.Provider,
+          { value: client },
+          createElement(AppI18nProvider, null, children),
+        ),
+      );
+
+    render(
+      <WorkspaceFilesView
+        projectId="project-1"
+        hideHeader
+        fileRequest={{ path: "C:/repo/src/main.rs", requestId: 1 }}
+      />,
+      { wrapper },
+    );
+
+    // A failed project list never yields a checkout root, so the absolute path
+    // must stay deferred rather than flow unstripped to readProjectFile.
+    await waitFor(() => {
+      expect(queryClient.getQueryState(queryKeys.projects)?.status).toBe(
+        "error",
+      );
+    });
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    });
+    expect(readProjectFile).not.toHaveBeenCalled();
   });
 });

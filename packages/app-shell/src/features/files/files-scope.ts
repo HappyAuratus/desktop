@@ -151,10 +151,7 @@ export async function invalidateScopedFileQueries(
     ...(invalidateSearch
       ? [
           queryClient.invalidateQueries({
-            queryKey:
-              scope.kind === "task"
-                ? (["workspace-files", scope.taskId, "search"] as const)
-                : (["project-files", scope.projectId, "search"] as const),
+            queryKey: [...filesScopeQueryKey(scope), "search"],
           }),
         ]
       : []),

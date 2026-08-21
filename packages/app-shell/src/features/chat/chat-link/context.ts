@@ -5,8 +5,6 @@ export interface ChatLinkContextValue {
   index: SessionArtifactIndex;
   /** Present for task conversations; Desktop OS handoff resolves through this id. */
   taskId?: string;
-  /** Present for project-only draft chats so absolute paths strip against the checkout. */
-  projectId?: string;
   cwd?: string | null;
 }
 

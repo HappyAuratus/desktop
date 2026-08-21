@@ -79,6 +79,8 @@ export interface WorkspaceFileRequest {
 
 interface DirectoryTreeProps {
   scope: FilesScope;
+  /** Shared scope API from the parent; avoids re-creating it in every recursive node. */
+  scopeApi: ReturnType<typeof filesScopeApi>;
   path: string;
   depth: number;
   expanded: ReadonlySet<string>;
@@ -118,8 +120,12 @@ export function WorkspaceFilesView({
           ?.rootPath;
   // Absolute ACP paths need the checkout root before we consume requestId; otherwise
   // a later cwd load cannot re-strip and readWorkspaceFile/readProjectFile reject roots.
+  // A failed checkout query never yields a root, so treat pending and error alike:
+  // keep deferring until cwd resolves instead of feeding an unstripped absolute path.
   const checkoutPending =
-    scope.kind === "task" ? workspaceQuery.isPending : projectsQuery.isPending;
+    scope.kind === "task"
+      ? workspaceQuery.isPending || workspaceQuery.isError
+      : projectsQuery.isPending || projectsQuery.isError;
   const [internalSurface, setInternalSurface] = useState<"explorer" | "search">(
     "explorer",
   );
@@ -149,7 +155,10 @@ export function WorkspaceFilesView({
     const absolute =
       isAbsoluteWorkspacePath(rawPath) ||
       isAbsoluteWorkspacePath(normalizeDiffPath(displayPath(rawPath)));
-    if (!(absolute && checkoutPending && (cwd === undefined || cwd === ""))) {
+    // Defer absolute-path stripping until the checkout root resolves; a later cwd
+    // load re-processes the same requestId once isPending/isError clear.
+    const checkoutDeferred = absolute && checkoutPending && !cwd;
+    if (!checkoutDeferred) {
       setAppliedFileRequestId(fileRequest.requestId);
       const stripped = cwd
         ? (stripTaskCwdPrefix(rawPath, cwd) ??
@@ -398,6 +407,7 @@ export function WorkspaceFilesView({
                   ) : (
                     <DirectoryTree
                       scope={scope}
+                      scopeApi={scopeApi}
                       path=""
                       depth={0}
                       expanded={expanded}
@@ -482,6 +492,7 @@ export function WorkspaceFilesView({
 /** Loads one expanded directory lazily and renders its descendants recursively. */
 function DirectoryTree({
   scope,
+  scopeApi,
   path,
   depth,
   expanded,
@@ -489,9 +500,7 @@ function DirectoryTree({
   onToggleDirectory,
   onSelectFile,
 }: DirectoryTreeProps) {
-  const client = useContractsClient();
   const { t } = useTranslation();
-  const scopeApi = useMemo(() => filesScopeApi(client, scope), [client, scope]);
   const directoryQuery = useQuery({
     queryKey: directoryQueryKey(scope, path),
     queryFn: ({ signal }) => scopeApi.listDirectory(path, signal),
@@ -517,6 +526,7 @@ function DirectoryTree({
       key={entry.path}
       entry={entry}
       scope={scope}
+      scopeApi={scopeApi}
       depth={depth}
       expanded={expanded}
       selectedPath={selectedPath}
@@ -530,6 +540,7 @@ function DirectoryTree({
 function WorkspaceTreeEntry({
   entry,
   scope,
+  scopeApi,
   depth,
   expanded,
   selectedPath,
@@ -571,6 +582,7 @@ function WorkspaceTreeEntry({
       {isExpanded && (
         <DirectoryTree
           scope={scope}
+          scopeApi={scopeApi}
           path={entry.path}
           depth={depth + 1}
           expanded={expanded}
