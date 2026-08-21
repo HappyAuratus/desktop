@@ -66,9 +66,15 @@ export const SessionTreeRow = memo(function SessionTreeRow({
   const permissionRequired = useStore(chatStore, (s) =>
     Boolean(s.conversations[sessionId]?.pendingPermissions.length),
   );
-  const isResponding = useStore(chatStore, (s) =>
+  const isLoading = useStore(chatStore, (s) =>
+    Boolean(s.conversations[sessionId]?.isLoading),
+  );
+  const conversationResponding = useStore(chatStore, (s) =>
     Boolean(s.conversations[sessionId]?.isResponding),
   );
+  // Hide replay-time isResponding flashes while history loads. SessionStatus
+  // "running" only means the CLI connection is warm, not that a turn is in flight.
+  const isResponding = conversationResponding && !isLoading;
   const {
     renaming,
     draft,

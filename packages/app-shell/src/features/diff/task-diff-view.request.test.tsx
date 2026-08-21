@@ -45,7 +45,6 @@ function renderRequestedDiff(fileRequest?: {
   client.task.getDiff = async () => ({
     baseCommitId: "base",
     headCommitId: "head",
-    diffId: "diff-1",
     patch: MULTI_FILE_PATCH,
   });
   const queryClient = new QueryClient({
@@ -253,7 +252,6 @@ describe("TaskDiffView file requests", () => {
     client.task.getDiff = async () => ({
       baseCommitId: "base",
       headCommitId: "head",
-      diffId: "diff-1",
       patch,
     });
     const queryClient = new QueryClient({
@@ -307,5 +305,66 @@ describe("TaskDiffView file requests", () => {
     expect(
       document.querySelector(".diff-code-selected, .diff-selected"),
     ).toBeNull();
+  });
+});
+
+describe("TaskDiffView collapsed context", () => {
+  it("expands a collapsed unchanged block without crashing", async () => {
+    const client = createMockClient(createMockClientState());
+    const longContextPatch = [
+      "diff --git a/src/example.ts b/src/example.ts",
+      "index 1111111..2222222 100644",
+      "--- a/src/example.ts",
+      "+++ b/src/example.ts",
+      "@@ -1,20 +1,20 @@",
+      ...Array.from({ length: 9 }, (_, index) => ` line ${index + 1}`),
+      "-const value = 10;",
+      "+const value = 20;",
+      ...Array.from({ length: 10 }, (_, index) => ` line ${index + 11}`),
+      "",
+    ].join("\n");
+    client.task.getDiff = async () => ({
+      baseCommitId: "base",
+      headCommitId: "head",
+      patch: longContextPatch,
+    });
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false, staleTime: 0 } },
+    });
+    const wrapper = ({ children }: { children: ReactNode }) =>
+      createElement(
+        QueryClientProvider,
+        { client: queryClient },
+        createElement(
+          ContractsClientContext.Provider,
+          { value: client },
+          createElement(AppI18nProvider, null, children),
+        ),
+      );
+
+    render(
+      <TaskDiffView
+        taskId="task-1"
+        viewType="unified"
+        fileTreeOpen={false}
+        onFileTreeOpenChange={() => undefined}
+      />,
+      { wrapper },
+    );
+
+    const expandButtons = await screen.findAllByRole("button", {
+      name: /展开 \d+ 行未修改内容|Expand \d+ unchanged lines/,
+    });
+    expect(expandButtons.length).toBeGreaterThan(0);
+    await act(async () => {
+      expandButtons[0]!.click();
+    });
+    await waitFor(() => {
+      expect(
+        screen.queryAllByRole("button", {
+          name: /展开 \d+ 行未修改内容|Expand \d+ unchanged lines/,
+        }).length,
+      ).toBeLessThan(expandButtons.length);
+    });
   });
 });

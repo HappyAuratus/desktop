@@ -41,8 +41,8 @@ and stale-catalog authorization. Discovery uses Ora's injected bundled ripgrep w
 `WorkspaceReviewLayout` owns the established 900 px resizable right panel and expanded overlay.
 Project context offers **Files** only; task context offers **Changes** and **Files**. Spec documents
 live inside the Files panel as a dedicated **Specs** sub-view alongside **Explorer** and **Search**.
-Task Files opens on Explorer by default; project Files opens on Specs by default because project-root
-review does not expose a worktree file explorer.
+Task Files and project Files both open on Explorer by default. Specs remains a dedicated
+read-only sub-view in the same panel for either review context.
 
 The Specs sub-view places read-only content on the left and the grouped source tree on the right. It
 starts without an automatic document selection; the viewer stays empty until the user picks a tree

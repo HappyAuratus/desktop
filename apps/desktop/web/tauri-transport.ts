@@ -25,7 +25,8 @@ type TauriStreamOperation =
   | "promptSession"
   | "watchAppEvents"
   | "watchSpecs"
-  | "watchWorkspace";
+  | "watchWorkspace"
+  | "watchProject";
 type SupportedTauriOperation = Exclude<EndpointOperation, TauriStreamOperation>;
 
 const tauriCommands = {
@@ -51,10 +52,6 @@ const tauriCommands = {
   getTaskDiff: "get_task_diff",
   commitTaskChanges: "commit_task_changes",
   pushTaskBranch: "push_task_branch",
-  listTaskDiffComments: "list_task_diff_comments",
-  createTaskDiffComment: "create_task_diff_comment",
-  replyTaskDiffComment: "reply_task_diff_comment",
-  setTaskDiffCommentStatus: "set_task_diff_comment_status",
 
   // =============================================================================
   // fileSystem
@@ -63,6 +60,7 @@ const tauriCommands = {
   readWorkspaceFile: "read_workspace_file",
   searchWorkspace: "search_workspace",
   listProjectDirectory: "list_project_directory",
+  readProjectFile: "read_project_file",
   searchProject: "search_project",
 
   // =============================================================================
@@ -248,7 +246,8 @@ function isTauriStreamOperation(
     operation === "promptSession" ||
     operation === "watchAppEvents" ||
     operation === "watchSpecs" ||
-    operation === "watchWorkspace"
+    operation === "watchWorkspace" ||
+    operation === "watchProject"
   );
 }
 

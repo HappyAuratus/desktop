@@ -94,18 +94,6 @@ export const contractErrorSchema = z.object({
         "code": z.literal("task_diff_too_large"),
         "params": emptyErrorParamsSchema
     }), z.object({
-        "code": z.literal("task_diff_stale"),
-        "params": emptyErrorParamsSchema
-    }), z.object({
-        "code": z.literal("task_diff_comment_not_found"),
-        "params": emptyErrorParamsSchema
-    }), z.object({
-        "code": z.literal("task_diff_comment_invalid"),
-        "params": emptyErrorParamsSchema
-    }), z.object({
-        "code": z.literal("task_diff_comment_conflict"),
-        "params": emptyErrorParamsSchema
-    }), z.object({
         "code": z.literal("session_not_found"),
         "params": emptyErrorParamsSchema
     }), z.object({
@@ -391,18 +379,6 @@ export const publicErrorSchema = z.union([z.object({
         "params": emptyErrorParamsSchema
     }), z.object({
         "code": z.literal("task_diff_too_large"),
-        "params": emptyErrorParamsSchema
-    }), z.object({
-        "code": z.literal("task_diff_stale"),
-        "params": emptyErrorParamsSchema
-    }), z.object({
-        "code": z.literal("task_diff_comment_not_found"),
-        "params": emptyErrorParamsSchema
-    }), z.object({
-        "code": z.literal("task_diff_comment_invalid"),
-        "params": emptyErrorParamsSchema
-    }), z.object({
-        "code": z.literal("task_diff_comment_conflict"),
         "params": emptyErrorParamsSchema
     }), z.object({
         "code": z.literal("session_not_found"),

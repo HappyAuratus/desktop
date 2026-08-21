@@ -49,7 +49,6 @@ fn bootstraps_empty_database_with_default_catalog() {
             "projects".to_string(),
             "sessions".to_string(),
             "skills".to_string(),
-            "task_diff_comments".to_string(),
             "tasks".to_string(),
             "user_config".to_string(),
             "workflow_node_runs".to_string(),
@@ -71,6 +70,7 @@ fn bootstraps_empty_database_with_default_catalog() {
             AppliedMigration::new("0006", 1_700_000_000_000),
             AppliedMigration::new("0007", 1_700_000_000_000),
             AppliedMigration::new("0008", 1_700_000_000_000),
+            AppliedMigration::new("0009", 1_700_000_000_000),
         ]
     );
 }
@@ -202,7 +202,7 @@ fn manages_skill_and_agent_definition_schema_lifecycle() {
     let database_path = temp_dir.path().join("skill-agent.sqlite3");
     let catalog = default_migration_catalog().unwrap();
     let migrations = [
-        "0001", "0002", "0003", "0004", "0005", "0006", "0007", "0008",
+        "0001", "0002", "0003", "0004", "0005", "0006", "0007", "0008", "0009",
     ]
     .map(|version| {
         catalog

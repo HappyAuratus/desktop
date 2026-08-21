@@ -3,7 +3,7 @@ import type { CreateAgentRequest, CreateAgentResponse, DeleteAgentRequest, Delet
 import type { CommitAgentImportRequest, CommitAgentImportResponse, PrepareAgentImportRequest, PrepareAgentImportResponse } from "./agent-import.js";
 import type { AppEvent, WatchAppEventsRequest } from "./app_event.js";
 import type { DeveloperModeResponse, GetDeveloperModeRequest, SetDeveloperModeRequest } from "./developerMode.js";
-import type { ListProjectDirectoryRequest, ListWorkspaceDirectoryRequest, ListWorkspaceDirectoryResponse, ReadWorkspaceFileRequest, ReadWorkspaceFileResponse, SearchProjectRequest, SearchWorkspaceRequest, SearchWorkspaceResponse, WatchWorkspaceRequest, WorkspaceFileEventBatch } from "./file-system.js";
+import type { ListProjectDirectoryRequest, ListWorkspaceDirectoryRequest, ListWorkspaceDirectoryResponse, ReadProjectFileRequest, ReadWorkspaceFileRequest, ReadWorkspaceFileResponse, SearchProjectRequest, SearchWorkspaceRequest, SearchWorkspaceResponse, WatchProjectRequest, WatchWorkspaceRequest, WorkspaceFileEventBatch } from "./file-system.js";
 import type { GetGitIdentityRequest, GitIdentityResponse } from "./git.js";
 import type { ActivatePluginRequest, ActivatePluginResponse, DisablePluginRequest, DisablePluginResponse, EnablePluginRequest, EnablePluginResponse, InstallPluginRequest, InstallPluginResponse, ListAvailablePluginsRequest, ListAvailablePluginsResponse, ListInstalledPluginsRequest, ListInstalledPluginsResponse, ScanPluginsRequest, ScanPluginsResponse, StopPluginRequest, StopPluginResponse, SyncAvailablePluginsRequest, SyncAvailablePluginsResponse, UninstallPluginRequest, UninstallPluginResponse } from "./plugin.js";
 import type { CreateProjectRequest, CreateProjectResponse, DeleteProjectRequest, DeleteProjectResponse, GetProjectRequest, GetProjectResponse, ListProjectBranchesRequest, ListProjectBranchesResponse, ListProjectsRequest, ListProjectsResponse, UpdateProjectRequest, UpdateProjectResponse } from "./project.js";
@@ -13,7 +13,7 @@ import type { CreateSkillRequest, CreateSkillResponse, DeleteSkillRequest, Delet
 import type { CancelSkillImportRequest, CancelSkillImportResponse, CommitSkillImportRequest, CommitSkillImportResponse, GetSkillImportSessionRequest, GetSkillImportSessionResponse, PrepareSkillImportRequest, PrepareSkillImportResponse } from "./skill-import.js";
 import type { GetSpecCatalogRequest, ReadSpecRequest, ReadSpecResponse, SpecCatalogResponse, WatchSpecsRequest } from "./spec.js";
 import type { CreateTaskRequest, CreateTaskResponse, DeleteTaskRequest, DeleteTaskResponse, GetTaskRequest, GetTaskResponse, GetTaskWorkspaceRequest, GetTaskWorkspaceResponse, ListTasksRequest, ListTasksResponse, UpdateTaskRequest, UpdateTaskResponse } from "./task.js";
-import type { CommitTaskChangesRequest, CommitTaskChangesResponse, CreateTaskDiffCommentRequest, CreateTaskDiffCommentResponse, GetTaskDiffRequest, GetTaskDiffResponse, ListTaskDiffCommentsRequest, ListTaskDiffCommentsResponse, PushTaskBranchRequest, PushTaskBranchResponse, ReplyTaskDiffCommentRequest, ReplyTaskDiffCommentResponse, SetTaskDiffCommentStatusRequest, SetTaskDiffCommentStatusResponse } from "./task_diff.js";
+import type { CommitTaskChangesRequest, CommitTaskChangesResponse, GetTaskDiffRequest, GetTaskDiffResponse, PushTaskBranchRequest, PushTaskBranchResponse } from "./task_diff.js";
 import type { ActivateWorkflowRequest, ActivateWorkflowResponse, CreateWorkflowRequest, CreateWorkflowResponse, DeleteSnapshotRequest, DeleteSnapshotResponse, DeleteWorkflowRequest, DeleteWorkflowResponse, GetDraftRequest, GetDraftResponse, GetVersionRequest, GetVersionResponse, GetWorkflowRequest, GetWorkflowResponse, GetWorkflowSnapshotRequest, GetWorkflowSnapshotResponse, ListVersionsRequest, ListVersionsResponse, ListWorkflowsRequest, ListWorkflowsResponse, PublishWorkflowRequest, PublishWorkflowResponse, RollbackWorkflowRequest, RollbackWorkflowResponse, UpdateDraftRequest, UpdateDraftResponse, UpdateWorkflowRequest, UpdateWorkflowResponse } from "./workflow.js";
 import type { CancelWorkflowRunRequest, CancelWorkflowRunResponse, CompleteWorkflowNodeRequest, CompleteWorkflowNodeResponse, CreateWorkflowRunRequest, CreateWorkflowRunResponse, DeleteWorkflowRunRequest, DeleteWorkflowRunResponse, GetWorkflowRunRequest, GetWorkflowRunResponse, ListWorkflowNodeRunsRequest, ListWorkflowNodeRunsResponse, ListWorkflowRunsByWorkflowRequest, ListWorkflowRunsByWorkflowResponse, ListWorkflowRunsRequest, ListWorkflowRunsResponse, RestartWorkflowRunRequest, RestartWorkflowRunResponse, StartWorkflowRunRequest, StartWorkflowRunResponse, UpdateWorkflowRunInputRequest, UpdateWorkflowRunInputResponse } from "./workflowRun.js";
 export type FrontendEndpointDefinition = {
@@ -45,10 +45,6 @@ export type RequestByOperation = {
   getTaskDiff: GetTaskDiffRequest;
   commitTaskChanges: CommitTaskChangesRequest;
   pushTaskBranch: PushTaskBranchRequest;
-  listTaskDiffComments: ListTaskDiffCommentsRequest;
-  createTaskDiffComment: CreateTaskDiffCommentRequest;
-  replyTaskDiffComment: ReplyTaskDiffCommentRequest;
-  setTaskDiffCommentStatus: SetTaskDiffCommentStatusRequest;
   warmSession: WarmSessionRequest;
   setSessionConfig: SetSessionConfigRequest;
   attachSession: AttachSessionRequest;
@@ -96,7 +92,9 @@ export type RequestByOperation = {
   searchWorkspace: SearchWorkspaceRequest;
   watchWorkspace: WatchWorkspaceRequest;
   listProjectDirectory: ListProjectDirectoryRequest;
+  readProjectFile: ReadProjectFileRequest;
   searchProject: SearchProjectRequest;
+  watchProject: WatchProjectRequest;
   getGitIdentity: GetGitIdentityRequest;
   getSpecCatalog: GetSpecCatalogRequest;
   readSpec: ReadSpecRequest;
@@ -148,10 +146,6 @@ export type ResponseByOperation = {
   getTaskDiff: GetTaskDiffResponse;
   commitTaskChanges: CommitTaskChangesResponse;
   pushTaskBranch: PushTaskBranchResponse;
-  listTaskDiffComments: ListTaskDiffCommentsResponse;
-  createTaskDiffComment: CreateTaskDiffCommentResponse;
-  replyTaskDiffComment: ReplyTaskDiffCommentResponse;
-  setTaskDiffCommentStatus: SetTaskDiffCommentStatusResponse;
   warmSession: WarmSessionResponse;
   setSessionConfig: SetSessionConfigResponse;
   attachSession: AttachSessionResponse;
@@ -199,7 +193,9 @@ export type ResponseByOperation = {
   searchWorkspace: SearchWorkspaceResponse;
   watchWorkspace: WorkspaceFileEventBatch;
   listProjectDirectory: ListWorkspaceDirectoryResponse;
+  readProjectFile: ReadWorkspaceFileResponse;
   searchProject: SearchWorkspaceResponse;
+  watchProject: WorkspaceFileEventBatch;
   getGitIdentity: GitIdentityResponse;
   getSpecCatalog: SpecCatalogResponse;
   readSpec: ReadSpecResponse;
@@ -384,38 +380,6 @@ export const endpoints = {
     memberName: "pushBranch",
     requestType: "PushTaskBranchRequest",
     responseType: "PushTaskBranchResponse",
-    responseMode: "unary",
-  },
-  listTaskDiffComments: {
-    operationName: "listTaskDiffComments",
-    namespace: "task",
-    memberName: "listDiffComments",
-    requestType: "ListTaskDiffCommentsRequest",
-    responseType: "ListTaskDiffCommentsResponse",
-    responseMode: "unary",
-  },
-  createTaskDiffComment: {
-    operationName: "createTaskDiffComment",
-    namespace: "task",
-    memberName: "createDiffComment",
-    requestType: "CreateTaskDiffCommentRequest",
-    responseType: "CreateTaskDiffCommentResponse",
-    responseMode: "unary",
-  },
-  replyTaskDiffComment: {
-    operationName: "replyTaskDiffComment",
-    namespace: "task",
-    memberName: "replyDiffComment",
-    requestType: "ReplyTaskDiffCommentRequest",
-    responseType: "ReplyTaskDiffCommentResponse",
-    responseMode: "unary",
-  },
-  setTaskDiffCommentStatus: {
-    operationName: "setTaskDiffCommentStatus",
-    namespace: "task",
-    memberName: "setDiffCommentStatus",
-    requestType: "SetTaskDiffCommentStatusRequest",
-    responseType: "SetTaskDiffCommentStatusResponse",
     responseMode: "unary",
   },
   warmSession: {
@@ -794,6 +758,14 @@ export const endpoints = {
     responseType: "ListWorkspaceDirectoryResponse",
     responseMode: "unary",
   },
+  readProjectFile: {
+    operationName: "readProjectFile",
+    namespace: "fileSystem",
+    memberName: "readProjectFile",
+    requestType: "ReadProjectFileRequest",
+    responseType: "ReadWorkspaceFileResponse",
+    responseMode: "unary",
+  },
   searchProject: {
     operationName: "searchProject",
     namespace: "fileSystem",
@@ -801,6 +773,14 @@ export const endpoints = {
     requestType: "SearchProjectRequest",
     responseType: "SearchWorkspaceResponse",
     responseMode: "unary",
+  },
+  watchProject: {
+    operationName: "watchProject",
+    namespace: "fileSystem",
+    memberName: "watchProject",
+    requestType: "WatchProjectRequest",
+    responseType: "WorkspaceFileEventBatch",
+    responseMode: "stream",
   },
   getGitIdentity: {
     operationName: "getGitIdentity",

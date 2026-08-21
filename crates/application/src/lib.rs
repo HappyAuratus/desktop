@@ -54,13 +54,10 @@ pub use task::{
 };
 pub use task::{PROVISIONING_LEASE_DURATION_MS, ProvisioningLeaseRenewal, TaskWorkspaceCommit};
 pub use task_diff::{
-    CommitTaskChangesHandler, CommitTaskGitRequest, CreateTaskDiffCommentHandler,
-    GitTaskDiffReader, GitTaskGitWriter, ListTaskDiffCommentsHandler, PushTaskBranchHandler,
-    PushTaskGitRequest, ReadTaskDiffRequest, ReadTaskDiffScope, ReplyTaskDiffCommentHandler,
-    SetTaskDiffCommentStatusHandler, TaskDiffCommentIdGenerator, TaskDiffCommentRepository,
-    TaskDiffCommentRepositoryError, TaskDiffReader, TaskDiffReaderError, TaskDiffSnapshot,
-    TaskGitCommit, TaskGitPush, TaskGitWriter, TaskGitWriterError, UuidTaskDiffCommentIdGenerator,
-    task_diff_id,
+    CommitTaskChangesHandler, CommitTaskGitRequest, GitTaskDiffReader, GitTaskGitWriter,
+    PushTaskBranchHandler, PushTaskGitRequest, ReadTaskDiffRequest, ReadTaskDiffScope,
+    TaskDiffReader, TaskDiffReaderError, TaskDiffSnapshot, TaskGitCommit, TaskGitPush,
+    TaskGitWriter, TaskGitWriterError,
 };
 pub use user_config::{DeveloperMode, UserConfigRepository, UserConfigService};
 pub use workflow::{

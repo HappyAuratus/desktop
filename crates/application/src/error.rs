@@ -4,8 +4,7 @@ use crate::workflow_run::{
     EngineError, GraphError, StartPrerequisitesError, WorkflowValidationError,
 };
 use crate::{
-    BoxRepositorySource, BranchListingError, RepositoryError, TaskDiffCommentRepositoryError,
-    TaskDiffReaderError, TaskWorktreeProvisionerError,
+    BoxRepositorySource, BranchListingError, RepositoryError, TaskWorktreeProvisionerError,
 };
 use ora_domain::DomainModelError;
 use thiserror::Error;
@@ -118,26 +117,6 @@ pub enum ApplicationError {
     },
     #[error("task diff commit message must not be blank")]
     TaskDiffCommitMessageBlank,
-    #[error("task diff baseline is unavailable")]
-    TaskDiffBaselineUnavailable,
-    #[error("task diff is too large: {byte_count} bytes exceeds {max_byte_count} bytes")]
-    TaskDiffTooLarge {
-        byte_count: usize,
-        max_byte_count: usize,
-    },
-    #[error("task diff changed before the comment was created")]
-    TaskDiffStale,
-    #[error("task diff comment not found: {comment_id}")]
-    TaskDiffCommentNotFound { comment_id: String },
-    #[error("invalid task diff comment: {message}")]
-    TaskDiffCommentInvalid { message: String },
-    #[error("task diff comment conflicts with stored state: {message}")]
-    TaskDiffCommentConflict { message: String },
-    #[error("task diff comment repository operation failed")]
-    TaskDiffCommentRepository {
-        #[source]
-        source: BoxRepositorySource,
-    },
     #[error("worktree not found: {worktree_id}")]
     WorktreeNotFound { worktree_id: String },
     #[error("worktree repository operation failed")]
@@ -323,37 +302,6 @@ impl ApplicationError {
         }
     }
 
-    /// Maps task diff reader failures while preserving infrastructure diagnostics.
-    pub(crate) fn from_task_diff_reader_error(error: TaskDiffReaderError) -> Self {
-        match error {
-            TaskDiffReaderError::OperationFailed(source) => Self::TaskDiff { source },
-            TaskDiffReaderError::TooLarge {
-                byte_count,
-                max_byte_count,
-            } => Self::TaskDiffTooLarge {
-                byte_count,
-                max_byte_count,
-            },
-        }
-    }
-
-    /// Maps task diff comment persistence failures while preserving infrastructure diagnostics.
-    pub(crate) fn from_task_diff_comment_repository_error(
-        error: TaskDiffCommentRepositoryError,
-    ) -> Self {
-        match error {
-            TaskDiffCommentRepositoryError::OperationFailed(source) => {
-                Self::TaskDiffCommentRepository { source }
-            }
-            TaskDiffCommentRepositoryError::Invalid(message) => {
-                Self::TaskDiffCommentInvalid { message }
-            }
-            TaskDiffCommentRepositoryError::Conflict(message) => {
-                Self::TaskDiffCommentConflict { message }
-            }
-        }
-    }
-
     /// Builds an internal task diff failure for an invariant that was violated below the handler.
     pub(crate) fn task_diff_failure(error: impl std::error::Error + Send + Sync + 'static) -> Self {
         Self::TaskDiff {
@@ -469,7 +417,6 @@ impl PartialEq for ApplicationError {
             | (ProjectBranchListing { .. }, ProjectBranchListing { .. })
             | (TaskRepository { .. }, TaskRepository { .. })
             | (TaskWorktreeProvisioner { .. }, TaskWorktreeProvisioner { .. })
-            | (TaskDiffStale, TaskDiffStale)
             | (TaskDiffCommitMessageBlank, TaskDiffCommitMessageBlank)
             | (WorktreeRepository { .. }, WorktreeRepository { .. })
             | (SessionRepository { .. }, SessionRepository { .. })
@@ -531,30 +478,6 @@ impl PartialEq for ApplicationError {
                 TaskBaseBranchNotFound { branch_name: right },
             ) => left == right,
             (TaskDiff { .. }, TaskDiff { .. }) => true,
-            (
-                TaskDiffCommentInvalid { message: left },
-                TaskDiffCommentInvalid { message: right },
-            ) => left == right,
-            (
-                TaskDiffCommentConflict { message: left },
-                TaskDiffCommentConflict { message: right },
-            ) => left == right,
-            (TaskDiffCommentRepository { .. }, TaskDiffCommentRepository { .. }) => true,
-            (TaskDiffBaselineUnavailable, TaskDiffBaselineUnavailable) => true,
-            (
-                TaskDiffTooLarge {
-                    byte_count: left_bytes,
-                    max_byte_count: left_max,
-                },
-                TaskDiffTooLarge {
-                    byte_count: right_bytes,
-                    max_byte_count: right_max,
-                },
-            ) => left_bytes == right_bytes && left_max == right_max,
-            (
-                TaskDiffCommentNotFound { comment_id: left },
-                TaskDiffCommentNotFound { comment_id: right },
-            ) => left == right,
             (
                 TaskWorktreeIdExhausted { attempts: left },
                 TaskWorktreeIdExhausted { attempts: right },

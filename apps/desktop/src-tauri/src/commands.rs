@@ -290,34 +290,6 @@ backend_command!(
     push_task_branch,
     "Pushes one task worktree branch through the shared Backend."
 );
-backend_command!(
-    list_task_diff_comments,
-    ListTaskDiffCommentsRequest,
-    ListTaskDiffCommentsResponse,
-    list_task_diff_comments,
-    "Lists task diff discussions through the shared Backend."
-);
-backend_command!(
-    create_task_diff_comment,
-    CreateTaskDiffCommentRequest,
-    CreateTaskDiffCommentResponse,
-    create_task_diff_comment,
-    "Creates one task diff discussion through the shared Backend."
-);
-backend_command!(
-    reply_task_diff_comment,
-    ReplyTaskDiffCommentRequest,
-    ReplyTaskDiffCommentResponse,
-    reply_task_diff_comment,
-    "Replies to one task diff discussion through the shared Backend."
-);
-backend_command!(
-    set_task_diff_comment_status,
-    SetTaskDiffCommentStatusRequest,
-    SetTaskDiffCommentStatusResponse,
-    set_task_diff_comment_status,
-    "Updates one task diff discussion through the shared Backend."
-);
 
 // =============================================================================
 // fileSystem
@@ -425,6 +397,22 @@ pub async fn list_project_directory(
     .await
 }
 
+/// Reads one bounded UTF-8 file in the selected project checkout root.
+#[tauri::command]
+pub async fn read_project_file(
+    state: State<'_, DesktopState>,
+    request: ReadProjectFileRequest,
+) -> Result<ReadWorkspaceFileResponse, CommandError> {
+    run_workspace_backend(
+        "read_project_file",
+        state.backend.clone(),
+        state.workspace_files.clone(),
+        request,
+        read_project_file_backend,
+    )
+    .await
+}
+
 /// Searches the selected project checkout with bounded ripgrep output.
 #[tauri::command]
 pub async fn search_project(
@@ -465,6 +453,18 @@ fn list_project_directory_backend(
         .unwrap_or_else(|| Path::new(""));
     workspace_files
         .list_directory(&root, path)
+        .map_err(workspace_file_backend_error)
+}
+
+/// Resolves a project checkout and reads the requested relative file.
+fn read_project_file_backend(
+    backend: &Backend,
+    workspace_files: &WorkspaceFileApi,
+    request: ReadProjectFileRequest,
+) -> Result<ReadWorkspaceFileResponse, BackendError> {
+    let root = backend.resolve_project_cwd(&request.project_id)?;
+    workspace_files
+        .read_file(&root, Path::new(&request.path))
         .map_err(workspace_file_backend_error)
 }
 
@@ -701,36 +701,46 @@ pub async fn stream_contract(
                     .map_err(|error| {
                         CommandError::from_backend_with_lifecycle(error, &lifecycle)
                     })?;
-            let workspace_files = state.workspace_files.clone();
-            let watcher =
-                tauri::async_runtime::spawn_blocking(move || workspace_files.watch(&root))
-                    .await
-                    .map_err(|source| {
-                        CommandError::from_backend_with_lifecycle(
-                            BackendError::internal(
-                                "Desktop workspace watcher setup failed",
-                                source,
-                            ),
-                            &lifecycle,
-                        )
-                    })?
-                    .map_err(|error| {
-                        CommandError::from_backend_with_lifecycle(
-                            workspace_file_backend_error(error),
-                            &lifecycle,
-                        )
-                    })?;
-            register_contract_stream(&state, &stream_call_id, &cancellation)
-                .map_err(|error| CommandError::from_backend_with_lifecycle(error, &lifecycle))?;
-            let registry = state.stream_cancellations.clone();
-            tauri::async_runtime::spawn(forward_workspace_watch(
-                watcher,
-                cancellation,
+            start_workspace_watch(
+                state,
+                root,
                 stream_call_id,
-                registry,
                 on_event,
                 lifecycle,
-            ));
+                cancellation,
+            )
+            .await?;
+        }
+        "watchProject" => {
+            let request =
+                serde_json::from_value::<WatchProjectRequest>(request).map_err(|source| {
+                    CommandError::from_backend_with_lifecycle(
+                        BackendError::internal("failed to decode stream request", source),
+                        &lifecycle,
+                    )
+                })?;
+            let project_id = request.project_id;
+            let backend = state.backend.clone();
+            let root = tauri::async_runtime::spawn_blocking(move || {
+                backend.resolve_project_cwd(&project_id)
+            })
+            .await
+            .map_err(|source| {
+                CommandError::from_backend_with_lifecycle(
+                    BackendError::internal("Desktop project root resolution failed", source),
+                    &lifecycle,
+                )
+            })?
+            .map_err(|error| CommandError::from_backend_with_lifecycle(error, &lifecycle))?;
+            start_workspace_watch(
+                state,
+                root,
+                stream_call_id,
+                on_event,
+                lifecycle,
+                cancellation,
+            )
+            .await?;
         }
         "watchSpecs" => {
             return crate::spec_commands::start_watch(
@@ -754,6 +764,44 @@ pub async fn stream_contract(
             ));
         }
     }
+    Ok(())
+}
+
+/// Starts a native filesystem watcher for an already-resolved checkout root.
+async fn start_workspace_watch(
+    state: State<'_, DesktopState>,
+    root: PathBuf,
+    stream_call_id: String,
+    on_event: Channel<serde_json::Value>,
+    lifecycle: RequestLifecycle,
+    cancellation: CancellationToken,
+) -> Result<(), CommandError> {
+    let workspace_files = state.workspace_files.clone();
+    let watcher = tauri::async_runtime::spawn_blocking(move || workspace_files.watch(&root))
+        .await
+        .map_err(|source| {
+            CommandError::from_backend_with_lifecycle(
+                BackendError::internal("Desktop workspace watcher setup failed", source),
+                &lifecycle,
+            )
+        })?
+        .map_err(|error| {
+            CommandError::from_backend_with_lifecycle(
+                workspace_file_backend_error(error),
+                &lifecycle,
+            )
+        })?;
+    register_contract_stream(&state, &stream_call_id, &cancellation)
+        .map_err(|error| CommandError::from_backend_with_lifecycle(error, &lifecycle))?;
+    let registry = state.stream_cancellations.clone();
+    tauri::async_runtime::spawn(forward_workspace_watch(
+        watcher,
+        cancellation,
+        stream_call_id,
+        registry,
+        on_event,
+        lifecycle,
+    ));
     Ok(())
 }
 

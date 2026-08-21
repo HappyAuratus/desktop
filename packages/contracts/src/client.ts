@@ -82,19 +82,6 @@ export function createContractsClient(
         executeOperation("commitTaskChanges", request, transport, options),
       pushBranch: (request, options) =>
         executeOperation("pushTaskBranch", request, transport, options),
-      listDiffComments: (request, options) =>
-        executeOperation("listTaskDiffComments", request, transport, options),
-      createDiffComment: (request, options) =>
-        executeOperation("createTaskDiffComment", request, transport, options),
-      replyDiffComment: (request, options) =>
-        executeOperation("replyTaskDiffComment", request, transport, options),
-      setDiffCommentStatus: (request, options) =>
-        executeOperation(
-          "setTaskDiffCommentStatus",
-          request,
-          transport,
-          options,
-        ),
     },
     session: {
       warm: (request, options) =>
@@ -212,8 +199,12 @@ export function createContractsClient(
         executeStreamOperation("watchWorkspace", request, transport, options),
       listProjectDirectory: (request, options) =>
         executeOperation("listProjectDirectory", request, transport, options),
+      readProjectFile: (request, options) =>
+        executeOperation("readProjectFile", request, transport, options),
       searchProject: (request, options) =>
         executeOperation("searchProject", request, transport, options),
+      watchProject: (request, options) =>
+        executeStreamOperation("watchProject", request, transport, options),
     },
     spec: {
       catalog: (request, options) =>

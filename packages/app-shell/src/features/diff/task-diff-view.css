@@ -90,39 +90,6 @@
   color: var(--muted-foreground);
 }
 
-.ora-task-diff--reviewable .diff-gutter {
-  cursor: pointer;
-}
-
-.ora-task-diff--reviewable .diff-gutter:hover {
-  color: transparent;
-  background: color-mix(in oklab, var(--primary) 14%, transparent);
-}
-
-.ora-task-diff--reviewable .diff-gutter::after {
-  position: absolute;
-  inset: 50% auto auto 50%;
-  display: grid;
-  width: 16px;
-  height: 16px;
-  place-items: center;
-  border-radius: 4px;
-  background: var(--primary);
-  color: var(--primary-foreground);
-  content: "+";
-  font-family: var(--font-sans);
-  font-size: 14px;
-  font-weight: 600;
-  line-height: 1;
-  opacity: 0;
-  pointer-events: none;
-  transform: translate(-50%, -50%);
-}
-
-.ora-task-diff--reviewable .diff-gutter:hover::after {
-  opacity: 1;
-}
-
 .ora-task-diff .diff-code {
   padding-inline: 10px;
   white-space: pre;
@@ -193,12 +160,6 @@
   grid-row: 1;
 }
 
-.ora-task-diff--split.ora-task-diff--modify .diff-widget {
-  display: grid;
-  width: 100%;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-}
-
 .ora-task-diff--split.ora-task-diff--modify .diff-decoration > tr {
   display: block;
 }
@@ -206,21 +167,6 @@
 .ora-task-diff--split.ora-task-diff--modify .diff-decoration-content {
   display: block;
   width: 100%;
-}
-
-.ora-task-diff--split.ora-task-diff--modify
-  .diff-widget
-  > :first-child:not(:only-child) {
-  grid-column: 2;
-}
-
-.ora-task-diff--split.ora-task-diff--modify .diff-widget > :nth-child(2) {
-  grid-column: 1;
-  grid-row: 1;
-}
-
-.ora-task-diff--split.ora-task-diff--modify .diff-widget > :only-child {
-  grid-column: 1 / -1;
 }
 
 .ora-task-diff--split.ora-task-diff--add .diff-split {
@@ -235,19 +181,6 @@
 .ora-task-diff .diff-hunk {
   color: var(--muted-foreground);
   background: color-mix(in oklab, var(--muted) 65%, transparent);
-}
-
-.ora-task-diff .diff-widget-content {
-  padding: 10px 12px;
-  background: var(--background);
-}
-
-.ora-task-diff .ora-comment-composer {
-  position: sticky;
-  left: 12px;
-  width: min(42rem, calc(100cqi - 24px));
-  max-width: calc(100cqi - 24px);
-  box-sizing: border-box;
 }
 
 .ora-task-diff .ora-diff-collapsed {

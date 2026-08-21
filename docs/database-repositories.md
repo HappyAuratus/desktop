@@ -12,7 +12,6 @@
 | `SqliteWorktreeRepository`                  | `WorktreeRepository`                            |
 | `SqliteSkillRepository`                     | `SkillRepository`                               |
 | `SqliteAgentDefinitionRepository`           | `AgentDefinitionRepository`                     |
-| `SqliteTaskDiffCommentRepository`           | `TaskDiffCommentRepository`                     |
 | `SqliteWorkflowRepository`                  | `WorkflowRepository`                            |
 | `SqliteWorkflowRunRepository`               | `WorkflowRunRepository`                         |
 | `SqliteCascadeRepository`                   | aggregate deletion used by `ora-backend`        |
@@ -52,7 +51,6 @@ Repositories map SQLite columns onto the current `ora-domain` shapes, including 
 - `tasks.worktree_id` becomes `Option<WorktreeId>`.
 - `sessions.status` becomes `SessionStatus`; `sessions.agent_cli` text becomes `AgentCli` through the namespaced persisted value; nullable `sessions.title` becomes `Option<SessionTitle>` after domain validation; the nullable `sessions.history_degraded_reason` becomes `HistoryState`, where absence means writable.
 - `worktrees.is_active` becomes `WorktreeActivity`; `worktrees.branch_name` stays optional.
-- `task_diff_comments` maps root-thread columns and reply columns into the mutually exclusive `TaskDiffCommentKind` enum. Visible comments are returned in `(created_at, id)` order; malformed rows fail rather than being coerced.
 
 An unrecognized persisted category value is a mapping failure, not a silently coerced default.
 

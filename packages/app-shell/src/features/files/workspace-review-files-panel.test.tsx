@@ -16,12 +16,17 @@ vi.mock("./workspace-files-view", () => ({
   WorkspaceFilesView: ({
     surface,
     fileRequest,
+    projectId,
+    taskId,
   }: {
     surface: "explorer" | "search";
     fileRequest?: { path: string; requestId: number; line?: number };
+    projectId: string;
+    taskId?: string;
   }) => (
     <div data-testid="files-explorer">
-      {surface}:{fileRequest?.path ?? ""}:{fileRequest?.line ?? ""}
+      {surface}:{projectId}:{taskId ?? ""}:{fileRequest?.path ?? ""}:
+      {fileRequest?.line ?? ""}
     </div>
   ),
 }));
@@ -64,18 +69,22 @@ describe("WorkspaceReviewFilesPanel", () => {
     ).toBeInTheDocument();
   });
 
-  it("opens project files directly on specs and hides explorer/search toggles", () => {
+  it("opens project files on explorer with search available when no task is selected", () => {
     renderPanel({});
 
-    expect(screen.getByTestId("specs-content")).toBeInTheDocument();
+    expect(screen.getByTestId("files-explorer")).toHaveTextContent(
+      "explorer:project-1::",
+    );
     expect(
-      screen.queryByRole("button", { name: /浏览|Explorer/ }),
-    ).not.toBeInTheDocument();
+      screen.getByRole("button", { name: /资源管理器|Explorer/ }),
+    ).toBeInTheDocument();
     expect(
-      screen.queryByRole("button", { name: /搜索|Search/ }),
-    ).not.toBeInTheDocument();
+      screen.getByRole("button", { name: /搜索|Search/ }),
+    ).toBeInTheDocument();
     expect(
-      screen.getByRole("button", { name: /刷新 Specs|Refresh Specs/ }),
+      screen.getByRole("button", {
+        name: /刷新工作区文件|Refresh workspace files/,
+      }),
     ).toBeInTheDocument();
   });
 
@@ -86,7 +95,17 @@ describe("WorkspaceReviewFilesPanel", () => {
     });
 
     expect(screen.getByTestId("files-explorer")).toHaveTextContent(
-      "explorer:src/lib.ts:8",
+      "explorer:project-1:task-1:src/lib.ts:8",
+    );
+  });
+
+  it("opens a project-scoped file request without a task", () => {
+    renderPanel({
+      fileRequest: { path: "README.md", requestId: 2, line: 1 },
+    });
+
+    expect(screen.getByTestId("files-explorer")).toHaveTextContent(
+      "explorer:project-1::README.md:1",
     );
   });
 });

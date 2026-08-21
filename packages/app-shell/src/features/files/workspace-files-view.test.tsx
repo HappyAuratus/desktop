@@ -1,10 +1,11 @@
 import { createElement, type ReactNode } from "react";
-import { render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import { RemoteContractError } from "@ora/contracts";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { describe, expect, it, vi } from "vitest";
 import { AppI18nProvider } from "../../i18n/i18n";
 import { ContractsClientContext } from "../../contracts-client-context";
+import { queryKeys } from "../../state/hooks/query-keys";
 import {
   createMockClient,
   createMockClientState,
@@ -39,6 +40,7 @@ function renderMissingFile() {
     );
   return render(
     <WorkspaceFilesView
+      projectId="project-1"
       taskId="f06fdb43-1297-4ba3-9143-a7a95ee85b0b"
       hideHeader
       fileRequest={{ path: "crates/acp/src/lib.rs", requestId: 1 }}
@@ -86,6 +88,7 @@ function renderRequestedFile(path: string, line?: number) {
     );
   const view = render(
     <WorkspaceFilesView
+      projectId="project-1"
       taskId="task-1"
       hideHeader
       fileRequest={{
@@ -108,10 +111,13 @@ describe("WorkspaceFilesView file requests", () => {
     );
 
     expect(await screen.findByText("src/main.rs:2:1")).toBeInTheDocument();
-    expect(readWorkspaceFile).toHaveBeenCalledWith({
-      taskId: "task-1",
-      path: "src/main.rs",
-    });
+    expect(readWorkspaceFile).toHaveBeenCalledWith(
+      {
+        taskId: "task-1",
+        path: "src/main.rs",
+      },
+      expect.objectContaining({ signal: expect.any(AbortSignal) }),
+    );
     await waitFor(() => {
       expect(container.querySelector('[data-line-number="2"]')).toHaveAttribute(
         "aria-current",
@@ -159,6 +165,7 @@ describe("WorkspaceFilesView file requests", () => {
       );
     const { rerender } = render(
       <WorkspaceFilesView
+        projectId="project-1"
         taskId="task-1"
         hideHeader
         fileRequest={{ path: "src/main.rs", requestId: 1 }}
@@ -171,6 +178,7 @@ describe("WorkspaceFilesView file requests", () => {
     missing = true;
     rerender(
       <WorkspaceFilesView
+        projectId="project-1"
         taskId="task-1"
         hideHeader
         fileRequest={{ path: "src/main.rs", requestId: 2 }}
@@ -180,5 +188,193 @@ describe("WorkspaceFilesView file requests", () => {
       await screen.findByText(/所选路径不存在|The selected path was not found/),
     ).toBeInTheDocument();
     expect(document.body.textContent).not.toMatch(/fn\s*main/);
+  });
+});
+
+describe("WorkspaceFilesView project scope", () => {
+  it("reads from the project checkout when no task is selected", async () => {
+    const client = createMockClient(createMockClientState());
+    const readProjectFile = vi.fn(async (request: { path: string }) => ({
+      path: request.path,
+      content: "# Project\n",
+      version: "test",
+      sizeBytes: 10,
+    }));
+    client.fileSystem.readProjectFile = readProjectFile;
+    client.project.list = async () => ({
+      projects: [{ id: "project-1", name: "Ora", rootPath: "C:/repo" }],
+    });
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false, staleTime: 0 } },
+    });
+    const wrapper = ({ children }: { children: ReactNode }) =>
+      createElement(
+        QueryClientProvider,
+        { client: queryClient },
+        createElement(
+          ContractsClientContext.Provider,
+          { value: client },
+          createElement(AppI18nProvider, null, children),
+        ),
+      );
+
+    render(
+      <WorkspaceFilesView
+        projectId="project-1"
+        hideHeader
+        fileRequest={{ path: "README.md", requestId: 1 }}
+      />,
+      { wrapper },
+    );
+
+    expect(await screen.findByText("README.md")).toBeInTheDocument();
+    expect(readProjectFile).toHaveBeenCalledWith(
+      { projectId: "project-1", path: "README.md" },
+      expect.objectContaining({ signal: expect.any(AbortSignal) }),
+    );
+  });
+
+  it("opens a project watch stream when no task is selected", async () => {
+    const client = createMockClient(createMockClientState());
+    const watchProject = vi.fn(() =>
+      (async function* () {
+        yield* [];
+      })(),
+    );
+    client.fileSystem.watchProject = watchProject;
+    client.project.list = async () => ({
+      projects: [{ id: "project-1", name: "Ora", rootPath: "C:/repo" }],
+    });
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false, staleTime: 0 } },
+    });
+    const wrapper = ({ children }: { children: ReactNode }) =>
+      createElement(
+        QueryClientProvider,
+        { client: queryClient },
+        createElement(
+          ContractsClientContext.Provider,
+          { value: client },
+          createElement(AppI18nProvider, null, children),
+        ),
+      );
+
+    render(<WorkspaceFilesView projectId="project-1" hideHeader />, {
+      wrapper,
+    });
+
+    await waitFor(() => {
+      expect(watchProject).toHaveBeenCalledWith(
+        { projectId: "project-1" },
+        expect.objectContaining({ signal: expect.any(AbortSignal) }),
+      );
+    });
+  });
+
+  it("waits for the project root before stripping an absolute file request", async () => {
+    const client = createMockClient(createMockClientState());
+    let resolveProjects!: (value: {
+      projects: Array<{ id: string; name: string; rootPath: string }>;
+    }) => void;
+    const projectsPromise = new Promise<{
+      projects: Array<{ id: string; name: string; rootPath: string }>;
+    }>((resolve) => {
+      resolveProjects = resolve;
+    });
+    const readProjectFile = vi.fn(async (request: { path: string }) => ({
+      path: request.path,
+      content: "fn main() {}\n",
+      version: "test",
+      sizeBytes: 12,
+    }));
+    client.fileSystem.readProjectFile = readProjectFile;
+    client.project.list = () => projectsPromise;
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false, staleTime: 0 } },
+    });
+    const wrapper = ({ children }: { children: ReactNode }) =>
+      createElement(
+        QueryClientProvider,
+        { client: queryClient },
+        createElement(
+          ContractsClientContext.Provider,
+          { value: client },
+          createElement(AppI18nProvider, null, children),
+        ),
+      );
+
+    render(
+      <WorkspaceFilesView
+        projectId="project-1"
+        hideHeader
+        fileRequest={{ path: "C:/repo/src/main.rs", requestId: 1 }}
+      />,
+      { wrapper },
+    );
+
+    expect(readProjectFile).not.toHaveBeenCalled();
+    resolveProjects({
+      projects: [{ id: "project-1", name: "Ora", rootPath: "C:/repo" }],
+    });
+    expect(await screen.findByText("src/main.rs")).toBeInTheDocument();
+    expect(readProjectFile).toHaveBeenCalledWith(
+      { projectId: "project-1", path: "src/main.rs" },
+      expect.objectContaining({ signal: expect.any(AbortSignal) }),
+    );
+  });
+
+  it("defers an absolute file request when the project list query errors", async () => {
+    const client = createMockClient(createMockClientState());
+    const readProjectFile = vi.fn(async (request: { path: string }) => ({
+      path: request.path,
+      content: "fn main() {}\n",
+      version: "test",
+      sizeBytes: 12,
+    }));
+    client.fileSystem.readProjectFile = readProjectFile;
+    client.project.list = async () => {
+      throw new RemoteContractError(
+        {
+          code: "internal_error",
+          params: {},
+          requestId: "eb093a72-6961-4e9f-966a-3d5187958476",
+        },
+        null,
+      );
+    };
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false, staleTime: 0 } },
+    });
+    const wrapper = ({ children }: { children: ReactNode }) =>
+      createElement(
+        QueryClientProvider,
+        { client: queryClient },
+        createElement(
+          ContractsClientContext.Provider,
+          { value: client },
+          createElement(AppI18nProvider, null, children),
+        ),
+      );
+
+    render(
+      <WorkspaceFilesView
+        projectId="project-1"
+        hideHeader
+        fileRequest={{ path: "C:/repo/src/main.rs", requestId: 1 }}
+      />,
+      { wrapper },
+    );
+
+    // A failed project list never yields a checkout root, so the absolute path
+    // must stay deferred rather than flow unstripped to readProjectFile.
+    await waitFor(() => {
+      expect(queryClient.getQueryState(queryKeys.projects)?.status).toBe(
+        "error",
+      );
+    });
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    });
+    expect(readProjectFile).not.toHaveBeenCalled();
   });
 });

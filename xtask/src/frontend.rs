@@ -21,7 +21,7 @@ impl FrontendEndpoint {
     /// Returns the stream mode owned by the operation catalog.
     pub(crate) fn response_mode(&self) -> FrontendResponseMode {
         match self.operation_name {
-            "loadSession" | "promptSession" | "watchWorkspace" | "watchSpecs"
+            "loadSession" | "promptSession" | "watchWorkspace" | "watchProject" | "watchSpecs"
             | "watchAppEvents" => FrontendResponseMode::Stream,
             _ => FrontendResponseMode::Unary,
         }

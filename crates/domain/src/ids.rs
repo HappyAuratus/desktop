@@ -35,10 +35,6 @@ define_id!(
     WorktreeProvisioningLeaseId,
     "Identifies a persisted worktree provisioning lease."
 );
-define_id!(
-    TaskDiffCommentId,
-    "Identifies a persisted task diff comment."
-);
 define_id!(SessionId, "Identifies a persisted session.");
 define_id!(
     PluginId,

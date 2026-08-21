@@ -21,9 +21,9 @@ pub use migration::{AppliedMigration, Migration, MigrationCatalog, default_migra
 pub use repository::{
     CascadeDeleteOutcome, RepositoryPool, SqliteAgentDefinitionRepository, SqliteCascadeRepository,
     SqliteGitCleanupJobRepository, SqlitePluginStateRepository, SqliteProjectRepository,
-    SqliteSessionRepository, SqliteSkillRepository, SqliteTaskDiffCommentRepository,
-    SqliteTaskRepository, SqliteTaskWorkspaceRepository, SqliteUserConfigRepository,
-    SqliteWorkflowRepository, SqliteWorkflowRunEngineRepository, SqliteWorkflowRunRepository,
+    SqliteSessionRepository, SqliteSkillRepository, SqliteTaskRepository,
+    SqliteTaskWorkspaceRepository, SqliteUserConfigRepository, SqliteWorkflowRepository,
+    SqliteWorkflowRunEngineRepository, SqliteWorkflowRunRepository,
     SqliteWorktreeProvisioningLeaseRepository, SqliteWorktreeRepository,
 };
 pub use time::{SystemTimestampSource, TimestampSource};

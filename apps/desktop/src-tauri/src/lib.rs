@@ -70,10 +70,6 @@ pub fn run() {
             commands::get_task_diff,
             commands::commit_task_changes,
             commands::push_task_branch,
-            commands::list_task_diff_comments,
-            commands::create_task_diff_comment,
-            commands::reply_task_diff_comment,
-            commands::set_task_diff_comment_status,
             // =============================================================================
             // fileSystem
             // =============================================================================
@@ -81,6 +77,7 @@ pub fn run() {
             commands::read_workspace_file,
             commands::search_workspace,
             commands::list_project_directory,
+            commands::read_project_file,
             commands::search_project,
             spec_commands::get_spec_catalog,
             spec_commands::read_spec,

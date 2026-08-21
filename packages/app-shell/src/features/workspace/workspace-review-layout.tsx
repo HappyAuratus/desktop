@@ -198,32 +198,17 @@ export function WorkspaceReviewLayout({
   }
   if (contextKey !== previousContextKey) {
     setPreviousContextKey(contextKey);
-    // Chat links and Files previews are task-scoped; keep them from opening a
-    // path that only existed in the previous worktree.
+    // Chat links and Files previews are checkout-scoped; clear them when the
+    // selected project or task changes so paths from the previous root vanish.
     setFileRequest(undefined);
     setWorkspaceFileRequest(undefined);
+    // Project review has no Changes surface; coerce so Files chrome matches content.
+    if (context.kind === "project") setPanel("files");
   }
-
-  const openDiff = useCallback(
-    (path: string, line?: number) => {
-      if (taskId === undefined) return;
-      fileRequestSequence.current += 1;
-      setFileRequest({
-        path,
-        requestId: fileRequestSequence.current,
-        line,
-      });
-      setPanel("changes");
-      setReviewOpen(true);
-      // A close slide may still be in flight; switch it back to opening.
-      if (panelAnimationRef.current !== null) slidePanelOpen();
-    },
-    [setReviewOpen, slidePanelOpen, taskId],
-  );
 
   const openWorkspaceFile = useCallback(
     (path: string, line?: number, column?: number) => {
-      if (taskId === undefined) return;
+      if (context.kind === "none") return;
       workspaceFileRequestSequence.current += 1;
       setWorkspaceFileRequest({
         path,
@@ -235,7 +220,28 @@ export function WorkspaceReviewLayout({
       setReviewOpen(true);
       if (panelAnimationRef.current !== null) slidePanelOpen();
     },
-    [setReviewOpen, slidePanelOpen, taskId],
+    [context.kind, setReviewOpen, slidePanelOpen],
+  );
+
+  const openDiff = useCallback(
+    (path: string, line?: number) => {
+      // Project drafts (and any context without a task) have no Changes surface.
+      if (taskId === undefined) {
+        openWorkspaceFile(path, line);
+        return;
+      }
+      fileRequestSequence.current += 1;
+      setFileRequest({
+        path,
+        requestId: fileRequestSequence.current,
+        line,
+      });
+      setPanel("changes");
+      setReviewOpen(true);
+      // A close slide may still be in flight; switch it back to opening.
+      if (panelAnimationRef.current !== null) slidePanelOpen();
+    },
+    [openWorkspaceFile, setReviewOpen, slidePanelOpen, taskId],
   );
 
   // The panel mounts collapsed, so opening (or re-opening after a context switch)

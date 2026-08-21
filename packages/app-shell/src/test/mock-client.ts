@@ -223,7 +223,6 @@ export function createMockClient(state: MockClientState): ContractsClient {
       getDiff: async () => ({
         baseCommitId: "base",
         headCommitId: "head",
-        diffId: "diff",
         patch: "",
       }),
       commitChanges: async () => {
@@ -231,16 +230,6 @@ export function createMockClient(state: MockClientState): ContractsClient {
       },
       pushBranch: async () => {
         throw new Error("pushBranch not implemented in mock");
-      },
-      listDiffComments: async () => ({ comments: [] }),
-      createDiffComment: async () => {
-        throw new Error("createDiffComment not implemented in mock");
-      },
-      replyDiffComment: async () => {
-        throw new Error("replyDiffComment not implemented in mock");
-      },
-      setDiffCommentStatus: async () => {
-        throw new Error("setDiffCommentStatus not implemented in mock");
       },
     },
     session: {
@@ -525,6 +514,12 @@ export function createMockClient(state: MockClientState): ContractsClient {
     fileSystem: {
       listWorkspaceDirectory: async () => ({ path: "", entries: [] }),
       listProjectDirectory: async () => ({ path: "", entries: [] }),
+      readProjectFile: async (request) => ({
+        path: request.path,
+        content: "",
+        version: "test",
+        sizeBytes: 0,
+      }),
       readWorkspaceFile: async (request) => ({
         path: request.path,
         content: "",
@@ -534,6 +529,10 @@ export function createMockClient(state: MockClientState): ContractsClient {
       searchWorkspace: async () => ({ results: [], truncated: false }),
       searchProject: async () => ({ results: [], truncated: false }),
       watchWorkspace: () =>
+        (async function* () {
+          yield* [];
+        })(),
+      watchProject: () =>
         (async function* () {
           yield* [];
         })(),

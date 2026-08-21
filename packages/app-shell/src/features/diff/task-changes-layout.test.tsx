@@ -302,7 +302,7 @@ describe("WorkspaceReviewLayout", () => {
     expect(screen.getByTestId("files-target")).toHaveTextContent("task-1");
   });
 
-  it("closes a task-only Changes panel when switching to a project", async () => {
+  it("switches an open Changes panel to Files when entering project context", async () => {
     const user = userEvent.setup();
     const { rerender } = render(
       <PlatformProvider adapter={createStubPlatform()}>
@@ -316,6 +316,11 @@ describe("WorkspaceReviewLayout", () => {
     await user.click(screen.getByRole("button", { name: /变更|Changes/ }));
     expect(
       screen.getByRole("region", { name: "Task diff" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", {
+        name: /显示或隐藏变更文件目录|Show or hide changed file tree/,
+      }),
     ).toBeInTheDocument();
 
     rerender(
@@ -332,7 +337,16 @@ describe("WorkspaceReviewLayout", () => {
     expect(
       screen.queryByRole("region", { name: "Task diff" }),
     ).not.toBeInTheDocument();
-    expect(screen.getByText("Project")).toBeInTheDocument();
+    expect(screen.getByTestId("files-panel")).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", {
+        name: /显示或隐藏变更文件目录|Show or hide changed file tree/,
+      }),
+    ).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /文件|Files/ })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
   });
 
   it("notifies when the review panel opens or closes", async () => {
@@ -392,6 +406,30 @@ describe("WorkspaceReviewLayout", () => {
     expect(screen.getByTestId("files-request")).toHaveTextContent(
       "src/missing.ts:10",
     );
+  });
+
+  it("routes openDiff to Files when the review context has no task", async () => {
+    const user = userEvent.setup();
+    render(
+      <PlatformProvider adapter={createStubPlatform()}>
+        <AppI18nProvider>
+          <WorkspaceReviewLayout
+            context={{ kind: "project", projectId: "project-1" }}
+          >
+            <OpenChangedFileButton />
+          </WorkspaceReviewLayout>
+        </AppI18nProvider>
+      </PlatformProvider>,
+    );
+
+    await user.click(screen.getByRole("button", { name: "Open changed file" }));
+    expect(screen.getByTestId("files-panel")).toBeInTheDocument();
+    expect(screen.getByTestId("files-request")).toHaveTextContent(
+      "src/main.ts:",
+    );
+    expect(
+      screen.queryByRole("region", { name: "Task diff" }),
+    ).not.toBeInTheDocument();
   });
 
   it("drops a previous task's file request when switching tasks", async () => {

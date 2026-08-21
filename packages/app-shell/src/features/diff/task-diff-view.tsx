@@ -15,19 +15,12 @@ import {
   Diff,
   Hunk,
   getChangeKey,
-  type ChangeData,
   type FileData,
   type GutterOptions,
 } from "react-diff-view";
 import "react-diff-view/style/index.css";
 import "./task-diff-view.css";
-import type {
-  TaskDiffComment,
-  TaskDiffCommentAnchor,
-  TaskDiffScope,
-  TaskDiffSide,
-  TaskDiffThreadStatus,
-} from "@ora/contracts";
+import type { TaskDiffScope } from "@ora/contracts";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -37,7 +30,6 @@ import {
   AlertDialogFooter,
   AlertDialogHeader,
   AlertDialogTitle,
-  Badge,
   Button,
   ResizableHandle,
   ResizablePanel,
@@ -47,15 +39,12 @@ import {
   SelectContent,
   SelectItem,
   SelectTrigger,
-  Textarea,
 } from "@ora/ui";
 import {
-  IconCheck,
   IconChevronDown,
   IconCode,
   IconFileDiff,
   IconGitBranch,
-  IconMessageCircle,
   IconRefresh,
   IconUpload,
 } from "@tabler/icons-react";
@@ -63,16 +52,12 @@ import { useTranslation } from "react-i18next";
 import { useContractsClient } from "../../contracts-client-context";
 import { localizeContractError } from "../../i18n/contract-error";
 import { queryKeys } from "../../state/hooks/query-keys";
-import {
-  useTaskDiff,
-  useTaskDiffComments,
-} from "../../state/hooks/use-task-diff";
+import { useTaskDiff } from "../../state/hooks/use-task-diff";
 import {
   buildCollapsedDiffSegments,
   findNewSideLineTarget,
 } from "./task-diff-collapse";
 import { countChanges, parseTaskDiffPatch } from "./task-diff-data";
-import { createCommentAnchor } from "./task-diff-comment-anchor";
 import { diffFilePath } from "./task-diff-file-tree-utils";
 import { TaskDiffFileTree } from "./task-diff-file-tree";
 import { TaskGitActions } from "./task-git-actions";
@@ -83,7 +68,7 @@ import {
 import { pathsMatchForWorkspace } from "../../lib/workspace-path";
 import { diffFileScrollTop, isDiffFileScrollSettled } from "./task-diff-scroll";
 
-/** Matches the review panel slide so the file tree toggle feels consistent. */
+/** Matches the changes-panel slide so the file tree toggle feels consistent. */
 const FILE_TREE_SLIDE_MS = 180;
 const FILE_TREE_WIDTH = 240;
 /** Narrowest tree width a user resize settles on; below it the tree collapses. */
@@ -108,12 +93,7 @@ export interface TaskDiffFileRequest {
   line?: number;
 }
 
-interface SelectedAnchor {
-  anchor: TaskDiffCommentAnchor;
-  changeKey: string;
-}
-
-/** Renders a task worktree patch and its line-anchored review discussions. */
+/** Renders a task worktree patch. */
 export function TaskDiffView({
   taskId,
   viewType,
@@ -132,10 +112,6 @@ export function TaskDiffView({
   const [pushOpen, setPushOpen] = useState(false);
   const [gitNotice, setGitNotice] = useState<string | null>(null);
   const diffQuery = useTaskDiff(taskId, scope);
-  const commentsQuery = useTaskDiffComments(taskId);
-  const [selectedAnchor, setSelectedAnchor] = useState<SelectedAnchor | null>(
-    null,
-  );
   const [selectedFilePath, setSelectedFilePath] = useState<string | null>(null);
   const [appliedFileRequestId, setAppliedFileRequestId] = useState<
     number | null
@@ -179,7 +155,6 @@ export function TaskDiffView({
       pathsMatchForWorkspace(fileRequest.path, path),
     );
     if (matchingPath !== undefined) {
-      setSelectedAnchor(null);
       setSelectedFilePath(matchingPath);
     }
   }
@@ -209,7 +184,6 @@ export function TaskDiffView({
   const selectFile = useCallback(
     (path: string, behavior: ScrollBehavior = "smooth") => {
       suppressScrollSyncRef.current = true;
-      setSelectedAnchor(null);
       setSelectedFilePath(path);
       if (scrollToPath(path, behavior)) return;
       requestAnimationFrame(() => {
@@ -363,41 +337,6 @@ export function TaskDiffView({
     };
   }, [filePaths]);
 
-  const refreshDiscussions = () =>
-    queryClient.invalidateQueries({
-      queryKey: queryKeys.taskDiffComments(taskId),
-    });
-
-  const createComment = useMutation({
-    mutationFn: ({
-      scope,
-      anchor,
-      body,
-    }: {
-      scope: TaskDiffScope;
-      anchor: TaskDiffCommentAnchor;
-      body: string;
-    }) => client.task.createDiffComment({ taskId, scope, anchor, body }),
-    onSuccess: async () => {
-      setSelectedAnchor(null);
-      await refreshDiscussions();
-    },
-  });
-  const replyComment = useMutation({
-    mutationFn: ({ commentId, body }: { commentId: string; body: string }) =>
-      client.task.replyDiffComment({ taskId, commentId, body }),
-    onSuccess: refreshDiscussions,
-  });
-  const setCommentStatus = useMutation({
-    mutationFn: ({
-      commentId,
-      status,
-    }: {
-      commentId: string;
-      status: TaskDiffThreadStatus;
-    }) => client.task.setDiffCommentStatus({ taskId, commentId, status }),
-    onSuccess: refreshDiscussions,
-  });
   const commitChanges = useMutation({
     mutationFn: (message: string) =>
       client.task.commitChanges({ taskId, message }),
@@ -432,55 +371,6 @@ export function TaskDiffView({
     await pushBranch.mutateAsync();
   };
   const diff = diffQuery.data;
-  const comments = useMemo(
-    () => commentsQuery.data ?? [],
-    [commentsQuery.data],
-  );
-  const diffId = diff?.diffId;
-  const currentComments = useMemo(() => {
-    if (scope !== "branch" || diffId === undefined) return [];
-    return comments.filter(
-      (comment) =>
-        comment.kind.kind === "reply" || comment.kind.anchor.diffId === diffId,
-    );
-  }, [comments, diffId, scope]);
-  const commentIndex = useMemo(
-    () => buildDiffCommentIndex(currentComments),
-    [currentComments],
-  );
-  const outdatedThreads = useMemo(
-    () =>
-      scope !== "branch" || diffId === undefined
-        ? []
-        : comments.filter(
-            (comment) =>
-              comment.kind.kind === "thread" &&
-              comment.kind.anchor.diffId !== diffId,
-          ),
-    [comments, diffId, scope],
-  );
-  const handleSelectAnchor = useCallback(
-    (selection: SelectedAnchor | null) => {
-      createComment.reset();
-      setSelectedAnchor(selection);
-    },
-    [createComment],
-  );
-  const handleCreateComment = useCallback(
-    (anchor: TaskDiffCommentAnchor, body: string) =>
-      createComment.mutateAsync({ scope, anchor, body }),
-    [createComment, scope],
-  );
-  const handleReply = useCallback(
-    (commentId: string, body: string) =>
-      replyComment.mutateAsync({ commentId, body }),
-    [replyComment],
-  );
-  const handleSetStatus = useCallback(
-    (commentId: string, status: TaskDiffThreadStatus) =>
-      setCommentStatus.mutateAsync({ commentId, status }),
-    [setCommentStatus],
-  );
 
   const gitActions = (
     <TaskGitActions
@@ -513,16 +403,15 @@ export function TaskDiffView({
   );
 
   const refresh = async () => {
-    setSelectedAnchor(null);
-    await Promise.all([diffQuery.refetch(), commentsQuery.refetch()]);
+    await diffQuery.refetch();
   };
 
-  if (diffQuery.isLoading || commentsQuery.isLoading) {
+  if (diffQuery.isLoading) {
     return <DiffLoadingState />;
   }
 
-  if (diffQuery.error !== null || commentsQuery.error !== null) {
-    const error = diffQuery.error ?? commentsQuery.error;
+  if (diffQuery.error !== null) {
+    const error = diffQuery.error;
     return (
       <DiffMessage
         title={t("diff.loadError")}
@@ -539,12 +428,7 @@ export function TaskDiffView({
 
   if (diff === undefined) return null;
 
-  const mutationError =
-    commitChanges.error ??
-    pushBranch.error ??
-    createComment.error ??
-    replyComment.error ??
-    setCommentStatus.error;
+  const mutationError = commitChanges.error ?? pushBranch.error;
 
   return (
     <section
@@ -571,7 +455,6 @@ export function TaskDiffView({
             value={scope}
             onValueChange={(value) => {
               if (value === null) return;
-              setSelectedAnchor(null);
               setScope(value as TaskDiffScope);
             }}
           >
@@ -682,21 +565,7 @@ export function TaskDiffView({
                       >
                         <TaskDiffFileViewport
                           file={file}
-                          fileIndex={fileIndex}
                           viewType={viewType}
-                          diffId={diff.diffId}
-                          commentIndex={commentIndex}
-                          reviewEnabled={scope === "branch"}
-                          selectedAnchor={selectedAnchor}
-                          onSelectAnchor={handleSelectAnchor}
-                          onCreateComment={handleCreateComment}
-                          onReply={handleReply}
-                          onSetStatus={handleSetStatus}
-                          mutationPending={
-                            createComment.isPending ||
-                            replyComment.isPending ||
-                            setCommentStatus.isPending
-                          }
                           targetLine={
                             fileRequest !== undefined &&
                             pathsMatchForWorkspace(fileRequest.path, path)
@@ -709,34 +578,6 @@ export function TaskDiffView({
                       </div>
                     );
                   })}
-
-                  {outdatedThreads.length > 0 && (
-                    <section className="rounded-lg border border-dashed border-border bg-background p-3">
-                      <h3 className="text-xs font-semibold">
-                        {t("diff.outdated")}
-                      </h3>
-                      <p className="mt-1 text-xs text-muted-foreground">
-                        {t("diff.outdatedDetail")}
-                      </p>
-                      <div className="mt-3 space-y-2">
-                        {outdatedThreads.map((comment) => (
-                          <div
-                            key={comment.id}
-                            className="rounded-md bg-muted/50 px-3 py-2 text-xs"
-                          >
-                            <span className="font-mono text-muted-foreground">
-                              {comment.kind.kind === "thread"
-                                ? `${comment.kind.anchor.path}:${comment.kind.anchor.startLine}`
-                                : ""}
-                            </span>
-                            <p className="mt-1 whitespace-pre-wrap">
-                              {comment.body}
-                            </p>
-                          </div>
-                        ))}
-                      </div>
-                    </section>
-                  )}
                 </div>
               </div>
             </ResizablePanel>
@@ -845,67 +686,12 @@ function PushBranchDialog({
 
 interface TaskDiffFileProps {
   file: FileData;
-  fileIndex: number;
   viewType: TaskDiffViewType;
-  diffId: string;
-  commentIndex: DiffCommentIndex;
-  reviewEnabled: boolean;
-  selectedAnchor: SelectedAnchor | null;
-  onSelectAnchor: (selection: SelectedAnchor | null) => void;
-  onCreateComment: (
-    anchor: TaskDiffCommentAnchor,
-    body: string,
-  ) => Promise<unknown>;
-  onReply: (commentId: string, body: string) => Promise<unknown>;
-  onSetStatus: (
-    commentId: string,
-    status: TaskDiffThreadStatus,
-  ) => Promise<unknown>;
-  mutationPending: boolean;
   targetLine?: number;
 }
 
-interface DiffCommentIndex {
-  threadsByAnchor: Map<string, TaskDiffComment[]>;
-  repliesByParent: Map<string, TaskDiffComment[]>;
-}
-
-/** Builds lookup tables so each diff line does not scan every review comment. */
-function buildDiffCommentIndex(comments: TaskDiffComment[]): DiffCommentIndex {
-  const threadsByAnchor = new Map<string, TaskDiffComment[]>();
-  const repliesByParent = new Map<string, TaskDiffComment[]>();
-  for (const comment of comments) {
-    if (comment.kind.kind === "reply") {
-      const replies = repliesByParent.get(comment.kind.parentCommentId) ?? [];
-      replies.push(comment);
-      repliesByParent.set(comment.kind.parentCommentId, replies);
-      continue;
-    }
-
-    const key = `${comment.kind.anchor.path}:${comment.kind.anchor.startLine}`;
-    const threads = threadsByAnchor.get(key) ?? [];
-    threads.push(comment);
-    threadsByAnchor.set(key, threads);
-  }
-  return { threadsByAnchor, repliesByParent };
-}
-
-/** Renders one parsed patch file and injects review widgets below matching lines. */
-function TaskDiffFile({
-  file,
-  fileIndex,
-  viewType,
-  diffId,
-  commentIndex,
-  reviewEnabled,
-  selectedAnchor,
-  onSelectAnchor,
-  onCreateComment,
-  onReply,
-  onSetStatus,
-  mutationPending,
-  targetLine,
-}: TaskDiffFileProps) {
+/** Renders one parsed patch file. */
+function TaskDiffFile({ file, viewType, targetLine }: TaskDiffFileProps) {
   const { t } = useTranslation();
   const fileRootRef = useRef<HTMLElement | null>(null);
   const [expanded, setExpanded] = useState(true);
@@ -935,11 +721,6 @@ function TaskDiffFile({
     () => buildCollapsedDiffSegments(file.hunks, expandedBlocks),
     [expandedBlocks, file.hunks],
   );
-  const selectedChangeKey = selectedAnchor?.changeKey.startsWith(
-    `${fileIndex}:`,
-  )
-    ? selectedAnchor.changeKey.slice(`${fileIndex}:`.length)
-    : null;
 
   useLayoutEffect(() => {
     if (jumpChangeKey === null) return;
@@ -948,98 +729,6 @@ function TaskDiffFile({
     );
     selected?.scrollIntoView({ block: "center", inline: "nearest" });
   }, [jumpChangeKey, renderSegments]);
-
-  const widgets = useMemo(
-    () =>
-      Object.fromEntries(
-        file.hunks.flatMap((hunk) =>
-          hunk.changes.flatMap((change) => {
-            const changeKey = getChangeKey(change);
-            const oldLine = lineNumberFor(change, "old");
-            const newLine = lineNumberFor(change, "new");
-            const oldThreads =
-              oldLine === null
-                ? []
-                : (commentIndex.threadsByAnchor.get(
-                    `${file.oldPath}:${oldLine}`,
-                  ) ?? []);
-            const newThreads =
-              newLine === null
-                ? []
-                : (commentIndex.threadsByAnchor.get(
-                    `${file.newPath}:${newLine}`,
-                  ) ?? []);
-            const matchingThreads =
-              file.oldPath === file.newPath && oldLine === newLine
-                ? oldThreads
-                : [...oldThreads, ...newThreads];
-            const isSelected = selectedChangeKey === changeKey;
-            if (matchingThreads.length === 0 && !isSelected) return [];
-
-            return [
-              [
-                changeKey,
-                <div className="space-y-2">
-                  {matchingThreads.map((thread) => (
-                    <DiffThread
-                      key={thread.id}
-                      thread={thread}
-                      replies={
-                        commentIndex.repliesByParent.get(thread.id) ?? []
-                      }
-                      onReply={onReply}
-                      onSetStatus={onSetStatus}
-                      disabled={mutationPending}
-                    />
-                  ))}
-                  {isSelected && selectedAnchor !== null && (
-                    <CommentComposer
-                      anchor={selectedAnchor.anchor}
-                      onCancel={() => onSelectAnchor(null)}
-                      onSubmit={(body) =>
-                        onCreateComment(selectedAnchor.anchor, body)
-                      }
-                      disabled={mutationPending}
-                    />
-                  )}
-                </div>,
-              ] as const,
-            ];
-          }),
-        ),
-      ),
-    [
-      commentIndex,
-      file,
-      mutationPending,
-      onCreateComment,
-      onReply,
-      onSelectAnchor,
-      onSetStatus,
-      selectedAnchor,
-      selectedChangeKey,
-    ],
-  );
-
-  const selectLine = useCallback(
-    ({ change, side }: { change: ChangeData | null; side?: TaskDiffSide }) => {
-      if (!reviewEnabled || change === null) return;
-      const resolvedSide = resolveSide(change, side);
-      const lineNumber = lineNumberFor(change, resolvedSide);
-      if (lineNumber === null) return;
-      const hunk = file.hunks.find((candidate) =>
-        candidate.changes.includes(change),
-      );
-      if (hunk === undefined) return;
-
-      onSelectAnchor({
-        changeKey: `${fileIndex}:${getChangeKey(change)}`,
-        anchor: createCommentAnchor(file, hunk, change, resolvedSide, diffId),
-      });
-    },
-    [diffId, file, fileIndex, onSelectAnchor, reviewEnabled],
-  );
-  const gutterEvents = useMemo(() => ({ onClick: selectLine }), [selectLine]);
 
   return (
     <article ref={fileRootRef} className="bg-background">
@@ -1081,9 +770,7 @@ function TaskDiffFile({
           </div>
         ) : (
           <div
-            className={`ora-task-diff ora-task-diff--${viewType} ora-task-diff--${file.type} ${
-              reviewEnabled ? "ora-task-diff--reviewable" : ""
-            } overflow-x-auto`}
+            className={`ora-task-diff ora-task-diff--${viewType} ora-task-diff--${file.type} overflow-x-auto`}
           >
             {viewType === "split" && (
               <div className="ora-diff-version-headings" aria-hidden="true">
@@ -1095,12 +782,7 @@ function TaskDiffFile({
               viewType={viewType}
               diffType={file.type}
               hunks={file.hunks}
-              widgets={widgets}
-              selectedChanges={[
-                ...(selectedChangeKey === null ? [] : [selectedChangeKey]),
-                ...(jumpChangeKey === null ? [] : [jumpChangeKey]),
-              ]}
-              gutterEvents={gutterEvents}
+              selectedChanges={jumpChangeKey === null ? [] : [jumpChangeKey]}
               renderGutter={
                 viewType === "unified" ? renderSingleLineNumber : undefined
               }
@@ -1148,35 +830,15 @@ function TaskDiffFile({
   );
 }
 
-/** Compares one file's inputs while ignoring selection changes that belong to other files. */
+/** Compares one file's render inputs so sibling files can skip work. */
 function areTaskDiffFilePropsEqual(
   previous: TaskDiffFileProps,
   next: TaskDiffFileProps,
 ): boolean {
-  const previousSelection = previous.selectedAnchor?.changeKey.startsWith(
-    `${previous.fileIndex}:`,
-  )
-    ? previous.selectedAnchor
-    : null;
-  const nextSelection = next.selectedAnchor?.changeKey.startsWith(
-    `${next.fileIndex}:`,
-  )
-    ? next.selectedAnchor
-    : null;
   return (
     previous.file === next.file &&
-    previous.fileIndex === next.fileIndex &&
     previous.viewType === next.viewType &&
-    previous.diffId === next.diffId &&
-    previous.commentIndex === next.commentIndex &&
-    previous.reviewEnabled === next.reviewEnabled &&
-    previous.onSelectAnchor === next.onSelectAnchor &&
-    previous.onCreateComment === next.onCreateComment &&
-    previous.onReply === next.onReply &&
-    previous.onSetStatus === next.onSetStatus &&
-    previous.mutationPending === next.mutationPending &&
-    previous.targetLine === next.targetLine &&
-    previousSelection === nextSelection
+    previous.targetLine === next.targetLine
   );
 }
 
@@ -1248,162 +910,10 @@ function TaskDiffFileViewport({
   );
 }
 
-interface DiffThreadProps {
-  thread: TaskDiffComment;
-  replies: TaskDiffComment[];
-  onReply: (commentId: string, body: string) => Promise<unknown>;
-  onSetStatus: (
-    commentId: string,
-    status: TaskDiffThreadStatus,
-  ) => Promise<unknown>;
-  disabled: boolean;
-}
-
-/** Displays one root review discussion, its replies, and lifecycle controls. */
-function DiffThread({
-  thread,
-  replies,
-  onReply,
-  onSetStatus,
-  disabled,
-}: DiffThreadProps) {
-  const { t } = useTranslation();
-  const [reply, setReply] = useState("");
-  if (thread.kind.kind !== "thread") return null;
-  const nextStatus = thread.kind.status === "open" ? "resolved" : "open";
-
-  const submitReply = async () => {
-    const body = reply.trim();
-    if (body === "") return;
-    await onReply(thread.id, body);
-    setReply("");
-  };
-
-  return (
-    <section className="rounded-md border border-border bg-background text-xs shadow-sm">
-      <header className="flex items-center gap-2 border-b border-border px-3 py-2">
-        <IconMessageCircle className="size-3.5 text-muted-foreground" />
-        <span className="font-medium">{t("diff.discussion")}</span>
-        <Badge
-          variant={thread.kind.status === "open" ? "secondary" : "outline"}
-          className="text-[10px]"
-        >
-          {thread.kind.status}
-        </Badge>
-        <div className="flex-1" />
-        <Button
-          size="xs"
-          variant="ghost"
-          disabled={disabled}
-          onClick={() => void onSetStatus(thread.id, nextStatus)}
-        >
-          <IconCheck />
-          {nextStatus === "resolved" ? t("diff.resolve") : t("diff.reopen")}
-        </Button>
-      </header>
-      <div className="space-y-2 px-3 py-2">
-        <p className="whitespace-pre-wrap leading-5">{thread.body}</p>
-        {replies.map((replyMessage) => (
-          <div key={replyMessage.id} className="border-l-2 border-border pl-3">
-            <p className="whitespace-pre-wrap leading-5">{replyMessage.body}</p>
-          </div>
-        ))}
-        <div className="flex items-end gap-2">
-          <Textarea
-            value={reply}
-            onChange={(event) => setReply(event.target.value)}
-            rows={1}
-            placeholder={t("diff.replyPlaceholder")}
-            aria-label={t("diff.reply")}
-            className="min-h-8 resize-y text-xs"
-          />
-          <Button
-            size="sm"
-            disabled={disabled || reply.trim() === ""}
-            onClick={() => void submitReply()}
-          >
-            {t("diff.reply")}
-          </Button>
-        </div>
-      </div>
-    </section>
-  );
-}
-
-interface CommentComposerProps {
-  anchor: TaskDiffCommentAnchor;
-  onCancel: () => void;
-  onSubmit: (body: string) => Promise<unknown>;
-  disabled: boolean;
-}
-
-/** Collects a new root discussion for the currently selected diff line. */
-function CommentComposer({
-  anchor,
-  onCancel,
-  onSubmit,
-  disabled,
-}: CommentComposerProps) {
-  const { t } = useTranslation();
-  const [body, setBody] = useState("");
-  const composerRef = useRef<HTMLElement | null>(null);
-
-  useEffect(() => {
-    // Wide patches can place the widget off-screen horizontally, so reveal its full action area.
-    composerRef.current?.scrollIntoView?.({
-      block: "nearest",
-      inline: "nearest",
-    });
-  }, []);
-
-  const submit = async () => {
-    const comment = body.trim();
-    if (comment === "") return;
-    await onSubmit(comment);
-  };
-
-  return (
-    <section
-      ref={composerRef}
-      className="ora-comment-composer flex max-h-[min(20rem,calc(100vh-9rem))] flex-col rounded-md border border-primary/30 bg-background p-3 text-xs shadow-sm"
-    >
-      <p className="mb-2 font-medium">
-        {t("diff.commentOn", { path: anchor.path, line: anchor.startLine })}
-      </p>
-      <Textarea
-        autoFocus
-        value={body}
-        onChange={(event) => setBody(event.target.value)}
-        rows={3}
-        placeholder={t("diff.commentPlaceholder")}
-        aria-label={t("diff.commentLabel")}
-        className="min-h-16 max-h-40 resize-none overflow-y-auto text-xs"
-      />
-      <div className="mt-2 flex shrink-0 justify-end gap-2">
-        <Button
-          size="sm"
-          variant="ghost"
-          disabled={disabled}
-          onClick={onCancel}
-        >
-          {t("common.cancel")}
-        </Button>
-        <Button
-          size="sm"
-          disabled={disabled || body.trim() === ""}
-          onClick={() => void submit()}
-        >
-          {t("diff.addComment")}
-        </Button>
-      </div>
-    </section>
-  );
-}
-
 interface DiffMessageProps {
   title: string;
   detail: string;
-  action?: React.ReactNode;
+  action?: ReactNode;
 }
 
 /** Keeps the Changes layout stable while its first snapshot is being loaded. */
@@ -1472,23 +982,6 @@ function renderSingleLineNumber({
 }: GutterOptions) {
   if (change.type === "normal" && side === "old") return null;
   return wrapInAnchor(renderDefault());
-}
-
-/** Chooses the source side represented by a clicked diff cell. */
-function resolveSide(change: ChangeData, side?: TaskDiffSide): TaskDiffSide {
-  if (change.type === "delete") return "old";
-  if (change.type === "insert") return "new";
-  return side ?? "new";
-}
-
-/** Returns the old or new source line represented by one parsed change. */
-function lineNumberFor(change: ChangeData, side: TaskDiffSide): number | null {
-  if (change.type === "normal") {
-    return side === "old" ? change.oldLineNumber : change.newLineNumber;
-  }
-  if (change.type === "delete")
-    return side === "old" ? change.lineNumber : null;
-  return side === "new" ? change.lineNumber : null;
 }
 
 /** Chooses the path users expect for added, deleted, and renamed files. */
