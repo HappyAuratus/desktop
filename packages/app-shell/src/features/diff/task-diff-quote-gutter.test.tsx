@@ -6,6 +6,7 @@ import {
   type FileData,
 } from "react-diff-view";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { appI18n } from "../../i18n/i18n-instance";
 import { useTaskDiffQuoteGutter } from "./task-diff-quote-gutter";
 
 vi.mock("../chat/add-composer-file-selection", () => ({
@@ -102,9 +103,13 @@ describe("useTaskDiffQuoteGutter", () => {
     );
     // Insert rows quote on the new side; the delete row quotes on the old side.
     expect(container.querySelector('[data-quote-key="new:2"]')).not.toBeNull();
-    expect(
-      container.querySelector('[data-quote-key="new:2"] [data-quote-button]'),
-    ).not.toBeNull();
+    const plus = container.querySelector(
+      '[data-quote-key="new:2"] [data-quote-button]',
+    );
+    expect(plus).not.toBeNull();
+    expect(plus?.getAttribute("aria-label")).toBe(
+      appI18n.t("diff.quoteLineToChat", { line: 2 }),
+    );
     expect(container.querySelector("[data-quote-button] svg")).toBeNull();
     expect(container.querySelector('[data-quote-key="old:2"]')).not.toBeNull();
     // Normal rows never render an old-side quote gutter (single-number unified).
