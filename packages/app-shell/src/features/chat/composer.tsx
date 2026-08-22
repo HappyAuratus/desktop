@@ -212,17 +212,9 @@ export function Composer({
   // Bumped on every submit so an older send's reject cannot restore text over a
   // newer attempt (Stop during handshake, then type and send again).
   const submitGenerationRef = useRef(0);
-  const pendingFileContext = useComposerFileContextStore(
-    (state) => state.pendingByConversation[conversationKey],
+  const bindFileContextDelivery = useComposerFileContextStore(
+    (state) => state.bindDelivery,
   );
-  const consumeFileContext = useComposerFileContextStore(
-    (state) => state.consumeSelections,
-  );
-  const lastInjectedRequestId = useRef<number | null>(null);
-
-  useEffect(() => {
-    lastInjectedRequestId.current = null;
-  }, [conversationKey]);
 
   /** Keeps async attachment work and React state on the same latest array. */
   const replaceAttachments = useCallback((next: ImageAttachment[]) => {
@@ -381,33 +373,24 @@ export function Composer({
     });
   }, [applyComposerContent, conversationKey, draftId, selectedSessionId]);
 
+  // Quotes insert here directly. A pending store that the composer re-read on
+  // session switch / Strict Mode replayed chips the user had already deleted.
   useEffect(() => {
-    if (
-      pendingFileContext === undefined ||
-      pendingFileContext.id === lastInjectedRequestId.current
-    ) {
-      return;
-    }
-
-    const requestId = pendingFileContext.id;
-    const selections = pendingFileContext.selections;
-    const keyAtSchedule = conversationKey;
-    // Queue after hydrate's microtask (effects run top-to-bottom) so insert does
-    // not race replaceDocument and TipTap portal updates stay outside layout.
-    queueMicrotask(() => {
-      if (conversationKeyRef.current !== keyAtSchedule) return;
-      lastInjectedRequestId.current = requestId;
+    let active = true;
+    const unbind = bindFileContextDelivery(conversationKey, (selections) => {
+      if (!active) return;
       try {
         editorRef.current?.insertFileChips(selections);
-        consumeFileContext(keyAtSchedule, requestId);
         editorRef.current?.focus({ at: "end" });
       } catch {
-        lastInjectedRequestId.current = null;
-        consumeFileContext(keyAtSchedule, requestId);
-        setAttachmentError(t("chat.fileContext.injectFailed"));
+        // Child editor can unmount before this effect's cleanup.
       }
     });
-  }, [consumeFileContext, conversationKey, pendingFileContext, t]);
+    return () => {
+      active = false;
+      unbind();
+    };
+  }, [bindFileContextDelivery, conversationKey]);
   const slashQuery = query.slashQuery;
   const atQuery = query.atQuery;
   const fileMentionEnabled =

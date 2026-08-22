@@ -23,7 +23,7 @@ const TASK: Task = {
 const SESSION: Session = {
   id: "s1",
   taskId: "t1",
-  agentRef: "ora-space.opencode",
+  agentCli: "open_code",
   status: "running",
   title: null,
   historyState: { type: "writable" },
@@ -496,7 +496,7 @@ describe("useWarmSession restore gate", () => {
             taskId: "t1",
             sessionId: null,
           },
-          "ora-space.opencode",
+          "open_code",
         ),
       client,
       undefined,
