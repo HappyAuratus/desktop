@@ -379,18 +379,27 @@ export function Composer({
     let active = true;
     const unbind = bindFileContextDelivery(conversationKey, (selections) => {
       if (!active) return;
+      const editor = editorRef.current;
+      // The child editor can remount while this Composer stays mounted, so the
+      // handle is not guaranteed here. Either way the quote has nowhere to go
+      // and is not re-queued (that is what replayed deleted chips before), so
+      // the user has to be told rather than left staring at an unchanged box.
+      if (editor === null) {
+        setAttachmentError(t("chat.fileContext.injectFailed"));
+        return;
+      }
       try {
-        editorRef.current?.insertFileChips(selections);
-        editorRef.current?.focus({ at: "end" });
+        editor.insertFileChips(selections);
+        editor.focus({ at: "end" });
       } catch {
-        // Child editor can unmount before this effect's cleanup.
+        setAttachmentError(t("chat.fileContext.injectFailed"));
       }
     });
     return () => {
       active = false;
       unbind();
     };
-  }, [bindFileContextDelivery, conversationKey]);
+  }, [bindFileContextDelivery, conversationKey, t]);
   const slashQuery = query.slashQuery;
   const atQuery = query.atQuery;
   const fileMentionEnabled =

@@ -2,7 +2,8 @@
 
 Desktop's task workspace file feature provides a read-only view of the active
 task workspace. It supports directory browsing, bounded text viewing,
-filename/content search, line quoting into chat via gutter `+` (click or drag), and native file-change
+filename/content search, line quoting into chat via gutter `+` (click or drag,
+or Ctrl/Cmd+Enter on a focused line number), and native file-change
 refreshes.
 
 ## Ownership and flow

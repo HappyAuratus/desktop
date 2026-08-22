@@ -32,7 +32,6 @@ interface QuoteDragState {
   startKey: string;
   endKey: string;
   group: string | undefined;
-  path: string;
   /** Split view: stay on one side. Unified: follow visual rows across sides. */
   lockToGroup: boolean;
   dragged: boolean;
@@ -81,44 +80,56 @@ export function useQuoteLineSelection<T extends QuoteLineAnchor>({
   } | null>(null);
   const suppressClickRef = useRef(false);
 
-  const anchorMap = useMemo(
-    () => new Map(anchors.map((anchor) => [anchor.key, anchor] as const)),
-    [anchors],
-  );
-  /** `${group ?? ""}:${lineNumber}` lookup for O(1) range painting. */
-  const lineMap = useMemo(() => {
-    const map = new Map<string, T>();
-    for (const anchor of anchors) {
-      map.set(`${anchor.group ?? ""}:${anchor.lineNumber}`, anchor);
+  /**
+   * Every lookup the gesture handlers need, built in one pass so a surface as
+   * large as a whole file preview (one anchor per line) does not walk its
+   * anchors three times: `byKey` carries the anchor plus its render index,
+   * `byLine` is the `${group ?? ""}:${lineNumber}` index used for range fills.
+   */
+  const lookups = useMemo(() => {
+    const byKey = new Map<string, { anchor: T; index: number }>();
+    const byLine = new Map<string, T>();
+    for (let index = 0; index < anchors.length; index += 1) {
+      const anchor = anchors[index]!;
+      byKey.set(anchor.key, { anchor, index });
+      byLine.set(`${anchor.group ?? ""}:${anchor.lineNumber}`, anchor);
     }
-    return map;
+    return { byKey, byLine };
   }, [anchors]);
+
+  const anchorForKey = useCallback(
+    (key: string): T | undefined => lookups.byKey.get(key)?.anchor,
+    [lookups],
+  );
 
   const anchorForLine = useCallback(
     (group: string | undefined, line: number): T | undefined =>
-      lineMap.get(`${group ?? ""}:${line}`),
-    [lineMap],
+      lookups.byLine.get(`${group ?? ""}:${line}`),
+    [lookups],
   );
-
-  const indexByKey = useMemo(() => {
-    const map = new Map<string, number>();
-    for (let index = 0; index < anchors.length; index += 1) {
-      map.set(anchors[index]!.key, index);
-    }
-    return map;
-  }, [anchors]);
 
   /** Inclusive slice of anchors in render order between two keys. */
   const anchorsBetween = useCallback(
     (startKey: string, endKey: string): T[] => {
-      const start = indexByKey.get(startKey);
-      const end = indexByKey.get(endKey);
+      const start = lookups.byKey.get(startKey)?.index;
+      const end = lookups.byKey.get(endKey)?.index;
       if (start === undefined || end === undefined) return [];
-      const lo = Math.min(start, end);
-      const hi = Math.max(start, end);
-      return anchors.slice(lo, hi + 1);
+      return anchors.slice(Math.min(start, end), Math.max(start, end) + 1);
     },
-    [anchors, indexByKey],
+    [anchors, lookups],
+  );
+
+  /** Anchors between two line numbers on one side; lines with none are skipped. */
+  const anchorsInLineRange = useCallback(
+    (group: string | undefined, lo: number, hi: number): T[] => {
+      const found: T[] = [];
+      for (let line = lo; line <= hi; line += 1) {
+        const next = anchorForLine(group, line);
+        if (next !== undefined) found.push(next);
+      }
+      return found;
+    },
+    [anchorForLine],
   );
 
   /** Paints exactly `wanted` keys; only newly entered rows cost a DOM query. */
@@ -145,14 +156,11 @@ export function useQuoteLineSelection<T extends QuoteLineAnchor>({
   /** Paints exactly the rows in [lo, hi] that have anchors; only newly entered rows cost a DOM query. */
   const paintRange = useCallback(
     (group: string | undefined, lo: number, hi: number) => {
-      const wanted = new Set<string>();
-      for (let line = lo; line <= hi; line += 1) {
-        const anchor = anchorForLine(group, line);
-        if (anchor !== undefined) wanted.add(anchor.key);
-      }
-      paintKeys(wanted);
+      paintKeys(
+        new Set(anchorsInLineRange(group, lo, hi).map((anchor) => anchor.key)),
+      );
     },
-    [anchorForLine, paintKeys],
+    [anchorsInLineRange, paintKeys],
   );
 
   const clearDragPaint = useCallback(() => {
@@ -181,8 +189,11 @@ export function useQuoteLineSelection<T extends QuoteLineAnchor>({
   const beginDrag = useCallback(
     (key: string) => {
       if (!enabled) return;
-      const anchor = anchorMap.get(key);
+      const anchor = anchorForKey(key);
       if (anchor === undefined) return;
+      // A fresh press owns the next click, so no earlier gesture's suppression
+      // can still be standing when that click arrives.
+      suppressClickRef.current = false;
       window.getSelection()?.removeAllRanges();
       // The pinned selection is kept until the pointer actually travels:
       // mousedown precedes every click, and shift-click on a number must
@@ -191,7 +202,6 @@ export function useQuoteLineSelection<T extends QuoteLineAnchor>({
         startKey: key,
         endKey: key,
         group: anchor.group,
-        path: anchor.path,
         lockToGroup,
         dragged: false,
       };
@@ -205,17 +215,17 @@ export function useQuoteLineSelection<T extends QuoteLineAnchor>({
       anchorElRef.current = el ?? null;
       el?.setAttribute("data-quote-anchor", "true");
     },
-    [anchorMap, enabled, lockToGroup, paintKeys],
+    [anchorForKey, enabled, lockToGroup, paintKeys],
   );
 
   const quote = useCallback(
     (key: string) => {
       if (!enabled) return;
-      const anchor = anchorMap.get(key);
+      const anchor = anchorForKey(key);
       if (anchor === undefined) return;
       addComposerFileSelections([selectionFromAnchors([anchor])]);
     },
-    [anchorMap, enabled],
+    [anchorForKey, enabled],
   );
 
   useEffect(() => {
@@ -226,25 +236,22 @@ export function useQuoteLineSelection<T extends QuoteLineAnchor>({
       cancelDrag();
       if (!state.dragged) return;
       // The click that follows a drag-ending mouseup on the same + must not
-      // quote again. The flag self-resets so a stray release can never eat a
-      // later, unrelated click.
+      // quote again. The flag is consumed by that click and cleared by the next
+      // press, so it can neither outlive the gesture nor depend on timer
+      // ordering against the click event.
       suppressClickRef.current = true;
-      setTimeout(() => {
-        suppressClickRef.current = false;
-      }, 0);
       let inRange: T[];
       if (state.lockToGroup) {
-        const startLine = anchorMap.get(state.startKey)?.lineNumber;
-        const endLine = anchorMap.get(state.endKey)?.lineNumber;
-        inRange = [];
-        if (startLine !== undefined && endLine !== undefined) {
-          const lo = Math.min(startLine, endLine);
-          const hi = Math.max(startLine, endLine);
-          for (let line = lo; line <= hi; line += 1) {
-            const next = anchorForLine(state.group, line);
-            if (next !== undefined) inRange.push(next);
-          }
-        }
+        const startLine = anchorForKey(state.startKey)?.lineNumber;
+        const endLine = anchorForKey(state.endKey)?.lineNumber;
+        inRange =
+          startLine === undefined || endLine === undefined
+            ? []
+            : anchorsInLineRange(
+                state.group,
+                Math.min(startLine, endLine),
+                Math.max(startLine, endLine),
+              );
       } else {
         inRange = anchorsBetween(state.startKey, state.endKey);
       }
@@ -266,19 +273,18 @@ export function useQuoteLineSelection<T extends QuoteLineAnchor>({
         event.clientX,
         event.clientY,
         root,
-        state.lockToGroup ? state.group : "any",
+        state.lockToGroup && state.group !== undefined ? state.group : "any",
       );
       if (key === null) return;
-      const anchor = anchorMap.get(key);
+      const anchor = anchorForKey(key);
       if (anchor === undefined) return;
-      if (state.lockToGroup && anchor.path !== state.path) return;
       if (key === state.endKey) return;
       state.endKey = key;
       // High-water mark: returning to the start row keeps the drag a drag.
       state.dragged ||= key !== state.startKey;
       if (state.dragged) clearPinned();
       if (state.lockToGroup) {
-        const startLine = anchorMap.get(state.startKey)?.lineNumber;
+        const startLine = anchorForKey(state.startKey)?.lineNumber;
         const endLine = anchor.lineNumber;
         if (startLine !== undefined) {
           paintRange(
@@ -309,9 +315,9 @@ export function useQuoteLineSelection<T extends QuoteLineAnchor>({
       window.removeEventListener("blur", cancelOnBlur);
     };
   }, [
-    anchorForLine,
-    anchorMap,
+    anchorForKey,
     anchorsBetween,
+    anchorsInLineRange,
     cancelDrag,
     clearPinned,
     paintKeys,
@@ -350,14 +356,25 @@ export function useQuoteLineSelection<T extends QuoteLineAnchor>({
     [beginDrag],
   );
 
+  /**
+   * True when this click is the tail of a drag that already quoted. Consuming
+   * the flag here (rather than clearing it on a timer) keeps it scoped to
+   * exactly one click, whichever mouse handler sees it first.
+   */
+  const consumeSuppressedClick = useCallback((): boolean => {
+    if (!suppressClickRef.current) return false;
+    suppressClickRef.current = false;
+    return true;
+  }, []);
+
   const onPlusClick = useCallback(
     (event: React.MouseEvent<HTMLElement>, key: string) => {
       event.preventDefault();
       event.stopPropagation();
-      if (suppressClickRef.current) return;
+      if (consumeSuppressedClick()) return;
       quote(key);
     },
-    [quote],
+    [consumeSuppressedClick, quote],
   );
 
   /** Number click pins a selection; shift extends from the previous pin. */
@@ -385,8 +402,7 @@ export function useQuoteLineSelection<T extends QuoteLineAnchor>({
   /** Click and keyboard share this so Enter matches the "select line" label. */
   const pinFromNumber = useCallback(
     (event: { shiftKey: boolean }, key: string) => {
-      if (suppressClickRef.current) return;
-      const anchor = anchorMap.get(key);
+      const anchor = anchorForKey(key);
       if (anchor === undefined) return;
       const previous = pinnedRef.current;
       const extend =
@@ -397,24 +413,54 @@ export function useQuoteLineSelection<T extends QuoteLineAnchor>({
         anchor.lineNumber,
       );
     },
-    [anchorMap, pinRange],
+    [anchorForKey, pinRange],
+  );
+
+  /**
+   * Quotes the pinned range, or this line alone when nothing is pinned. The
+   * line number is the only focusable control in the gutter — the `+` stays
+   * out of the tab order so a long file does not add one tab stop per line —
+   * so this is the keyboard's route to the same action the `+` performs.
+   */
+  const quoteFromNumber = useCallback(
+    (key: string) => {
+      if (!enabled) return;
+      const anchor = anchorForKey(key);
+      if (anchor === undefined) return;
+      const pinned = pinnedRef.current;
+      const inRange =
+        pinned !== null && pinned.group === anchor.group
+          ? anchorsInLineRange(pinned.group, pinned.startLine, pinned.endLine)
+          : [anchor];
+      const selections = buildQuoteSelections(inRange);
+      if (selections.length > 0) addComposerFileSelections(selections);
+    },
+    [anchorForKey, anchorsInLineRange, enabled],
   );
 
   const onNumberClick = useCallback(
     (event: React.MouseEvent<HTMLElement>, key: string) => {
+      if (consumeSuppressedClick()) return;
       pinFromNumber(event, key);
     },
-    [pinFromNumber],
+    [consumeSuppressedClick, pinFromNumber],
   );
 
-  /** Enter/Space on the number pins (shift extends), matching click. */
+  /**
+   * Enter/Space on the number pins (shift extends), matching click.
+   * Ctrl/Cmd+Enter quotes the pinned range into the composer.
+   */
   const onNumberKeyDown = useCallback(
     (event: React.KeyboardEvent<HTMLElement>, key: string) => {
       if (event.key !== "Enter" && event.key !== " ") return;
       event.preventDefault();
+      if (event.ctrlKey || event.metaKey) {
+        quoteFromNumber(key);
+        return;
+      }
       pinFromNumber(event, key);
     },
-    [pinFromNumber],
+    [pinFromNumber, quoteFromNumber],
   );
 
   return {
@@ -517,25 +563,20 @@ export function quoteKeyFromPoint(
   clientX: number,
   clientY: number,
   root: HTMLElement,
-  group?: string | "any",
+  group: string | "any",
 ): string | null {
   const element = document.elementFromPoint(clientX, clientY);
   if (!(element instanceof Element) || !root.contains(element)) return null;
   const anyGroup = group === "any";
   const direct = element.closest<HTMLElement>("[data-quote-key]");
-  if (
-    direct !== null &&
-    (anyGroup || groupMatches(direct, anyGroup ? undefined : group))
-  ) {
+  if (direct !== null && (anyGroup || direct.dataset.quoteGroup === group)) {
     return direct.dataset.quoteKey ?? null;
   }
   const row = element.closest("tr");
-  const selector =
-    group === undefined || anyGroup
-      ? "[data-quote-key]"
-      : `[data-quote-key][data-quote-group="${group}"]`;
-  const within = row?.querySelector<HTMLElement>(selector) ?? null;
-  return within?.dataset.quoteKey ?? null;
+  const selector = anyGroup
+    ? "[data-quote-key]"
+    : `[data-quote-key][data-quote-group="${group}"]`;
+  return row?.querySelector<HTMLElement>(selector)?.dataset.quoteKey ?? null;
 }
 
 /**
@@ -581,15 +622,6 @@ function markQuoteAttr(
     if (on) el.setAttribute(attr, "true");
     else el.removeAttribute(attr);
   }
-}
-
-function groupMatches(
-  element: HTMLElement,
-  group: string | undefined,
-): boolean {
-  return group === undefined
-    ? element.dataset.quoteGroup === undefined
-    : element.dataset.quoteGroup === group;
 }
 
 function clearPinnedAttributes(root: HTMLElement | null): void {

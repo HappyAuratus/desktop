@@ -14,8 +14,9 @@
 
 [data-quote-root] {
   /* Range wash is a selection hue, not brand fill: --primary is charcoal and
-     mixed to gray. Spec / Files preview used this blue-600 wash. */
-  --quote-selection: #2563eb;
+     mixes to gray. `--selection-wash` (packages/ui globals.css) owns the hue
+     for every gutter surface and flips with the theme on its own. */
+  --quote-selection: var(--selection-wash);
   --quote-accent: var(--primary, #171717);
   --quote-tint: color-mix(in oklab, var(--quote-selection) 16%, transparent);
   --quote-tint-strong: color-mix(

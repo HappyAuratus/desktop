@@ -109,6 +109,9 @@ export function useTaskDiffQuoteGutter(
                   role: "button" as const,
                   tabIndex: 0,
                   "aria-label": t("diff.selectLine", { line: anchor.line }),
+                  // The + is deliberately not tabbable, so the number carries
+                  // the keyboard route to the same quote action.
+                  "aria-keyshortcuts": "Control+Enter Meta+Enter",
                 })}
             onClick={(event) => onNumberClick(event, key)}
             onKeyDown={(event) => onNumberKeyDown(event, key)}
@@ -175,9 +178,9 @@ export function useTaskDiffQuoteGutter(
         });
       }
 
-      if (change.type === "normal" && side === "old") {
-        return null;
-      }
+      // Split view keeps both columns numbered: context rows are quoted from
+      // the new side only, but the old column still shows its own line number.
+      // Collapsing context rows to a single number is a unified-view concern.
       const anchor = diffQuoteAnchorFor(file, change, side, changeKey);
       if (anchor === null) {
         return plainCell(wrapInAnchor, renderDefault());

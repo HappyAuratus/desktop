@@ -32,6 +32,16 @@ afterEach(() => {
   addComposerFileSelections.mockClear();
 });
 
+/** Stands in for react-diff-view's own gutter content: that side's line number, or nothing. */
+function defaultNumber(change: ChangeData, side: "old" | "new"): number | null {
+  if (change.type === "normal") {
+    return side === "old" ? change.oldLineNumber : change.newLineNumber;
+  }
+  if (change.type === "delete")
+    return side === "old" ? change.lineNumber : null;
+  return side === "new" ? change.lineNumber : null;
+}
+
 /** Renders the hook's gutter output inside a table so row lookups behave like react-diff-view's DOM. */
 function DiffQuoteSurface({
   file,
@@ -58,7 +68,7 @@ function DiffQuoteSurface({
                   change,
                   side: "old",
                   inHoverState: false,
-                  renderDefault: () => null,
+                  renderDefault: () => defaultNumber(change, "old"),
                   wrapInAnchor: (node) => node,
                 })}
               </td>
@@ -67,7 +77,7 @@ function DiffQuoteSurface({
                   change,
                   side: "new",
                   inHoverState: false,
-                  renderDefault: () => null,
+                  renderDefault: () => defaultNumber(change, "new"),
                   wrapInAnchor: (node) => node,
                 })}
               </td>
@@ -99,6 +109,51 @@ describe("useTaskDiffQuoteGutter", () => {
     expect(container.querySelector('[data-quote-key="old:2"]')).not.toBeNull();
     // Normal rows never render an old-side quote gutter (single-number unified).
     expect(container.querySelector('[data-quote-key="old:1"]')).toBeNull();
+  });
+
+  it("keeps old-side numbers on split-view context rows", () => {
+    const file = parseDiff(PATCH)[0]!;
+    const { container } = render(<DiffQuoteSurface file={file} />);
+
+    // The context row's old gutter is not quoteable, but split view still owes
+    // it a line number — collapsing context to one number is unified-only.
+    const contextRow = container
+      .querySelector('[data-quote-key="new:1"]')!
+      .closest("tr")!;
+    const oldCell = contextRow.querySelector("td")!;
+    expect(oldCell.querySelector("[data-quote-key]")).toBeNull();
+    expect(oldCell.textContent).toBe("1");
+  });
+
+  it("quotes the pinned range from the keyboard with Ctrl+Enter", async () => {
+    const file = parseDiff(PATCH)[0]!;
+    const { container } = render(<DiffQuoteSurface file={file} />);
+
+    await waitFor(() =>
+      expect(
+        container.querySelector('[data-quote-key="new:1"] [data-quote-number]'),
+      ).not.toBeNull(),
+    );
+    const number = container.querySelector(
+      '[data-quote-key="new:1"] [data-quote-number]',
+    )!;
+
+    // Plain Enter only pins; the + is not tabbable, so Ctrl+Enter is the
+    // keyboard's only route to the quote action.
+    fireEvent.keyDown(number, { key: "Enter" });
+    expect(addComposerFileSelections).not.toHaveBeenCalled();
+
+    fireEvent.keyDown(number, { key: "Enter", ctrlKey: true });
+    expect(addComposerFileSelections).toHaveBeenCalledWith([
+      {
+        path: "src/example.ts",
+        startLine: 1,
+        endLine: 1,
+        snippet: " keep",
+        origin: "diff",
+        diffSide: "new",
+      },
+    ]);
   });
 
   it("commits a new-side drag with the new path", async () => {

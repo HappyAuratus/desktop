@@ -9,7 +9,11 @@ Task Changes panel: parsed worktree patches, file tree, and git commit/push acti
 - Jump from chat file links to a new-side line inside the active patch.
 - Quote visible diff lines into the chat composer via gutter `+` (click) or
   gutter/`+` drag-release. Clicking a line number pins a highlight on that
-  side only (shift-click extends within the same side). New-side insert/normal
+  side only (shift-click extends within the same side); Ctrl/Cmd+Enter on a
+  focused line number quotes the pinned range, which is the keyboard route to
+  the `+` (the `+` itself stays out of the tab order so a long file does not
+  add one tab stop per line). Split view keeps both columns numbered; only
+  unified collapses context rows to a single number. New-side insert/normal
   rows use the new path; pure deletes use the old path. Drag uses min–max line
   fill (including collapsed content, matching Cursor). A visual Diff range
   that crosses delete / insert / context stays **one chip** (basename +

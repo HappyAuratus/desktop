@@ -14,7 +14,9 @@ App-shell wrapper around `@ora/editor` for prompt boxes.
   Programmatic hydrate dismisses the `@`/`/` palette so a parked `@…` suffix
   does not reopen the menu. Explorer line selections deliver into the bound
   conversation composer (queued only while that composer is unmounted) and are
-  refused (with a warning) when no session/draft/task is selected.
+  refused (with a warning) when no session/draft/task is selected. A quote the
+  composer cannot insert is reported inline rather than dropped silently; it is
+  not re-queued, because replaying is what resurrected deleted chips.
   `appendText` inserts parsed blocks at the end so `/command` chips are not
   flattened by a Markdown round-trip. Pastes that include both files and plain text keep the text.
   Typing an opener in front of existing closers (`**`, `==`, `~~`, and the

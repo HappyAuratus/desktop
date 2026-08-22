@@ -265,7 +265,7 @@ describe("quoteKeyFromPoint", () => {
     document.body.append(root);
     vi.spyOn(document, "elementFromPoint").mockReturnValue(row);
 
-    expect(quoteKeyFromPoint(0, 0, root)).toBe("3");
+    expect(quoteKeyFromPoint(0, 0, root, "any")).toBe("3");
   });
 
   it("falls back from a code cell to the row gutter of the same side", () => {
@@ -302,7 +302,7 @@ describe("quoteKeyFromPoint", () => {
     document.body.append(outside);
     vi.spyOn(document, "elementFromPoint").mockReturnValue(outside);
 
-    expect(quoteKeyFromPoint(0, 0, root)).toBeNull();
+    expect(quoteKeyFromPoint(0, 0, root, "any")).toBeNull();
   });
 
   it("accepts either side when the group lock is any", () => {

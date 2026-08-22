@@ -11,11 +11,6 @@ export interface ComposerFileSelection {
   diffSide?: "old" | "new";
 }
 
-export interface PendingFileContext {
-  id: number;
-  selections: ComposerFileSelection[];
-}
-
 type ComposerFileDelivery = (selections: ComposerFileSelection[]) => void;
 
 interface ComposerFileContextState {
@@ -24,18 +19,20 @@ interface ComposerFileContextState {
    * Bound composers receive quotes via `bindDelivery` and never re-read this
    * list, so a session switch cannot replay chips the user already deleted.
    */
-  pendingByConversation: Record<string, PendingFileContext[] | undefined>;
-  /**
-   * Queues a workspace-relative line range for one conversation's composer.
-   * Returns false when the same path/range/origin is already pending.
-   */
+  pendingByConversation: Record<string, ComposerFileSelection[] | undefined>;
+  /** Queues a workspace-relative line range for one conversation's composer. */
   addSelection: (
     conversationKey: string,
     selection: ComposerFileSelection,
   ) => boolean;
   /**
    * Delivers quotes to the bound composer, or queues them until it binds.
-   * Returns false when every item was already pending.
+   *
+   * Returns false when every item is a duplicate of one already waiting —
+   * either queued for an unmounted composer, or handed to a bound composer
+   * within the current microtask. Re-quoting the same range later is always
+   * accepted: once a chip is in the document the user may legitimately want a
+   * second one, and the store cannot see what the document holds.
    */
   addSelections: (
     conversationKey: string,
@@ -51,18 +48,23 @@ interface ComposerFileContextState {
     conversationKey: string,
     deliver: ComposerFileDelivery,
   ) => () => void;
-  /** Test helper: drop a queued conversation without delivering. */
-  consumeSelections: (conversationKey: string, requestId: number) => void;
 }
-
-let nextRequestId = 0;
 
 /** Live insert handlers, keyed like `pendingByConversation`. Not in Zustand so binding does not re-render. */
 const deliveries = new Map<string, ComposerFileDelivery>();
 
+/**
+ * Quotes handed to a bound composer but not yet inserted (one microtask wide).
+ * Deduping against this window stops a single gesture that fires twice — a
+ * Strict Mode double effect, or a `+` whose mousedown and click both quote —
+ * from inserting the same chip twice, without blocking a deliberate re-quote.
+ */
+const scheduled = new Map<string, ComposerFileSelection[]>();
+
 /** Drops live handlers so tests cannot leak a bound composer into the next case. */
 export function resetComposerFileDeliveriesForTests(): void {
   deliveries.clear();
+  scheduled.clear();
 }
 
 function sameSelection(
@@ -78,19 +80,27 @@ function sameSelection(
   );
 }
 
-function queuedSelections(
-  queue: readonly PendingFileContext[] | undefined,
+/** Keeps only selections that no entry in `against` already covers. */
+function withoutDuplicates(
+  selections: readonly ComposerFileSelection[],
+  against: readonly ComposerFileSelection[],
 ): ComposerFileSelection[] {
-  return queue?.flatMap((batch) => batch.selections) ?? [];
+  return selections.filter(
+    (selection) =>
+      !against.some((candidate) => sameSelection(candidate, selection)),
+  );
 }
 
-function takeQueuedSelections(
-  pendingByConversation: ComposerFileContextState["pendingByConversation"],
+/** Releases this batch's hold on the in-flight window once it is delivered. */
+function releaseScheduled(
   conversationKey: string,
-): ComposerFileSelection[] {
-  const queue = pendingByConversation[conversationKey];
-  if (queue === undefined || queue.length === 0) return [];
-  return queue.flatMap((batch) => batch.selections);
+  delivered: readonly ComposerFileSelection[],
+): void {
+  const inFlight = scheduled.get(conversationKey);
+  if (inFlight === undefined) return;
+  const rest = inFlight.filter((candidate) => !delivered.includes(candidate));
+  if (rest.length === 0) scheduled.delete(conversationKey);
+  else scheduled.set(conversationKey, rest);
 }
 
 /** Bridges file-explorer actions to the conversation composer without coupling the two views. */
@@ -103,38 +113,43 @@ export const useComposerFileContextStore = create<ComposerFileContextState>(
       if (selections.length === 0) return false;
       const deliver = deliveries.get(conversationKey);
       if (deliver !== undefined) {
+        const fresh = withoutDuplicates(
+          selections,
+          scheduled.get(conversationKey) ?? [],
+        );
+        if (fresh.length === 0) return false;
+        scheduled.set(conversationKey, [
+          ...(scheduled.get(conversationKey) ?? []),
+          ...fresh,
+        ]);
         // TipTap insert must not run inside the quote event / Zustand stack.
         // Do not write `pendingByConversation`: rebinding the composer would
         // replay chips the user already had (or had deleted).
         queueMicrotask(() => {
+          releaseScheduled(conversationKey, fresh);
           const current = deliveries.get(conversationKey);
           if (current !== deliver) {
-            get().addSelections(conversationKey, selections);
+            get().addSelections(conversationKey, fresh);
             return;
           }
           try {
-            current(selections);
+            current(fresh);
           } catch {
-            // TipTap may already be destroyed if the composer unmounted
-            // between quote and this microtask.
+            // Last-resort guard for a handler that throws instead of reporting.
+            // Not re-queued: the same handler is still bound, so a retry would
+            // throw again forever. The composer surfaces its own insert
+            // failures, so this path should stay unreachable in practice.
           }
         });
         return true;
       }
-      const queue = get().pendingByConversation[conversationKey];
-      const existing = queuedSelections(queue);
-      const fresh = selections.filter(
-        (selection) =>
-          !existing.some((candidate) => sameSelection(candidate, selection)),
-      );
+      const queue = get().pendingByConversation[conversationKey] ?? [];
+      const fresh = withoutDuplicates(selections, queue);
       if (fresh.length === 0) return false;
       set({
         pendingByConversation: {
           ...get().pendingByConversation,
-          [conversationKey]: [
-            ...(queue ?? []),
-            { id: ++nextRequestId, selections: fresh },
-          ],
+          [conversationKey]: [...queue, ...fresh],
         },
       });
       return true;
@@ -146,11 +161,8 @@ export const useComposerFileContextStore = create<ComposerFileContextState>(
       queueMicrotask(() => {
         if (cancelled) return;
         if (deliveries.get(conversationKey) !== deliver) return;
-        const queued = takeQueuedSelections(
-          get().pendingByConversation,
-          conversationKey,
-        );
-        if (queued.length === 0) return;
+        const queued = get().pendingByConversation[conversationKey];
+        if (queued === undefined || queued.length === 0) return;
         set((state) => {
           if (state.pendingByConversation[conversationKey] === undefined) {
             return state;
@@ -167,21 +179,6 @@ export const useComposerFileContextStore = create<ComposerFileContextState>(
           deliveries.delete(conversationKey);
         }
       };
-    },
-    consumeSelections: (conversationKey, requestId) => {
-      set((state) => {
-        const queue = state.pendingByConversation[conversationKey];
-        if (queue === undefined) return state;
-        const next = queue.filter((batch) => batch.id !== requestId);
-        if (next.length === queue.length) return state;
-        const pendingByConversation = { ...state.pendingByConversation };
-        if (next.length === 0) {
-          delete pendingByConversation[conversationKey];
-        } else {
-          pendingByConversation[conversationKey] = next;
-        }
-        return { pendingByConversation };
-      });
     },
   }),
 );

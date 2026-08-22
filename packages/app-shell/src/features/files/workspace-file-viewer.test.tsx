@@ -241,6 +241,38 @@ describe("WorkspaceFileViewer", () => {
     ).toBe("true");
   });
 
+  it("quotes the pinned range from the keyboard with Ctrl+Enter", async () => {
+    render(
+      <WorkspaceFileViewer
+        content={"one\ntwo\nthree\nfour"}
+        path="README.md"
+        target={null}
+      />,
+    );
+
+    await waitFor(() =>
+      expect(
+        screen.getByRole("button", {
+          name: appI18n.t("files.selectLine", { line: 2 }),
+        }),
+      ).toBeInTheDocument(),
+    );
+    const line = (n: number) =>
+      screen.getByRole("button", {
+        name: appI18n.t("files.selectLine", { line: n }),
+      });
+
+    // Pin 2-3 with Enter + shift-Enter, then quote the pinned range.
+    fireEvent.keyDown(line(2), { key: "Enter" });
+    fireEvent.keyDown(line(3), { key: "Enter", shiftKey: true });
+    expect(addComposerFileSelections).not.toHaveBeenCalled();
+
+    fireEvent.keyDown(line(3), { key: "Enter", ctrlKey: true });
+    expect(addComposerFileSelections).toHaveBeenCalledWith([
+      { path: "README.md", startLine: 2, endLine: 3, snippet: "two\nthree" },
+    ]);
+  });
+
   it("keeps the quote + control as a sibling of the line-number button without an SVG", async () => {
     const { container } = render(
       <WorkspaceFileViewer

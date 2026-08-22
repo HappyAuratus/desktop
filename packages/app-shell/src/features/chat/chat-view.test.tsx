@@ -1123,11 +1123,7 @@ describe("Composer", () => {
       screen.getByRole("textbox").querySelector("[data-composer-file]"),
     ).toBeNull();
     expect(
-      useComposerFileContextStore
-        .getState()
-        .pendingByConversation["session-a"]?.flatMap(
-          (batch) => batch.selections,
-        ),
+      useComposerFileContextStore.getState().pendingByConversation["session-a"],
     ).toEqual([{ path: "src/queued-for-a.ts", startLine: 3, endLine: 3 }]);
     expect(
       useComposerFileContextStore.getState().pendingByConversation["session-b"],

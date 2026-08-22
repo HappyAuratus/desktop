@@ -4,6 +4,7 @@ import { addComposerFileSelections } from "../../features/chat/add-composer-file
 import {
   resetComposerFileDeliveriesForTests,
   useComposerFileContextStore,
+  type ComposerFileSelection,
 } from "./composer-file-context-store";
 import { useWorkspaceSelectionStore } from "./workspace-selection-store";
 
@@ -28,11 +29,11 @@ function pendingSelections(conversationKey: string) {
     useComposerFileContextStore.getState().pendingByConversation[
       conversationKey
     ] ?? []
-  ).flatMap((batch) => batch.selections);
+  );
 }
 
 describe("useComposerFileContextStore", () => {
-  it("queues and consumes selections per conversation key", () => {
+  it("queues selections per conversation key", () => {
     expect(
       useComposerFileContextStore.getState().addSelection("session-a", {
         path: "a.ts",
@@ -48,30 +49,15 @@ describe("useComposerFileContextStore", () => {
       }),
     ).toBe(true);
 
-    const pendingA =
-      useComposerFileContextStore.getState().pendingByConversation["session-a"];
-    const pendingB =
-      useComposerFileContextStore.getState().pendingByConversation["session-b"];
-    expect(pendingA?.map((batch) => batch.selections)).toEqual([
-      [{ path: "a.ts", startLine: 1, endLine: 1 }],
-    ]);
-    expect(pendingB?.map((batch) => batch.selections)).toEqual([
-      [{ path: "b.ts", startLine: 2, endLine: 2 }],
-    ]);
-    expect(pendingA?.[0]?.id).not.toBe(pendingB?.[0]?.id);
-
-    useComposerFileContextStore
-      .getState()
-      .consumeSelections("session-a", pendingA![0]!.id);
     expect(
-      useComposerFileContextStore.getState().pendingByConversation["session-a"],
-    ).toBeUndefined();
-    expect(pendingSelections("session-b")).toEqual([
-      { path: "b.ts", startLine: 2, endLine: 2 },
-    ]);
+      useComposerFileContextStore.getState().pendingByConversation,
+    ).toEqual({
+      "session-a": [{ path: "a.ts", startLine: 1, endLine: 1 }],
+      "session-b": [{ path: "b.ts", startLine: 2, endLine: 2 }],
+    });
   });
 
-  it("keeps a later batch when an earlier request id is consumed", () => {
+  it("appends later quotes to the same conversation queue in order", () => {
     useComposerFileContextStore.getState().addSelection("session-a", {
       path: "a.ts",
       startLine: 1,
@@ -82,22 +68,11 @@ describe("useComposerFileContextStore", () => {
       startLine: 2,
       endLine: 2,
     });
-    const [first, second] =
-      useComposerFileContextStore.getState().pendingByConversation[
-        "session-a"
-      ] ?? [];
-    expect(first).toBeDefined();
-    expect(second).toBeDefined();
 
-    useComposerFileContextStore
-      .getState()
-      .consumeSelections("session-a", first!.id);
     expect(pendingSelections("session-a")).toEqual([
+      { path: "a.ts", startLine: 1, endLine: 1 },
       { path: "b.ts", startLine: 2, endLine: 2 },
     ]);
-    expect(
-      useComposerFileContextStore.getState().pendingByConversation["session-a"],
-    ).toEqual([second]);
   });
 
   it("returns false when the same range is already pending", () => {
@@ -153,10 +128,9 @@ describe("useComposerFileContextStore", () => {
         { path: "a.ts", startLine: 8, endLine: 9, snippet: "b\nc" },
       ]),
     ).toBe(true);
-    const pending =
-      useComposerFileContextStore.getState().pendingByConversation["session-a"];
-    expect(pending).toHaveLength(1);
-    expect(pending?.[0]?.selections).toEqual([
+    expect(
+      useComposerFileContextStore.getState().pendingByConversation["session-a"],
+    ).toEqual([
       { path: "a.ts", startLine: 5, endLine: 5, snippet: "a" },
       { path: "a.ts", startLine: 8, endLine: 9, snippet: "b\nc" },
     ]);
@@ -187,47 +161,6 @@ describe("useComposerFileContextStore", () => {
     warn.mockRestore();
   });
 
-  it("does not grow a consumed snapshot when a second quote arrives", () => {
-    useComposerFileContextStore.getState().addSelection("session-a", {
-      path: "a.ts",
-      startLine: 1,
-      endLine: 1,
-    });
-    const firstId =
-      useComposerFileContextStore.getState().pendingByConversation[
-        "session-a"
-      ]![0]!.id;
-    useComposerFileContextStore.getState().addSelection("session-a", {
-      path: "b.ts",
-      startLine: 2,
-      endLine: 2,
-    });
-    useComposerFileContextStore
-      .getState()
-      .consumeSelections("session-a", firstId);
-    expect(pendingSelections("session-a")).toEqual([
-      { path: "b.ts", startLine: 2, endLine: 2 },
-    ]);
-  });
-
-  it("ignores consumeSelections for a stale request id", () => {
-    useComposerFileContextStore.getState().addSelection("session-a", {
-      path: "a.ts",
-      startLine: 1,
-      endLine: 1,
-    });
-    const id =
-      useComposerFileContextStore.getState().pendingByConversation[
-        "session-a"
-      ]![0]!.id;
-    useComposerFileContextStore
-      .getState()
-      .consumeSelections("session-a", id + 1);
-    expect(
-      useComposerFileContextStore.getState().pendingByConversation["session-a"],
-    ).toBeDefined();
-  });
-
   it("delivers into a bound composer without leaving a replayable queue", async () => {
     const delivered: unknown[] = [];
     const unbind = useComposerFileContextStore
@@ -248,6 +181,35 @@ describe("useComposerFileContextStore", () => {
     expect(
       useComposerFileContextStore.getState().pendingByConversation["session-a"],
     ).toBeUndefined();
+    unbind();
+  });
+
+  it("deduplicates a repeated quote inside one delivery microtask", async () => {
+    const delivered: ComposerFileSelection[][] = [];
+    const unbind = useComposerFileContextStore
+      .getState()
+      .bindDelivery("session-a", (selections) => {
+        delivered.push(selections);
+      });
+    const range = { path: "a.ts", startLine: 1, endLine: 1 };
+
+    expect(
+      useComposerFileContextStore.getState().addSelection("session-a", range),
+    ).toBe(true);
+    // Same gesture firing twice before the microtask runs must insert one chip.
+    expect(
+      useComposerFileContextStore.getState().addSelection("session-a", range),
+    ).toBe(false);
+    await Promise.resolve();
+
+    expect(delivered).toEqual([[range]]);
+
+    // Once delivered the window is clear, so a deliberate re-quote is accepted.
+    expect(
+      useComposerFileContextStore.getState().addSelection("session-a", range),
+    ).toBe(true);
+    await Promise.resolve();
+    expect(delivered).toEqual([[range], [range]]);
     unbind();
   });
 

@@ -168,6 +168,7 @@ export function WorkspaceFileViewer({
                       role="button"
                       tabIndex={0}
                       aria-label={t("files.selectLine", { line: lineNumber })}
+                      aria-keyshortcuts="Control+Enter Meta+Enter"
                       className="workspace-file-line-number inline-block min-w-[1.75rem] cursor-pointer text-right tabular-nums text-muted-foreground/65 group-hover/line:text-foreground"
                       onClick={(event) =>
                         onNumberClick(event, String(lineNumber))
