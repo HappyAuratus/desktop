@@ -1,8 +1,8 @@
 import {
   composerFileAttrsFromUnknown,
+  composerFileChipTitle,
   composerFileLabel,
   composerFileLineRangeLabel,
-  composerFilePlainText,
 } from "@ora/editor/composer";
 import { NodeViewWrapper, type NodeViewProps } from "@tiptap/react";
 import type {
@@ -19,8 +19,7 @@ export function ComposerFileChipView({ node, editor, getPos }: NodeViewProps) {
   const attrs = composerFileAttrsFromUnknown(node.attrs);
   const kind = attrs.kind === "directory" ? "directory" : "file";
   const rangeLabel = composerFileLineRangeLabel(attrs);
-  const payload = composerFilePlainText(attrs).replace(/`/g, "");
-  const title = payload.includes("\n") ? attrs.path : payload;
+  const title = composerFileChipTitle(attrs);
 
   const selectOnlyThisChip = (event: ReactMouseEvent<HTMLElement>): void => {
     event.preventDefault();

@@ -65,6 +65,7 @@ export {
   ComposerFile,
   composerFileAttrsFromNode,
   composerFileAttrsFromUnknown,
+  composerFileChipTitle,
   composerFileLabel,
   composerFileLineRangeLabel,
   composerFilePlainText,

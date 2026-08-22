@@ -78,6 +78,16 @@ export function composerFilePlainText(attrs: ComposerFileAttrs): string {
 }
 
 /**
+ * Hover title for the chip. Multiline payloads (citation fences / diff patches)
+ * use the path so the native tooltip stays one line; ranged `@` mentions keep
+ * `path:start-end` without wrapping backticks.
+ */
+export function composerFileChipTitle(attrs: ComposerFileAttrs): string {
+  const payload = composerFilePlainText(attrs).replace(/`/g, "");
+  return payload.includes("\n") ? attrs.path : payload;
+}
+
+/**
  * Normalizes chip attrs from TipTap/DOM so NaN line numbers never reach the
  * agent payload as `:NaN`. Also maps JSON `null` and quote metadata.
  */
@@ -287,7 +297,7 @@ export const ComposerFile = Node.create({
           : { "data-end-line": String(attrs.endLine) }),
         class: "composer-chip composer-chip-file",
         contenteditable: "false",
-        title: attrs.path,
+        title: composerFileChipTitle(attrs),
       }),
       ["span", { class: "composer-chip-glyph", "aria-hidden": "true" }],
       [

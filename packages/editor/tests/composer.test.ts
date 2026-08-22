@@ -11,6 +11,7 @@ import {
 } from "../src/composer/composer-plain-text.ts";
 import {
   composerFileAttrsFromUnknown,
+  composerFileChipTitle,
   composerFileLabel,
   composerFilePlainText,
 } from "../src/composer/composer-file.ts";
@@ -98,6 +99,26 @@ test("file chips serialize to backtick path:line payloads", () => {
   assert.equal(
     composerFilePlainText({ path: "README.md", startLine: 3, endLine: 3 }),
     "`README.md:3`",
+  );
+});
+
+test("composerFileChipTitle keeps one-line path:range and uses path for multiline payloads", () => {
+  assert.equal(
+    composerFileChipTitle({
+      path: "src/app.ts",
+      startLine: 4,
+      endLine: 12,
+    }),
+    "src/app.ts:4-12",
+  );
+  assert.equal(
+    composerFileChipTitle({
+      path: "src/app.ts",
+      startLine: 4,
+      endLine: 5,
+      snippet: "const a = 1;\nconst b = 2;",
+    }),
+    "src/app.ts",
   );
 });
 
