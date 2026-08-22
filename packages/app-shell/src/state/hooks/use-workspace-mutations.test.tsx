@@ -68,7 +68,7 @@ describe("delete mutations clear parked composer state", () => {
       {
         id: "s1",
         taskId: "t1",
-        agentCli: "open_code",
+        agentRef: "ora-space.opencode",
         status: "running",
         title: null,
         historyState: { type: "writable" },
@@ -76,7 +76,7 @@ describe("delete mutations clear parked composer state", () => {
       {
         id: "s2",
         taskId: "t1",
-        agentCli: "open_code",
+        agentRef: "ora-space.opencode",
         status: "running",
         title: null,
         historyState: { type: "writable" },

@@ -23,7 +23,7 @@ const TASK: Task = {
 const SESSION: Session = {
   id: "s1",
   taskId: "t1",
-  agentCli: "open_code",
+  agentRef: "ora-space.opencode",
   status: "running",
   title: null,
   historyState: { type: "writable" },
@@ -468,7 +468,7 @@ describe("useRestoreWorkspaceSelection", () => {
       ).toBe("run-1");
     });
     expect(useWorkspaceSelectionStore.getState().pendingRestore).toBeNull();
-    expect(useUiStore.getState().expandedProjects.has("p1")).toBe(true);
+    expect(useUiStore.getState().expandedProjects.has("p1")).toBe(false);
   });
 
   it("waits while the workflow-run query has errored instead of discarding the candidate", async () => {
@@ -598,7 +598,7 @@ describe("useWarmSession restore gate", () => {
             taskId: "t1",
             sessionId: null,
           },
-          "open_code",
+          "ora-space.opencode",
         ),
       client,
       undefined,
