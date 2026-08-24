@@ -7,7 +7,6 @@ import {
   within,
   type RenderResult,
 } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ReactElement } from "react";
 import { createChatStore } from "@ora/chat";
@@ -36,6 +35,7 @@ import { renderHookWithClient } from "../../test/hook-harness";
 import { createStubPlatform } from "../../test/stub-platform";
 import { useDeleteWorkflow } from "./workflow-definitions";
 import { WorkflowSettings } from "./workflow-settings";
+import { setupUser } from "../../test/user";
 
 /** Seeds the mock client with the demo workflows and their published versions. */
 function seedDemoWorkflows(state: MockClientState): void {
@@ -295,7 +295,7 @@ describe("WorkflowSettings", () => {
   });
 
   it("previews and activates a mock published workflow version", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     renderSettings();
 
     await screen.findByLabelText("工作流画布");
@@ -358,7 +358,7 @@ describe("WorkflowSettings", () => {
   });
 
   it("exposes canvas zoom controls and resets the React Flow viewport", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     renderSettings();
     await screen.findByLabelText("工作流画布");
     // React Flow applies the initial viewport transform asynchronously after mount.
@@ -439,7 +439,7 @@ describe("WorkflowSettings", () => {
   });
 
   it("collapses node configuration after a stationary blank-canvas click", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     renderSettings();
     const startNode = await screen.findByLabelText("开始节点: 开始");
     const flowNode = startNode.closest(".react-flow__node") ?? startNode;
@@ -461,7 +461,7 @@ describe("WorkflowSettings", () => {
   });
 
   it("collapses and restores the workflow library from visible controls", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     renderSettings();
     await screen.findByText("代码审查工作流");
 
@@ -477,7 +477,7 @@ describe("WorkflowSettings", () => {
   });
 
   it("keeps only one auxiliary panel expanded in a narrow editor", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     renderSettings();
     const startNode = await screen.findByLabelText("开始节点: 开始");
     const flowNode = startNode.closest(".react-flow__node") ?? startNode;
@@ -493,7 +493,7 @@ describe("WorkflowSettings", () => {
   });
 
   it("reopens node configuration when clicking the still-selected node after collapse", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     renderSettings();
     const startNode = await screen.findByLabelText("开始节点: 开始");
     const flowNode = startNode.closest(".react-flow__node") ?? startNode;
@@ -517,7 +517,7 @@ describe("WorkflowSettings", () => {
   });
 
   it("closes node configuration with its button or Escape", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     renderSettings();
     const startNode = await screen.findByLabelText("开始节点: 开始");
     const flowNode = startNode.closest(".react-flow__node") ?? startNode;
@@ -539,7 +539,7 @@ describe("WorkflowSettings", () => {
   });
 
   it("switches workflows from the manager and adds nodes from the bottom dock", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     renderSettings();
 
     const releaseWorkflow = await screen.findByText("发布准备检查");
@@ -628,7 +628,7 @@ describe("WorkflowSettings", () => {
   });
 
   it("deletes workflow connections by double-click or keyboard", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     renderSettings();
 
     const connection = await screen.findByRole("button", {
@@ -660,7 +660,7 @@ describe("WorkflowSettings", () => {
   });
 
   it("restores each workflow from its React Flow viewport snapshot", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     renderSettings();
     await screen.findByLabelText("工作流画布");
 
@@ -683,7 +683,7 @@ describe("WorkflowSettings", () => {
   });
 
   it("uses React Flow deletion to remove a node and its incident edges", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     renderSettings();
 
     const node = await screen.findByLabelText("Agent节点: 理解改动");
@@ -719,7 +719,7 @@ describe("WorkflowSettings", () => {
   });
 
   it("box-selects multiple nodes with a left drag and deletes them together", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     renderSettings();
     const canvas = await screen.findByLabelText("工作流画布");
     vi.spyOn(canvas, "getBoundingClientRect").mockReturnValue({
@@ -777,7 +777,7 @@ describe("WorkflowSettings", () => {
   });
 
   it("uses React Flow deletable state to protect the required start node", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     renderSettings();
 
     const startNode = await screen.findByLabelText("开始节点: 开始");
@@ -791,7 +791,7 @@ describe("WorkflowSettings", () => {
   });
 
   it("edits the existing Agent node through its structured execution contract", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     renderSettings();
 
     const reviewNode = await screen.findByLabelText("Agent节点: 审查 Agent");
@@ -825,7 +825,7 @@ describe("WorkflowSettings", () => {
   });
 
   it("limits node descriptions to 30 characters and shows their count", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     renderSettings();
 
     const reviewNode = await screen.findByLabelText("Agent节点: 审查 Agent");
@@ -845,7 +845,7 @@ describe("WorkflowSettings", () => {
   });
 
   it("searches Agent models and roles before updating their selections", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     renderSettings();
 
     const reviewNode = await screen.findByLabelText("Agent节点: 审查 Agent");
@@ -869,7 +869,7 @@ describe("WorkflowSettings", () => {
   });
 
   it("keeps a manually switched Agent CLI when that CLI reports no models", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const state = createMockClientState();
     state.agents = [
       {
@@ -949,7 +949,7 @@ describe("WorkflowSettings", () => {
   });
 
   it("uses the backend catalog for a newly added Agent model", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     renderSettings();
 
     const reviewNode = await screen.findByLabelText("Agent节点: 审查 Agent");
@@ -967,7 +967,7 @@ describe("WorkflowSettings", () => {
   });
 
   it("adds, disables, and removes configured Agent Skills", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     renderSettings();
 
     const reviewNode = await screen.findByLabelText("Agent节点: 审查 Agent");
@@ -1002,7 +1002,7 @@ describe("WorkflowSettings", () => {
   });
 
   it("routes inspector deletion through the shared React Flow store", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     renderSettings();
 
     const reviewNode = await screen.findByLabelText("Agent节点: 审查 Agent");
@@ -1027,7 +1027,7 @@ describe("WorkflowSettings", () => {
   });
 
   it("shows React Flow reconnect controls after selecting an edge", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     renderSettings();
 
     const connection = await screen.findByRole("button", {
@@ -1046,7 +1046,7 @@ describe("WorkflowSettings", () => {
   });
 
   it("creates a workflow from the left manager and allows renaming it", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     renderSettings();
 
     await screen.findByText("代码审查工作流");
@@ -1157,7 +1157,7 @@ describe("WorkflowSettings", () => {
   });
 
   it("deleting the selected workflow auto-selects the next one and loads its canvas", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     renderSettings();
 
     // The mock library is seeded with code-review first and auto-selected.

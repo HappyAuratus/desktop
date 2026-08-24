@@ -1,10 +1,10 @@
 import { PlatformProvider, type PlatformAdapter } from "../../platform";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import { AppI18nProvider } from "../../i18n/i18n";
 import { createStubPlatform } from "../../test/stub-platform";
 import { EntityDialog, type EntityField } from "./entity-dialog";
+import { setupUser } from "../../test/user";
 
 const fields: EntityField[] = [
   { kind: "text", name: "name", label: "Name", value: "Ora" },
@@ -38,7 +38,7 @@ function renderDialog(platform: PlatformAdapter) {
 
 describe("EntityDialog path field", () => {
   it("passes the current path as a directory initial path and fills the selection", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const selectPath = vi.fn().mockResolvedValue("/home/ora/new");
     renderDialog({
       ...createStubPlatform(),
@@ -55,7 +55,7 @@ describe("EntityDialog path field", () => {
   });
 
   it("preserves the typed path when the selection is cancelled", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     renderDialog({
       ...createStubPlatform(),
       selectPath: vi.fn().mockResolvedValue(null),
@@ -99,7 +99,7 @@ function renderSubmitDialog(params: {
 
 describe("EntityDialog submit loading", () => {
   it("shows a spinner on the submit button while the request is in flight", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     let releaseSubmit: () => void = () => {};
     const pending = new Promise<void>((resolve) => {
       releaseSubmit = resolve;
@@ -142,7 +142,7 @@ describe("EntityDialog submit loading", () => {
   });
 
   it("allows a retry after the in-flight submit fails", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const onSubmit = vi
       .fn()
       .mockRejectedValueOnce(new Error("unavailable"))

@@ -1,6 +1,5 @@
 import { createRef } from "react";
 import { render, screen, within } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import { createMockWorkflow } from "@ora/workflow-mock";
 import {
@@ -10,6 +9,7 @@ import {
 } from "@ora/workflow-runtime";
 import { AppI18nProvider } from "../../i18n/i18n";
 import { RunTheaterPathRail } from "./run-theater-path-rail";
+import { setupUser } from "../../test/user";
 
 /** Builds a finished mock run for path-rail Result chip coverage. */
 function terminalRun(
@@ -141,7 +141,7 @@ describe("RunTheaterPathRail", () => {
   it("appends a status-toned Result chip after path nodes on terminal runs", async () => {
     const onShowResultAct = vi.fn();
     const onFocusNode = vi.fn();
-    const user = userEvent.setup();
+    const user = setupUser();
     const run = terminalRun("succeeded");
     const nodeCount = run.definitionSnapshot.nodes.length;
 
@@ -233,7 +233,7 @@ describe("RunTheaterPathRail", () => {
     const { run, request } = waitingRun();
     const onFocusNode = vi.fn();
     const onExpandHitl = vi.fn();
-    const user = userEvent.setup();
+    const user = setupUser();
 
     render(
       <AppI18nProvider>

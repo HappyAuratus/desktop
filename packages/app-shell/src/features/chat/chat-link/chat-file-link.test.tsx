@@ -5,7 +5,6 @@ import {
   screen,
   waitFor,
 } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
 import { PlatformProvider, type PlatformAdapter } from "../../../platform";
 import { describe, expect, it, vi } from "vitest";
 import { AppI18nProvider } from "../../../i18n/i18n";
@@ -14,6 +13,7 @@ import { TaskChangesNavigationProvider } from "../../diff/task-changes-navigatio
 import type { SessionArtifactIndex } from "./artifact-index";
 import { ChatFileLink } from "./chat-file-link";
 import { ChatLinkContext } from "./context";
+import { setupUser } from "../../../test/user";
 
 const index: SessionArtifactIndex = {
   edited: ["src/main.rs"],
@@ -79,7 +79,7 @@ async function renderFileLink(
 
 describe("ChatFileLink", () => {
   it("opens edited files in Changes and referenced files in Files", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const edited = await renderFileLink("src/main.rs");
     await user.click(screen.getByRole("button", { name: /src\/main\.rs/ }));
     expect(edited.openDiff).toHaveBeenCalledWith("src/main.rs", undefined);
@@ -95,7 +95,7 @@ describe("ChatFileLink", () => {
   });
 
   it("passes a parsed line to openDiff", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const { openDiff } = await renderFileLink("src/main.rs:12");
     await user.click(screen.getByRole("button", { name: /src\/main\.rs/ }));
     expect(openDiff).toHaveBeenCalledWith("src/main.rs", 12);
@@ -190,7 +190,7 @@ describe("ChatFileLink", () => {
   });
 
   it("opens Explorer with the context's OS-absolute cwd", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const open = vi.fn();
     const platform = desktopPlatform(open);
     await renderFileLink("src/main.rs", { platform });

@@ -1,10 +1,10 @@
 import { render, screen } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import type { WorkflowNodeFileChange } from "@ora/workflow-runtime";
 import { AppI18nProvider } from "../../i18n/i18n";
 import { TaskChangesNavigationProvider } from "../diff/task-changes-navigation";
 import { RunActFileChanges } from "./run-act-file-changes";
+import { setupUser } from "../../test/user";
 
 const files: WorkflowNodeFileChange[] = [
   {
@@ -17,7 +17,7 @@ const files: WorkflowNodeFileChange[] = [
 describe("RunActFileChanges", () => {
   it("opens the worktree-relative path when a file is clicked", async () => {
     const openDiff = vi.fn();
-    const user = userEvent.setup();
+    const user = setupUser();
     render(
       <AppI18nProvider>
         <TaskChangesNavigationProvider

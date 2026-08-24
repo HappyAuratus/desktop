@@ -6,7 +6,6 @@ import {
   screen,
   waitFor,
 } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
 import { RemoteContractError } from "@ora/contracts";
 import type { ChatToolCall, ChatTurn } from "@ora/chat";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -25,6 +24,7 @@ import { MessageList } from "../message-list";
 import type { SessionArtifactIndex } from "./artifact-index";
 import { ChatFileLink } from "./chat-file-link";
 import { ChatLinkContext } from "./context";
+import { setupUser } from "../../../test/user";
 
 const index: SessionArtifactIndex = {
   edited: ["src/main.rs"],
@@ -247,7 +247,7 @@ function renderMissingFilesPreview(path: string) {
 describe("chat link usage scenarios", () => {
   describe("edited vs referenced", () => {
     it("opens an edited file in Changes and a read-only file in Files", async () => {
-      const user = userEvent.setup();
+      const user = setupUser();
       const edited = await renderFileLink("src/main.rs");
       await user.click(screen.getByRole("button", { name: /src\/main\.rs/ }));
       expect(edited.openDiff).toHaveBeenCalledWith("src/main.rs", undefined);
@@ -265,7 +265,7 @@ describe("chat link usage scenarios", () => {
     });
 
     it("keeps a read-only mention on Files after a later turn edits the same path", async () => {
-      const user = userEvent.setup();
+      const user = setupUser();
       const openDiff = vi.fn();
       const openWorkspaceFile = vi.fn();
       await renderMessageList(
@@ -293,7 +293,7 @@ describe("chat link usage scenarios", () => {
       expect(openDiff).toHaveBeenCalledWith("src/main.rs", undefined);
     });
     it("opens a read-only mention in Files for a project draft without a task", async () => {
-      const user = userEvent.setup();
+      const user = setupUser();
       const openDiff = vi.fn();
       const openWorkspaceFile = vi.fn();
       await renderMessageList(
@@ -322,7 +322,7 @@ describe("chat link usage scenarios", () => {
 
   describe("manually deleted files", () => {
     it("still opens Changes for an edited path after the workspace file is gone", async () => {
-      const user = userEvent.setup();
+      const user = setupUser();
       const { openDiff, openWorkspaceFile } =
         await renderFileLink("src/main.rs");
       await user.click(screen.getByRole("button", { name: /src\/main\.rs/ }));
@@ -331,7 +331,7 @@ describe("chat link usage scenarios", () => {
     });
 
     it("still opens Files for a referenced path after the workspace file is gone", async () => {
-      const user = userEvent.setup();
+      const user = setupUser();
       const { openDiff, openWorkspaceFile } =
         await renderFileLink("src/lib.rs");
       await user.click(screen.getByRole("button", { name: /src\/lib\.rs/ }));
@@ -355,7 +355,7 @@ describe("chat link usage scenarios", () => {
     });
 
     it("still hands the deleted file path to the system file manager", async () => {
-      const user = userEvent.setup();
+      const user = setupUser();
       const open = vi.fn();
       await renderFileLink("src/lib.rs", {
         platform: desktopPlatform(open),

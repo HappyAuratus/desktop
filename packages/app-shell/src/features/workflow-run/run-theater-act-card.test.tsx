@@ -1,5 +1,4 @@
 import { render, screen } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import {
   createChatStore,
@@ -20,6 +19,7 @@ import {
   createMockClientState,
 } from "../../test/mock-client";
 import { RunTheaterActCard } from "./run-theater-act-card";
+import { setupUser } from "../../test/user";
 
 const NODE_DATA: WorkflowNodeData = {
   kind: "agent",
@@ -113,7 +113,7 @@ function renderSessionCard(onToggleInspector = vi.fn()) {
   );
   const view = render(renderView(false), { wrapper });
   return {
-    user: userEvent.setup(),
+    user: setupUser(),
     setInspectorOpen: (open: boolean) => view.rerender(renderView(open)),
   };
 }
@@ -167,7 +167,7 @@ describe("RunTheaterActCard conversation", () => {
   });
 
   it("shows agent prompt and executor detail when flat fields are absent", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const longPrompt = "梳理现状、约束、风险与可选路径。".repeat(8);
     render(
       <AppI18nProvider>
@@ -246,7 +246,7 @@ describe("RunTheaterActCard conversation", () => {
   });
 
   it("keeps the session dock available while HITL interaction owns the footer", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     render(
       <RunTheaterActCard
         data={NODE_DATA}

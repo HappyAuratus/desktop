@@ -97,6 +97,46 @@ assert after a deferred TipTap document apply, not to hide parent `setState`
 escaping `act`. When a send-failure / abandon test awaits a rejected promise,
 keep that await inside `act` so restore that still updates React stays covered.
 
+### user-event setup
+
+In `@ora/app-shell` tests, always create user-event instances through
+`src/test/user.ts` — never `userEvent.setup()` directly (enforced by an ESLint
+`no-restricted-properties` rule):
+
+- `setupUser()` keeps real task gaps between key/pointer events (`delay: 0`).
+  This is the default and the correct choice for pointer-driven UI: Base UI
+  popups must render between pointerdown and pointerup, and real users always
+  produce those gaps.
+- `setupTypingUser()` dispatches keystrokes without real timers
+  (`delay: null`). Use it only for typing-heavy ProseMirror composer tests:
+  the default `delay: 0` schedules one real `setTimeout` per keystroke, which
+  starves under parallel workers (intermittent `Test timed out in 5000ms`),
+  and vitest does not cancel a timed-out `user.keyboard()` chain, so its
+  surviving keystrokes keep dispatching against the _current_
+  `document.activeElement` and get typed into the next test's editor
+  (corrupted assertions plus act() warnings that fail the clean-stderr gate).
+
+Caveat for `setupTypingUser`: when a test types after moving or collapsing
+the selection, keep the navigation key and the text in separate `keyboard()`
+calls. ProseMirror leaves collapsing a non-empty selection to the browser;
+user-event collapses only the DOM selection, and PM resyncs its internal
+selection when jsdom's `selectionchange` task fires — a zero-gap chain outruns
+that task and the next keypress inserts at the stale selection (see
+`src/test/user.ts`).
+
+### Timeouts and worker parallelism
+
+`@ora/app-shell` timeouts exist to catch hangs, not to benchmark machine
+load. Every test file imports the whole app graph, so the suite is
+import-bound; when workers saturate all cores, wall-clock budgets breach
+stochastically and healthy tests fail. The suite therefore runs with
+`testTimeout`/`hookTimeout` at 20s (~10x the slowest healthy test), RTL
+`asyncUtilTimeout` at 5s (see `src/test/setup.ts`), and
+`poolOptions.forks.maxWorkers: "50%"` (one worker per physical core).
+Do not shrink these margins back toward the library defaults; if a test needs
+tighter bounds, pass an explicit per-call `timeout` instead of lowering the
+suite-wide budget.
+
 ### Test assertions
 
 - Tests should use pretty_assertions::assert_eq for clearer diffs. Import this at the top of the test module if it isn't already.

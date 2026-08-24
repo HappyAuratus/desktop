@@ -1,8 +1,8 @@
 import { act, render, screen, waitFor } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import { AppI18nProvider } from "../../i18n/i18n";
 import { MarkdownDocument, MarkdownMessage } from "./markdown-message";
+import { setupUser } from "../../test/user";
 
 /** Renders Markdown with the production translation provider used by code controls. */
 function renderMarkdown(content: string) {
@@ -540,7 +540,7 @@ describe("MarkdownMessage", () => {
   });
 
   it("copies and collapses fenced code without losing its toolbar", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const writeText = vi.spyOn(navigator.clipboard, "writeText");
     renderMarkdown("```typescript\nconst answer = 42;\n```");
 

@@ -1,5 +1,4 @@
 import { render, screen, within } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
 import { TooltipProvider } from "@ora/ui";
 import { PlatformProvider } from "../../platform";
 import { describe, expect, it, beforeEach } from "vitest";
@@ -24,6 +23,7 @@ import {
 import { usePendingAgentStore } from "../../state/stores/pending-agent-store";
 import { WorkspaceSidebar } from "./workspace-sidebar";
 import { WorkspaceView } from "./workspace-view";
+import { setupUser } from "../../test/user";
 
 const USER = { name: "Eric", email: "eric@example.com" };
 const PROJECT: Project = { id: "p1", name: "Ora Desktop", rootPath: "/ora" };
@@ -78,7 +78,7 @@ function renderWorkspace() {
  * plus. Row click alone only toggles expand and does not select a composer.
  */
 async function openTaskComposer(
-  user: ReturnType<typeof userEvent.setup>,
+  user: ReturnType<typeof setupUser>,
   title: string,
 ) {
   const label = await screen.findByText(title);
@@ -105,7 +105,7 @@ function picker() {
  * what the picker settled on rather than what the open list still offers.
  */
 async function pickAgent(
-  user: ReturnType<typeof userEvent.setup>,
+  user: ReturnType<typeof setupUser>,
   agentLabel: RegExp,
 ) {
   await user.click(picker());
@@ -116,7 +116,7 @@ async function pickAgent(
 
 describe("agent picker isolation across real sidebar navigation", () => {
   it("keeps each task's picked agent stable when switching via real clicks", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     renderWorkspace();
 
     await openTaskComposer(user, "Task One");

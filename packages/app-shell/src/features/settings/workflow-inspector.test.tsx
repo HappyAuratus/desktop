@@ -1,5 +1,4 @@
 import { render, screen, within } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
 import { useState } from "react";
 import { describe, expect, it } from "vitest";
 import type { Node } from "@xyflow/react";
@@ -10,6 +9,7 @@ import {
 import { appI18n } from "../../i18n/i18n-instance";
 import { AppI18nProvider } from "../../i18n/i18n";
 import { WorkflowInspector } from "./workflow-inspector";
+import { setupUser } from "../../test/user";
 
 const LONG_MODEL_LABEL =
   "OpenCode · deepseek/deepseek-v4-pro-with-an-extremely-long-model-identifier";
@@ -238,7 +238,7 @@ function StatefulInspectorHarness({
 describe("WorkflowInspector kind-specific layouts", () => {
   it("renders a merge panel with wait and failure strategies for junction nodes", async () => {
     await appI18n.changeLanguage("zh-CN");
-    const user = userEvent.setup();
+    const user = setupUser();
     render(
       <StatefulInspectorHarness
         node={createJunctionNode()}
@@ -260,7 +260,7 @@ describe("WorkflowInspector kind-specific layouts", () => {
 
   it("renders a loop panel with max attempts and exit condition", async () => {
     await appI18n.changeLanguage("zh-CN");
-    const user = userEvent.setup();
+    const user = setupUser();
     render(
       <StatefulInspectorHarness
         node={createLoopNode()}
@@ -284,7 +284,7 @@ describe("WorkflowInspector kind-specific layouts", () => {
 
   it("renders an IF/ELSE branch panel for condition nodes", async () => {
     await appI18n.changeLanguage("zh-CN");
-    const user = userEvent.setup();
+    const user = setupUser();
     render(
       <StatefulInspectorHarness
         node={createConditionNode()}
@@ -323,7 +323,7 @@ describe("WorkflowInspector kind-specific layouts", () => {
 
   it("renders a tool panel with operation and parameters for tool nodes", async () => {
     await appI18n.changeLanguage("zh-CN");
-    const user = userEvent.setup();
+    const user = setupUser();
     render(
       <StatefulInspectorHarness
         node={createToolNode()}
@@ -350,7 +350,7 @@ describe("WorkflowInspector kind-specific layouts", () => {
 
   it("renders a start panel with trigger, input variables, and available variables", async () => {
     await appI18n.changeLanguage("zh-CN");
-    const user = userEvent.setup();
+    const user = setupUser();
     render(
       <StatefulInspectorHarness
         node={createStartNode()}

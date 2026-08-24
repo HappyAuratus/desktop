@@ -1,5 +1,4 @@
 import { render, screen, waitFor } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
 import { createChatStore } from "@ora/chat";
 import {
@@ -13,6 +12,7 @@ import {
 import { appI18n } from "../../i18n/i18n-instance";
 import { RunActInspector } from "./run-act-inspector";
 import type { WorkflowNodeData } from "@ora/workflow-runtime";
+import { setupUser } from "../../test/user";
 
 const AGENT_DATA: WorkflowNodeData = {
   kind: "agent",
@@ -70,7 +70,7 @@ function renderInspector() {
   );
 
   return {
-    user: userEvent.setup(),
+    user: setupUser(),
     ...render(
       <Wrapper>
         <RunActInspector

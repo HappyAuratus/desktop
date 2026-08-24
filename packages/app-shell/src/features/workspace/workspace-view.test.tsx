@@ -1,5 +1,4 @@
 import { act, render, screen, waitFor, within } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
 import { createChatStore } from "@ora/chat";
 import type {
   ContractsClient,
@@ -27,6 +26,7 @@ import { startSessionDraft } from "../../state/session-drafts";
 import { useAgentModelStore } from "../../state/stores/agent-model-store";
 import { WorkspaceView } from "./workspace-view";
 import { directChatTitle } from "./workspace-view-utils";
+import { setupUser } from "../../test/user";
 
 function composerText(element: HTMLElement): string {
   return element.dataset.composerText ?? "";
@@ -285,7 +285,7 @@ describe("WorkspaceView", () => {
   });
 
   it("shows only worktrees in the worktree context menu", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const state = createMockClientState();
     state.projects = [{ id: "p1", name: "Ora", rootPath: "/ora" }];
     state.tasks = [
@@ -347,7 +347,7 @@ describe("WorkspaceView", () => {
   });
 
   it("creates a project-root task and session behind an optimistic first message", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const state = createMockClientState();
     state.projects = [{ id: "p1", name: "Ora", rootPath: "/ora" }];
     const baseClient = createMockClient(state);
@@ -457,7 +457,7 @@ describe("WorkspaceView", () => {
   });
 
   it("keeps a created direct task when attaching fails and reuses it on retry", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const state = createMockClientState();
     state.projects = [{ id: "p1", name: "Ora", rootPath: "/ora" }];
     const baseClient = createMockClient(state);
@@ -527,7 +527,7 @@ describe("WorkspaceView", () => {
   });
 
   it("unbinds a draft and restores dismissibility when attach fails after bind", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const state = createMockClientState();
     state.projects = [{ id: "p1", name: "Ora", rootPath: "/ora" }];
     const baseClient = createMockClient(state);
@@ -585,7 +585,7 @@ describe("WorkspaceView", () => {
   });
 
   it("clears sendInFlight and restores the draft when synchronous send setup fails", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const state = createMockClientState();
     state.projects = [{ id: "p1", name: "Ora", rootPath: "/ora" }];
     const client = createMockClient(state);
@@ -644,7 +644,7 @@ describe("WorkspaceView", () => {
   });
 
   it("keeps the persisted session selected when prompt fails after attach", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const state = createMockClientState();
     state.projects = [{ id: "p1", name: "Ora", rootPath: "/ora" }];
     const baseClient = createMockClient(state);
@@ -705,7 +705,7 @@ describe("WorkspaceView", () => {
   });
 
   it("clears pending send when leaving a draft mid-handshake so return is not stuck", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const state = createMockClientState();
     state.projects = [{ id: "p1", name: "Ora", rootPath: "/ora" }];
     state.tasks = [
@@ -808,7 +808,7 @@ describe("WorkspaceView", () => {
   });
 
   it("warms a fresh session for retry after attach fails, instead of reusing the consumed id", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const state = createMockClientState();
     state.projects = [{ id: "p1", name: "Ora", rootPath: "/ora" }];
     // An already-existing task keeps the warm-session query keyed the same
@@ -887,7 +887,7 @@ describe("WorkspaceView", () => {
   });
 
   it("shows task creation failures in the optimistic conversation", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const state = createMockClientState();
     state.projects = [{ id: "p1", name: "Ora", rootPath: "/ora" }];
     const baseClient = createMockClient(state);
@@ -940,7 +940,7 @@ describe("WorkspaceView", () => {
   });
 
   it("shows a model switch that never reached the agent", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const state = createMockClientState();
     state.projects = [{ id: "p1", name: "Ora", rootPath: "/ora" }];
     const baseClient = createMockClient(state);
@@ -990,7 +990,7 @@ describe("WorkspaceView", () => {
   });
 
   it("keeps a switched model after the surface remounts with a still-warm session", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const state = createMockClientState();
     state.projects = [{ id: "p1", name: "Ora", rootPath: "/ora" }];
     const baseClient = createMockClient(state);
@@ -1058,7 +1058,7 @@ describe("WorkspaceView", () => {
   });
 
   it("says the model list is still arriving while the session is being warmed", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const state = createMockClientState();
     state.projects = [{ id: "p1", name: "Ora", rootPath: "/ora" }];
     const baseClient = createMockClient(state);
@@ -1178,7 +1178,7 @@ describe("WorkspaceView", () => {
   });
 
   it("offers remembered models to read but not to pick until a session exists", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const state = createMockClientState();
     state.projects = [{ id: "p1", name: "Ora", rootPath: "/ora" }];
     const baseClient = createMockClient(state);
@@ -1240,7 +1240,7 @@ describe("WorkspaceView", () => {
   });
 
   it("says the model list is still arriving while a selected session replays", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const state = createMockClientState();
     state.projects = [{ id: "p1", name: "Ora", rootPath: "/ora" }];
     state.tasks = [
@@ -1321,7 +1321,7 @@ describe("WorkspaceView", () => {
   });
 
   it("still reports an agent that offers no model choice", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const state = createMockClientState();
     state.projects = [{ id: "p1", name: "Ora", rootPath: "/ora" }];
     state.configOptions = [];
@@ -1433,7 +1433,7 @@ describe("WorkspaceView", () => {
   }
 
   it("offers the incoming agent's models without rebinding the session yet", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const state = createMockClientState();
     seedSwitchableSession(state);
     const { client, switched } = createSwitchTargetClient(state);
@@ -1480,7 +1480,7 @@ describe("WorkspaceView", () => {
   });
 
   it("commits a recorded agent move with the next message", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const state = createMockClientState();
     seedSwitchableSession(state);
     const { client, switched } = createSwitchTargetClient(state);
@@ -1522,7 +1522,7 @@ describe("WorkspaceView", () => {
   });
 
   it("sends without rebinding when the picker returns to the session's own agent", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const state = createMockClientState();
     seedSwitchableSession(state);
     const { client, switched, prompted } = createSwitchTargetClient(state);
@@ -1566,7 +1566,7 @@ describe("WorkspaceView", () => {
   });
 
   it("resumes a session whose history stopped recording", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const state = createMockClientState();
     state.projects = [{ id: "p1", name: "Ora", rootPath: "/ora" }];
     state.tasks = [

@@ -6,7 +6,6 @@ import {
   waitFor,
   within,
 } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   LocalTransportError,
@@ -39,6 +38,7 @@ import { useDraftSessionsStore } from "../../state/stores/draft-sessions-store";
 import { useUnreadSessionsStore } from "../../state/stores/unread-sessions-store";
 import { dismissSessionDraft } from "../../state/session-drafts";
 import { WorkspaceSidebar } from "./workspace-sidebar";
+import { setupUser } from "../../test/user";
 
 const USER = { name: "Eric", email: "eric@example.com" };
 // Deliberately not "Ora": the sidebar header renders that as the product mark,
@@ -241,7 +241,7 @@ const NEW_SESSION_LABEL = "新建会话|New session";
 
 describe("WorkspaceSidebar", () => {
   it("only toggles project expansion when the project row is clicked", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     useWorkspaceSelectionStore
       .getState()
       .selectSession(SESSION.id, TASK.id, PROJECT.id);
@@ -265,7 +265,7 @@ describe("WorkspaceSidebar", () => {
   });
 
   it("opens worktree creation from the create menu", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     renderSidebar(workspaceWithOneSession());
 
     await waitFor(() => expect(treeRow(PROJECT.name)).not.toBeNull());
@@ -287,7 +287,7 @@ describe("WorkspaceSidebar", () => {
   });
 
   it("starts a blank chat from the new-chat control above search", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     useWorkspaceSelectionStore
       .getState()
       .selectSession(SESSION.id, TASK.id, PROJECT.id);
@@ -311,7 +311,7 @@ describe("WorkspaceSidebar", () => {
   });
 
   it("creates under the project last clicked even while another session stays selected", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const other: Project = {
       id: "p2",
       name: "Other App",
@@ -350,7 +350,7 @@ describe("WorkspaceSidebar", () => {
   });
 
   it("creates under a worktree after clicking that worktree row", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const state = workspaceWithOneSession();
     // Preselect a live session so a regression that wrongly routes the worktree
     // row through selectTask (yanking the composer) is caught: starting from
@@ -388,7 +388,7 @@ describe("WorkspaceSidebar", () => {
   });
 
   it("keeps New chat visible when the selected chat is a direct (project-root) chat", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const state = createMockClientState();
     state.projects = [PROJECT];
     state.tasks = [DIRECT_TASK];
@@ -419,7 +419,7 @@ describe("WorkspaceSidebar", () => {
   });
 
   it("discards an empty draft when another session is selected", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const state = workspaceWithOneSession();
     state.sessions = [{ ...SESSION, title: "Review auth" }];
     useWorkspaceSelectionStore
@@ -446,7 +446,7 @@ describe("WorkspaceSidebar", () => {
   });
 
   it("keeps a typed draft until it is dismissed", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const state = workspaceWithOneSession();
     state.sessions = [{ ...SESSION, title: "Review auth" }];
     renderSidebar(state);
@@ -478,7 +478,7 @@ describe("WorkspaceSidebar", () => {
   });
 
   it("starts a muted draft from the worktree plus, not the row click", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     useWorkspaceSelectionStore
       .getState()
       .selectSession(SESSION.id, TASK.id, PROJECT.id);
@@ -504,7 +504,7 @@ describe("WorkspaceSidebar", () => {
   });
 
   it("collapses a worktree on click without discarding an existing draft", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     renderSidebar(workspaceWithOneSession());
 
     await waitFor(() => expect(treeRow(NEW_SESSION_LABEL)).not.toBeNull());
@@ -525,7 +525,7 @@ describe("WorkspaceSidebar", () => {
   });
 
   it("opens the live session when a bound draft row is clicked", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const state = workspaceWithOneSession();
     state.sessions = [{ ...SESSION, title: "Review auth" }];
     renderSidebar(state);
@@ -620,7 +620,7 @@ describe("WorkspaceSidebar", () => {
   });
 
   it("starts a blank direct chat from the create menu", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     useWorkspaceSelectionStore
       .getState()
       .selectSession(SESSION.id, TASK.id, PROJECT.id);
@@ -649,7 +649,7 @@ describe("WorkspaceSidebar", () => {
   });
 
   it("creates a worktree task from the project row plus", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     renderSidebar(workspaceWithOneSession());
 
     await waitFor(() => expect(treeRow(PROJECT.name)).not.toBeNull());
@@ -671,7 +671,7 @@ describe("WorkspaceSidebar", () => {
   });
 
   it("collects every descendant session when deleting a project", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const state = workspaceWithOneSession();
     state.tasks.push({
       id: "t2",
@@ -718,7 +718,7 @@ describe("WorkspaceSidebar", () => {
   });
 
   it("starts a new direct chat from the create menu without losing the selected project", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     useWorkspaceSelectionStore
       .getState()
       .selectSession(SESSION.id, TASK.id, PROJECT.id);
@@ -787,7 +787,7 @@ describe("WorkspaceSidebar", () => {
   });
 
   it("opens delete confirmation from the session context menu", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     renderSidebar(workspaceWithOneSession());
 
     await waitFor(() => expect(treeRow(NEW_SESSION_LABEL)).not.toBeNull());
@@ -807,7 +807,7 @@ describe("WorkspaceSidebar", () => {
   });
 
   it("opens deploy dialog state when a workflow template is chosen", async () => {
-    const user = userEvent.setup({ pointerEventsCheck: 0 });
+    const user = setupUser({ pointerEventsCheck: 0 });
     const state = workspaceWithOneSession();
     state.workflows = [
       mockPublishedWorkflow("wf1", "Deploy bot"),
@@ -845,7 +845,7 @@ describe("WorkspaceSidebar", () => {
   });
 
   it("moves focus into the workflow search when opened from the keyboard", async () => {
-    const user = userEvent.setup({ pointerEventsCheck: 0 });
+    const user = setupUser({ pointerEventsCheck: 0 });
     const state = workspaceWithOneSession();
     state.workflows = [mockPublishedWorkflow("wf1", "Deploy bot")];
     renderSidebar(state);
@@ -870,7 +870,7 @@ describe("WorkspaceSidebar", () => {
   });
 
   it("renames a session from the context menu", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const state = workspaceWithOneSession();
     renderSidebar(state);
 
@@ -893,7 +893,7 @@ describe("WorkspaceSidebar", () => {
   });
 
   it("keeps an in-progress rename draft if Rename is chosen again", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const state = workspaceWithOneSession();
     renderSidebar(state);
 
@@ -923,7 +923,7 @@ describe("WorkspaceSidebar", () => {
   });
 
   it("does not commit a session rename while IME is composing", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const state = workspaceWithOneSession();
     renderSidebar(state);
 
@@ -948,7 +948,7 @@ describe("WorkspaceSidebar", () => {
   });
 
   it("does not persist twice when blur follows a successful Enter", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const state = workspaceWithOneSession();
     const client = createMockClient(state);
     const rename = vi.fn(client.session.rename);
@@ -975,7 +975,7 @@ describe("WorkspaceSidebar", () => {
   });
 
   it("cancels session rename on Escape without persisting", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const state = workspaceWithOneSession();
     renderSidebar(state);
 
@@ -998,7 +998,7 @@ describe("WorkspaceSidebar", () => {
   });
 
   it("rejects an overlong session title without persisting", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const state = workspaceWithOneSession();
     renderSidebar(state);
 
@@ -1023,7 +1023,7 @@ describe("WorkspaceSidebar", () => {
   });
 
   it("keeps the rename editor open when persisting the title fails", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const state = workspaceWithOneSession();
     const client = createMockClient(state);
     client.session.rename = async () => {
@@ -1052,7 +1052,7 @@ describe("WorkspaceSidebar", () => {
   });
 
   it("renames a project from the context menu without opening a dialog", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const state = workspaceWithOneSession();
     renderSidebar(state);
 
@@ -1078,7 +1078,7 @@ describe("WorkspaceSidebar", () => {
   });
 
   it("renames a worktree from the context menu without status options", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const state = workspaceWithOneSession();
     const client = createMockClient(state);
     const update = vi.fn(client.task.update);
@@ -1117,7 +1117,7 @@ describe("WorkspaceSidebar", () => {
   });
 
   it("renames a workflow run from the context menu without opening a dialog", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const state = workspaceWithOneSession();
     state.tasks = [
       TASK,
@@ -1172,7 +1172,7 @@ describe("WorkspaceSidebar", () => {
   // click on an expanded row selected and silently re-opened it, and only the
   // second click appeared to collapse anything.
   it("collapses a project on the first click, not the second", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     renderSidebar(workspaceWithOneSession());
 
     await waitFor(() => expect(treeRow(TASK.title)).not.toBeNull());
@@ -1184,7 +1184,7 @@ describe("WorkspaceSidebar", () => {
   });
 
   it("collapses a worktree on the first click, not the second", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     renderSidebar(workspaceWithOneSession());
 
     await waitFor(() => expect(treeRow(NEW_SESSION_LABEL)).not.toBeNull());
@@ -1196,7 +1196,7 @@ describe("WorkspaceSidebar", () => {
   });
 
   it("re-expands a collapsed project on the next click", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     renderSidebar(workspaceWithOneSession());
 
     await waitFor(() => expect(treeRow(TASK.title)).not.toBeNull());
@@ -1209,7 +1209,7 @@ describe("WorkspaceSidebar", () => {
 
   // First collapse unmounts; after a reopen, collapse hides instead of remounting.
   it("unmounts on the first collapse and retains after a reopen", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     renderSidebar(workspaceWithOneSession());
 
     await waitFor(() => expect(treeRow(TASK.title)).not.toBeNull());
@@ -1275,7 +1275,7 @@ describe("WorkspaceSidebar", () => {
   });
 
   it("bubbles selection hint to collapsed ancestors and clears it on expand", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     useUiStore.setState({
       expandedProjects: new Set([PROJECT.id]),
       expandedTasks: new Set([TASK.id]),
@@ -1455,7 +1455,7 @@ describe("WorkspaceSidebar", () => {
   });
 
   it("searches persisted titles but not agent labels or the localized fallback", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const state = workspaceWithOneSession();
     state.sessions = [{ ...SESSION, title: "Review auth flow" }];
     renderSidebar(state);
@@ -1478,7 +1478,7 @@ describe("WorkspaceSidebar", () => {
   });
 
   it("reacts to structured draft title changes while search is active", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const draftId = useDraftSessionsStore
       .getState()
       .ensureEmptyDraft({ projectId: PROJECT.id, taskId: null });

@@ -1,5 +1,4 @@
 import { act, fireEvent, render, screen } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
 import { PlatformProvider } from "../../../platform";
 import type { ChatToolCall, ChatTurn } from "@ora/chat";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -16,6 +15,7 @@ import { MessageList } from "../message-list";
 import { ToolCallBlock } from "../tool-call-block";
 import { MarkdownDocument, MarkdownMessage } from "../markdown-message";
 import { ChatLinkContext } from "./context";
+import { setupUser } from "../../../test/user";
 import {
   collectSessionArtifactIndex,
   type SessionArtifactIndex,
@@ -160,7 +160,7 @@ function turn(
 
 describe("assistant markdown artifact links", () => {
   it("opens an edited inline path in Changes and a read path in Files", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const { openDiff } = await renderLinkedMarkdown("See `src/main.rs`");
     await user.click(screen.getByRole("button", { name: /src\/main\.rs/ }));
     expect(openDiff).toHaveBeenCalledWith("src/main.rs", undefined);
@@ -175,7 +175,7 @@ describe("assistant markdown artifact links", () => {
   });
 
   it("passes :line through to Changes", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const { openDiff } = await renderLinkedMarkdown("See `src/main.rs:12`");
     await user.click(screen.getByRole("button", { name: /src\/main\.rs/ }));
     expect(openDiff).toHaveBeenCalledWith("src/main.rs", 12);
@@ -194,7 +194,7 @@ describe("assistant markdown artifact links", () => {
   });
 
   it("treats a relative Markdown file href as a Files open", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const { openWorkspaceFile } = await renderLinkedMarkdown(
       "[guide](docs/guide.md)",
     );
@@ -215,7 +215,7 @@ describe("assistant markdown artifact links", () => {
     "C:%5Crepo%5Cdocs%5Cfoo%20bar.md#L12C3",
     "/C:/repo/docs/foo%20bar.md?line=12&column=3",
   ])("preserves and opens Windows Markdown href %s", async (href) => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const { openWorkspaceFile } = await renderLinkedMarkdown(
       `[guide](<${href}>)`,
       {
@@ -239,7 +239,7 @@ describe("assistant markdown artifact links", () => {
   });
 
   it("links prose paths with CJK punctuation and natural line locations", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const { openWorkspaceFile } = await renderLinkedMarkdown(
       "查看 src/lib.rs (line 12, column 3)。",
     );
@@ -346,7 +346,7 @@ async function renderMessageList(
 
 describe("session-wide chat links", () => {
   it("opens a later mention of an earlier edited file in Changes", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const openDiff = vi.fn();
     await renderMessageList(
       [
@@ -365,7 +365,7 @@ describe("session-wide chat links", () => {
   });
 
   it("opens a path that was only read in Files", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const openWorkspaceFile = vi.fn();
     const openDiff = vi.fn();
     const openWorkspaceArtifact = vi.fn();
@@ -389,7 +389,7 @@ describe("session-wide chat links", () => {
   });
 
   it("keeps a read-only Files link on an earlier turn even if a later turn edits the file", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const openDiff = vi.fn();
     const openWorkspaceFile = vi.fn();
     await renderMessageList(
@@ -420,7 +420,7 @@ describe("session-wide chat links", () => {
   });
 
   it("opens the full workspace-relative path when clicking a bare filename referencing a nested file", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const openWorkspaceFile = vi.fn();
     const fullPath =
       "packages/app-shell/src/features/chat/chat-link/chat-file-link.test.tsx";
@@ -476,7 +476,7 @@ describe("session-wide chat links", () => {
   });
 
   it("strips workspace cwd when clicking a bare filename referencing an absolute path", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const openWorkspaceFile = vi.fn();
     const workspaceRoot = "E:/claude_code_project/desktop";
     const relativePath =
@@ -507,7 +507,7 @@ describe("session-wide chat links", () => {
   });
 
   it("links markdown files listed after a project-root glob with no per-file locations", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const openWorkspaceFile = vi.fn();
     const workspaceRoot = "D:/project/desktop";
     await renderMessageList(
@@ -550,7 +550,7 @@ describe("session-wide chat links", () => {
   });
 
   it("links a bare README.md to the workspace root when nested README.md files were also listed", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const openWorkspaceFile = vi.fn();
     await renderMessageList(
       [
@@ -585,7 +585,7 @@ describe("session-wide chat links", () => {
   });
 
   it("links path-only markdown list items that the glob already touched", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const openWorkspaceFile = vi.fn();
     await renderMessageList(
       [
@@ -611,7 +611,7 @@ describe("session-wide chat links", () => {
   });
 
   it("links path lines inside a plaintext fenced file list", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const openWorkspaceFile = vi.fn();
     render(
       <PlatformProvider adapter={createStubPlatform()}>
@@ -725,7 +725,7 @@ describe("session-wide chat links", () => {
   });
 
   it("turns glob tool dump lines into Files links after expanding the tool", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const openWorkspaceFile = vi.fn();
     const tool = searchTool("README.md\ndocs/guide.md", [
       { path: "D:/project/desktop" },
@@ -766,7 +766,7 @@ describe("session-wide chat links", () => {
   });
 
   it("opens ripgrep output at its reported line and column", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const openWorkspaceFile = vi.fn();
     const tool = searchTool("src/lib.rs:12:3:export function run() {}", []);
     const artifactIndex = collectSessionArtifactIndex([turn("turn-1", [tool])]);
@@ -797,7 +797,7 @@ describe("session-wide chat links", () => {
   });
 
   it("opens absolute and slash-terminated tool directories in the Files tree", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const openWorkspaceDirectory = vi.fn();
     const openWorkspaceArtifact = vi.fn();
     const tool = directoryListingTool("C:\\repo\\cli\ndocs/");
@@ -844,7 +844,7 @@ describe("session-wide chat links", () => {
   });
 
   it("links bare directories and extensionless files from the real name-list output", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const openWorkspaceDirectory = vi.fn();
     const openWorkspaceFile = vi.fn();
     const openWorkspaceArtifact = vi.fn();
@@ -883,7 +883,7 @@ describe("session-wide chat links", () => {
   });
 
   it("links indexed bare names in plain lists and tree fences", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const openWorkspaceDirectory = vi.fn();
     const openWorkspaceArtifact = vi.fn();
     const output = "cli\ndocs\nLICENSE\nAGENTS.md";
@@ -916,7 +916,7 @@ describe("session-wide chat links", () => {
   });
 
   it("links artifacts from the real PowerShell Name Mode output", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const openWorkspaceDirectory = vi.fn();
     const openWorkspaceFile = vi.fn();
     const output =
@@ -955,7 +955,7 @@ describe("session-wide chat links", () => {
   });
 
   it("links comma-separated prose from ANSI PowerShell tables", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const openWorkspaceDirectory = vi.fn();
     const openWorkspaceFile = vi.fn();
     const output =
@@ -991,7 +991,7 @@ describe("session-wide chat links", () => {
   });
 
   it("links individual tokens inside aligned plaintext fences", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const openWorkspaceArtifact = vi.fn();
     const output =
       ".github        .husky       packages\ninstall        LICENSE      README.md";
@@ -1046,7 +1046,7 @@ describe("session-wide chat links", () => {
   });
 
   it("links markdown table cells that name globbed files", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const openWorkspaceFile = vi.fn();
     await renderMessageList(
       [

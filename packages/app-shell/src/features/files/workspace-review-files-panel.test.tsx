@@ -1,5 +1,4 @@
 import { render, screen } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
 import { PlatformProvider } from "../../platform";
 import { TooltipProvider } from "@ora/ui";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -7,6 +6,7 @@ import { describe, expect, it, vi } from "vitest";
 import { AppI18nProvider } from "../../i18n/i18n";
 import { createStubPlatform } from "../../test/stub-platform";
 import { WorkspaceReviewFilesPanel } from "./workspace-review-files-panel";
+import { setupUser } from "../../test/user";
 
 vi.mock("../specs/specs-view", () => ({
   SpecsContent: () => <div data-testid="specs-content">Specs content</div>,
@@ -63,7 +63,7 @@ function renderPanel(props: {
 
 describe("WorkspaceReviewFilesPanel", () => {
   it("opens task files on explorer and exposes specs refresh only in the specs sub-view", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     renderPanel({ taskId: "task-1" });
 
     expect(screen.getByTestId("files-explorer")).toHaveTextContent("explorer");
@@ -115,7 +115,7 @@ describe("WorkspaceReviewFilesPanel", () => {
   });
 
   it("returns from Specs to Explorer for an unresolved artifact request", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const view = renderPanel({ taskId: "task-1" });
     await user.click(screen.getByRole("button", { name: "Specs" }));
     expect(screen.getByTestId("specs-content")).toBeInTheDocument();

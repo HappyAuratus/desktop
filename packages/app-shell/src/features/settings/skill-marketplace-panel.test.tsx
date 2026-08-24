@@ -1,5 +1,4 @@
 import { act, render, screen, waitFor } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import {
   PlatformProvider,
@@ -10,6 +9,7 @@ import {
 import { AppI18nProvider } from "../../i18n/i18n";
 import { createStubPlatform } from "../../test/stub-platform";
 import { SkillMarketplacePanel } from "./skill-marketplace-panel";
+import { setupUser } from "../../test/user";
 
 /** Renders the marketplace panel with one explicitly injected host capability. */
 function renderMarketplace(
@@ -35,7 +35,7 @@ function renderMarketplace(
 
 describe("SkillMarketplacePanel", () => {
   it("opens SkillHub and reveals the completed archive directory on request", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const open = vi.fn().mockResolvedValue(undefined);
     const stop = vi.fn();
     let listener: ((status: SkillMarketplaceStatus) => void) | undefined;
@@ -130,7 +130,7 @@ describe("SkillMarketplacePanel", () => {
   });
 
   it("opens the Huawei provider directly without an intermediate dialog", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const open = vi.fn().mockResolvedValue(undefined);
     renderMarketplace({
       open,

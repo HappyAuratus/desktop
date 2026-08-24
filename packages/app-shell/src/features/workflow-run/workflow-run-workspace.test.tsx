@@ -1,5 +1,4 @@
 import { render, screen, waitFor } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { createChatStore } from "@ora/chat";
@@ -17,6 +16,7 @@ import { createStubPlatform } from "../../test/stub-platform";
 import { useLocationActionsStore } from "../../state/stores/location-actions-store";
 import { useWorkspaceSelectionStore } from "../../state/stores/workspace-selection-store";
 import { WorkflowRunWorkspace } from "./workflow-run-workspace";
+import { setupUser } from "../../test/user";
 
 vi.mock("../diff/task-diff-view", () => ({
   TaskDiffView: ({ toolbar }: { toolbar?: ReactNode }) => (
@@ -130,7 +130,7 @@ describe("WorkflowRunWorkspace", () => {
       createChatStore(client.session),
       runtime,
     );
-    const user = userEvent.setup();
+    const user = setupUser();
 
     render(
       <PlatformProvider adapter={createStubPlatform()}>
@@ -165,7 +165,7 @@ describe("WorkflowRunWorkspace", () => {
       createChatStore(client.session),
       runtime,
     );
-    const user = userEvent.setup();
+    const user = setupUser();
     const resolveTaskCwd = vi.fn(async () => "/demo/.ora/task-run-1");
     const open = vi.fn(async () => undefined);
     const platform = {
@@ -218,7 +218,7 @@ describe("WorkflowRunWorkspace", () => {
       createChatStore(client.session),
       runtime,
     );
-    const user = userEvent.setup();
+    const user = setupUser();
 
     render(
       <PlatformProvider adapter={createStubPlatform()}>

@@ -1,6 +1,5 @@
 import { useState } from "react";
 import { act, render, screen, waitFor, within } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import { TooltipProvider } from "@ora/ui";
 import { RemoteContractError, type SkillImportSession } from "@ora/contracts";
@@ -17,6 +16,7 @@ import {
   createTestQueryClient,
 } from "../../test/hook-harness";
 import { createStubPlatform } from "../../test/stub-platform";
+import { setupUser } from "../../test/user";
 import {
   RolesSettings,
   SkillImportDialog,
@@ -83,7 +83,7 @@ function renderSettings(
 
 describe("atom settings content", () => {
   it("loads and updates editable Agent content", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const update = vi.fn(async () => ({
       agent: {
         id: "agent-1",
@@ -116,7 +116,7 @@ describe("atom settings content", () => {
   });
 
   it("loads and clears editable Skill content", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const update = vi.fn(async () => ({
       skill: {
         id: "skill-1",
@@ -176,7 +176,7 @@ describe("atom settings content", () => {
   ] as const)(
     "creates %s content from the shared editor",
     async (kind, buttonName, nameLabel, name, description, content) => {
-      const user = userEvent.setup();
+      const user = setupUser();
       const createAgent = vi.fn(
         async (request: {
           name: string;
@@ -227,7 +227,7 @@ describe("atom settings content", () => {
   );
 
   it("shows the Role name conflict returned by the backend", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     renderSettings("agent", (client) => {
       client.agent.create = async () => {
         throw new RemoteContractError(
@@ -250,7 +250,7 @@ describe("atom settings content", () => {
   });
 
   it("blocks saving while Agent content is loading or failed", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     let rejectLoad: ((reason?: unknown) => void) | undefined;
     renderSettings("agent", (client) => {
       client.agent.get = () =>
@@ -269,7 +269,7 @@ describe("atom settings content", () => {
   });
 
   it("offers delete or re-upload when a skill package is unavailable", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const state = createMockClientState();
     state.skills = [
       {
@@ -326,7 +326,7 @@ describe("atom settings content", () => {
   });
 
   it("imports one Agent Markdown file with an overwrite decision", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const markdown =
       "---\nname: review-agent\ndescription: Imported review agent\n---\nReview carefully.";
     const prepare = vi.fn(async () => ({
@@ -393,7 +393,7 @@ describe("atom settings content", () => {
   });
 
   it("refreshes an Agent conflict when commit reports stale state", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const markdown =
       "---\nname: review-agent\ndescription: Imported review agent\n---\nReview carefully.";
     const prepare = vi
@@ -634,7 +634,7 @@ describe("atom settings content", () => {
   });
 
   it("clears restore mode after a successful import and Import another", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     renderRestoreImportDialog({
       sessionId: "import-1",
       status: "completed",

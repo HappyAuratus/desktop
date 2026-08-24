@@ -28,6 +28,20 @@ export default defineConfig([
     },
   },
   {
+    files: ["packages/app-shell/src/**/*.test.{ts,tsx}"],
+    rules: {
+      "no-restricted-properties": [
+        "error",
+        {
+          object: "userEvent",
+          property: "setup",
+          message:
+            "Use setupUser() (real input gaps) or setupTypingUser() (typing-heavy ProseMirror tests) from src/test/user.ts; raw userEvent.setup() makes scheduling choices implicit and has caused timer-starvation flakes and zombie keystroke chains.",
+        },
+      ],
+    },
+  },
+  {
     files: ["packages/app-shell/src/**/*.tsx"],
     rules: {
       "no-restricted-syntax": [

@@ -1,8 +1,8 @@
 import { render, screen } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import { AppI18nProvider } from "../../i18n/i18n";
 import { TaskGitActions } from "./task-git-actions";
+import { setupUser } from "../../test/user";
 
 /** Renders the Git action popover with deterministic callbacks for interaction tests. */
 function renderGitActions(message = "") {
@@ -32,7 +32,7 @@ function renderGitActions(message = "") {
 
 describe("task Git actions", () => {
   it("shows commit actions and requires a message before committing", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const callbacks = renderGitActions();
 
     expect(
@@ -52,7 +52,7 @@ describe("task Git actions", () => {
   });
 
   it("routes the combined and push actions to their callbacks", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const callbacks = renderGitActions("fix diff layout");
 
     expect(screen.getByRole("button", { name: "提交" })).toBeEnabled();

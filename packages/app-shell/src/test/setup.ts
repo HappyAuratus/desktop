@@ -1,6 +1,14 @@
 import "@testing-library/jest-dom/vitest";
 import { afterEach } from "vitest";
-import { cleanup } from "@testing-library/react";
+import { cleanup, configure } from "@testing-library/react";
+
+// findBy*/waitFor default to a 1s budget. Under parallel-worker load an
+// async mock resolution plus a React commit can exceed 1s while the worker
+// is CPU-starved, failing healthy queries (e.g. stuck "loading" states in
+// settings tests). Match the async-utility budget to the suite's timeout
+// margins (vitest.config.ts); tests can still pass explicit per-call
+// timeouts when they need tighter bounds.
+configure({ asyncUtilTimeout: 5_000 });
 
 afterEach(() => {
   cleanup();

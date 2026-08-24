@@ -1,5 +1,4 @@
 import { render, screen, waitFor } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { expect, it, vi } from "vitest";
 import type { ContractsClient } from "@ora/contracts";
@@ -10,6 +9,7 @@ import {
   createMockClientState,
 } from "../../test/mock-client";
 import { PluginsSettings } from "./plugins-settings";
+import { setupUser } from "../../test/user";
 
 /** Renders plugin settings with isolated query and contracts-client state. */
 function renderSettings(client: ContractsClient) {
@@ -56,7 +56,7 @@ it("renders marketplace plugins from the registry index", async () => {
 
 /** Installing goes through the backend and refreshes the installed surface. */
 it("installs a marketplace plugin through the backend", async () => {
-  const user = userEvent.setup();
+  const user = setupUser();
   const { state, client } = clientWithWeather();
   renderSettings(client);
 
@@ -76,7 +76,7 @@ it("installs a marketplace plugin through the backend", async () => {
 
 /** A sync control pulls the marketplace source through the backend. */
 it("syncs the marketplace through the backend", async () => {
-  const user = userEvent.setup();
+  const user = setupUser();
   const { client } = clientWithWeather();
   const syncSpy = vi.spyOn(client.plugin, "syncAvailable");
   renderSettings(client);
@@ -114,7 +114,7 @@ it("falls back to the generic mark when a plugin ships no logo", async () => {
 
 /** The installed manager surfaces the logo carried by the installed package. */
 it("renders the brand mark of an installed plugin in the manager", async () => {
-  const user = userEvent.setup();
+  const user = setupUser();
   const { state, client } = clientWithWeather(WEATHER_LOGO);
   const { container } = renderSettings(client);
 

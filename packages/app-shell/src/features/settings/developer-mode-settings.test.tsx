@@ -1,7 +1,6 @@
 import { createChatStore } from "@ora/chat";
 import type { ContractsClient, DeveloperModeResponse } from "@ora/contracts";
 import { render, screen, waitFor } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { appI18n } from "../../i18n/i18n-instance";
 import { useDeveloperMode } from "../../state/hooks/use-developer-mode";
@@ -14,6 +13,7 @@ import {
   createMockClientState,
 } from "../../test/mock-client";
 import { DeveloperModeSettings } from "./developer-mode-settings";
+import { setupUser } from "../../test/user";
 
 describe("DeveloperModeSettings", () => {
   beforeEach(async () => {
@@ -39,7 +39,7 @@ describe("DeveloperModeSettings", () => {
   it.each(["Web", "Desktop"])(
     "persists a successful update through the %s contracts client",
     async () => {
-      const user = userEvent.setup();
+      const user = setupUser();
       const state = createMockClientState();
       const client = createMockClient(state);
       const setDeveloperMode = vi.spyOn(client.developerMode, "set");
@@ -60,7 +60,7 @@ describe("DeveloperModeSettings", () => {
   );
 
   it("retains the last authoritative value and prevents duplicate pending submissions", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const client = createMockClient(createMockClientState());
     let rejectUpdate: ((reason: Error) => void) | undefined;
     client.developerMode.set = vi.fn(
@@ -90,7 +90,7 @@ describe("DeveloperModeSettings", () => {
   });
 
   it("keeps developer mode unavailable after a read failure and supports retry", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const client = createMockClient(createMockClientState());
     client.developerMode.get = vi
       .fn()

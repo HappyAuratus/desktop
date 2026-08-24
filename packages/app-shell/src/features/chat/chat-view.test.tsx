@@ -6,7 +6,6 @@ import {
   screen,
   waitFor,
 } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
 import { useState } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type {
@@ -46,6 +45,7 @@ import {
   resetComposerSendAdoptionsForTests,
 } from "../../state/session-drafts";
 import { FILE_MENTION_DEBOUNCE_MS } from "./use-composer-file-mentions";
+import { setupUser } from "../../test/user";
 
 function composerText(element: HTMLElement): string {
   return element.dataset.composerText ?? "";
@@ -251,7 +251,7 @@ describe("Tool calls", () => {
 
 describe("Composer", () => {
   it("sends trimmed text with Enter and clears the textarea", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const onSend = vi.fn();
     renderWithI18n(<Composer onSend={onSend} isResponding={false} />);
 
@@ -263,7 +263,7 @@ describe("Composer", () => {
   });
 
   it("uses Shift+Enter for a newline without sending", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const onSend = vi.fn();
     renderWithI18n(<Composer onSend={onSend} isResponding={false} />);
 
@@ -275,7 +275,7 @@ describe("Composer", () => {
   });
 
   it("filters available commands and inserts the keyboard selection without executing it", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const onSend = vi.fn();
     renderWithI18n(
       <Composer
@@ -308,7 +308,7 @@ describe("Composer", () => {
   });
 
   it("opens the slash menu after existing prompt text", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     renderWithI18n(
       <Composer
         onSend={vi.fn()}
@@ -327,7 +327,7 @@ describe("Composer", () => {
   });
 
   it("keeps the keyboard-selected command inside the visible list", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const scrollIntoView = vi.fn();
     Object.defineProperty(HTMLElement.prototype, "scrollIntoView", {
       configurable: true,
@@ -365,7 +365,7 @@ describe("Composer", () => {
   });
 
   it("does not scroll the action menu when the pointer retargets a row", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const scrollIntoView = vi.fn();
     Object.defineProperty(HTMLElement.prototype, "scrollIntoView", {
       configurable: true,
@@ -392,7 +392,7 @@ describe("Composer", () => {
   });
 
   it("opens the same grouped palette from plus and inserts a selected skill", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     renderWithI18n(
       <Composer
         onSend={() => {}}
@@ -421,7 +421,7 @@ describe("Composer", () => {
   });
 
   it("hides unavailable skills from the composer palette", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     renderWithI18n(
       <Composer
         onSend={() => {}}
@@ -455,7 +455,7 @@ describe("Composer", () => {
   });
 
   it("previews a selected image and sends it as ACP image content", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const onSend = vi.fn();
     const view = renderWithI18n(
       <Composer onSend={onSend} isResponding={false} />,
@@ -532,7 +532,7 @@ describe("Composer", () => {
   });
 
   it("restores unsent text when switching between persisted sessions", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     useComposerInputStore.getState().reset();
     useWorkspaceSelectionStore
       .getState()
@@ -569,7 +569,7 @@ describe("Composer", () => {
   });
 
   it("does not park the leaving session's editor onto the next session key before hydrate", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     useComposerInputStore.getState().reset();
     useWorkspaceSelectionStore
       .getState()
@@ -707,7 +707,7 @@ describe("Composer", () => {
   });
 
   it("keeps parked images isolated when switching sessions", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     useComposerInputStore.getState().reset();
     useWorkspaceSelectionStore
       .getState()
@@ -749,7 +749,7 @@ describe("Composer", () => {
   });
 
   it("hydrates independently when switching between task-only surfaces", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     useComposerInputStore.getState().reset();
     useWorkspaceSelectionStore.getState().selectTask("task-a", "project-1");
 
@@ -773,7 +773,7 @@ describe("Composer", () => {
   });
 
   it("keeps typed draft text when leaving and returning to a draft", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     useComposerInputStore.getState().reset();
     useDraftSessionsStore.getState().clear();
     const draftId = useDraftSessionsStore.getState().ensureEmptyDraft({
@@ -811,7 +811,7 @@ describe("Composer", () => {
   });
 
   it("clears parked input after send so a later return stays empty", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const onSend = vi.fn();
     useComposerInputStore.getState().reset();
     useWorkspaceSelectionStore
@@ -840,7 +840,7 @@ describe("Composer", () => {
   });
 
   it("restores composer text when onSend rejects on the same surface", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const onSend = vi.fn(() => Promise.reject(new Error("warm failed")));
     useComposerInputStore.getState().reset();
     useDraftSessionsStore.getState().clear();
@@ -864,7 +864,7 @@ describe("Composer", () => {
   });
 
   it("restores composer text when onSend throws synchronously", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const onSend = vi.fn(() => {
       throw new Error("sync failure");
     });
@@ -882,7 +882,7 @@ describe("Composer", () => {
   });
 
   it("restores composer text when onSend abandons without a hard failure", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const onSend = vi.fn(() => Promise.reject(new DraftSendAbandonedError()));
     useComposerInputStore.getState().reset();
     useDraftSessionsStore.getState().clear();
@@ -902,7 +902,7 @@ describe("Composer", () => {
   });
 
   it("does not paint an abandoned send onto a different conversation", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     let rejectSend!: (error: Error) => void;
     let sendPromise!: Promise<void>;
     const onSend = vi.fn(() => {
@@ -965,7 +965,7 @@ describe("Composer", () => {
   });
 
   it("keeps TipTap doc on the draft park after abandon away from the send surface", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     let rejectSend!: (error: Error) => void;
     let sendPromise!: Promise<void>;
     const onSend = vi.fn(() => {
@@ -1242,7 +1242,7 @@ describe("Composer", () => {
   });
 
   it("does not restore an abandoned send over a newer submit on the same surface", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const rejectors: Array<(error: Error) => void> = [];
     const sendPromises: Array<Promise<void>> = [];
     const onSend = vi.fn(() => {
@@ -1295,7 +1295,7 @@ describe("Composer", () => {
   });
 
   it("does not paint a hard-fail restore onto an unrelated conversation", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     let rejectSend!: (error: Error) => void;
     let sendPromise!: Promise<void>;
     const onSend = vi.fn(() => {
@@ -1344,7 +1344,7 @@ describe("Composer", () => {
   });
 
   it("restores a hard failure onto the warm session the draft adopted", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     let rejectSend!: (error: Error) => void;
     let sendPromise!: Promise<void>;
     const onSend = vi.fn(() => {
@@ -1388,7 +1388,7 @@ describe("Composer", () => {
   });
 
   it("mentions a workspace file with @ and inserts a path chip", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const client = createMockClient(createMockClientState());
     client.fileSystem.searchWorkspace = async ({ query }) => {
       const paths = ["src/app.ts", "src/lib/util.ts", "README.md"].filter(
@@ -1451,7 +1451,7 @@ describe("Composer", () => {
   });
 
   it("keeps plugins on the plus menu after @ became file mentions", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     renderWithI18n(<Composer onSend={vi.fn()} isResponding={false} />);
 
     await user.type(screen.getByRole("textbox"), "@");
@@ -1471,7 +1471,7 @@ describe("Composer", () => {
   });
 
   it("mentions a project file with @ when no task is selected yet", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const client = createMockClient(createMockClientState());
     client.fileSystem.listProjectDirectory = async () => ({
       path: "",
@@ -1523,7 +1523,7 @@ describe("Composer", () => {
   });
 
   it("mentions a workspace folder with @ and inserts a path chip", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const client = createMockClient(createMockClientState());
     client.fileSystem.listWorkspaceDirectory = async () => ({
       path: "",
@@ -1580,7 +1580,7 @@ describe("Composer", () => {
   });
 
   it("keeps root file hits during debounce but disables selection until search settles", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const client = createMockClient(createMockClientState());
     client.fileSystem.listWorkspaceDirectory = async () => ({
       path: "",
@@ -1659,7 +1659,7 @@ describe("Composer", () => {
   });
 
   it("shows an error when workspace file search fails", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const client = createMockClient(createMockClientState());
     client.fileSystem.searchWorkspace = async () => {
       throw new Error("search failed");
@@ -1695,7 +1695,7 @@ describe("Composer", () => {
   });
 
   it("keeps typing after an @ file chip inserted mid-prompt", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const client = createMockClient(createMockClientState());
     client.fileSystem.searchWorkspace = async () => ({
       results: [{ kind: "file", path: "src/mid.ts" }],
@@ -1734,7 +1734,7 @@ describe("Composer", () => {
 
 describe("Structured ACP content", () => {
   it("renders structured resources and previews images with wheel zoom", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const image = {
       type: "image" as const,
       data: "aGVsbG8=",
@@ -1874,7 +1874,7 @@ describe("ChatView", () => {
   });
 
   it("keeps the disabled hint shut when the pointer never left the enabled composer", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const view = renderWithI18n(
       <ChatView
         turns={[]}
@@ -2074,7 +2074,7 @@ describe("MessageList", () => {
   });
 
   it("renders sent user Markdown and copies the source string", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const writeText = vi
       .spyOn(navigator.clipboard, "writeText")
       .mockResolvedValue();
@@ -2175,7 +2175,7 @@ describe("MessageList", () => {
   });
 
   it("compresses consecutive reads into a second-level disclosure", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     renderWithI18n(
       <MessageList
         turns={[
@@ -2213,7 +2213,7 @@ describe("MessageList", () => {
   });
 
   it("folds reads, edits, and commands into one collapsed phase, each still distinct once expanded", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     renderWithI18n(
       <MessageList
         turns={[
@@ -2361,7 +2361,7 @@ describe("MessageList", () => {
   });
 
   it("condenses interleaved analysis and file reads into one expandable activity timeline", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     renderWithI18n(
       <MessageList
         turns={[
@@ -2748,7 +2748,7 @@ describe("ConversationNavigator", () => {
   }
 
   it("moves one anchor at a time and keeps disabled boundary controls visible", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const onNavigate = vi.fn();
     const view = renderWithI18n(
       <TooltipProvider>
@@ -2824,7 +2824,7 @@ describe("ConversationNavigator", () => {
   });
 
   it("opens the boundary hint when repeated clicks disable the button under the pointer", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     renderWithI18n(
       <TooltipProvider>
         <StatefulNavigator />
@@ -2854,7 +2854,7 @@ describe("ConversationNavigator", () => {
   });
 
   it("uses the final downward action to reach the thread tail", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const onNavigate = vi.fn();
     const onNavigateToTail = vi.fn();
     const view = renderWithI18n(

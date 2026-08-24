@@ -1,5 +1,4 @@
 import { act, render, screen, waitFor, within } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import { createChatStore } from "@ora/chat";
 import { type SkillImportSession } from "@ora/contracts";
@@ -15,6 +14,7 @@ import {
 } from "../../test/mock-client";
 import { createStubPlatform } from "../../test/stub-platform";
 import { SkillMarketplaceInstallController } from "./skill-marketplace-install-controller";
+import { setupUser } from "../../test/user";
 
 /** Builds one prepared archive session with the requested candidate status. */
 function preparedSession(status: "ready" | "conflict"): SkillImportSession {
@@ -166,7 +166,7 @@ describe("SkillMarketplaceInstallController", () => {
   });
 
   it("reuses the import dialog before overwriting an existing skill", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const session = preparedSession("conflict");
     const { client, getListener } = renderController(session, "overwritten");
     await waitFor(() => expect(getListener()).toBeDefined());

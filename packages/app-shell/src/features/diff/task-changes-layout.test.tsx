@@ -1,5 +1,4 @@
 import { act, render, screen, within } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
 import { PlatformProvider } from "../../platform";
 import { useState, type ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -13,6 +12,7 @@ import {
   REVIEW_STORAGE_KEY,
   useReviewStore,
 } from "../../state/stores/review-store";
+import { setupUser } from "../../test/user";
 
 vi.mock("./task-diff-view", () => ({
   TaskDiffView: ({
@@ -140,7 +140,7 @@ beforeEach(() => {
 });
 
 /** Clicks the Changes tab in the review toolbar. */
-async function clickChangesTab(user: ReturnType<typeof userEvent.setup>) {
+async function clickChangesTab(user: ReturnType<typeof setupUser>) {
   await user.click(
     within(
       screen.getByRole("group", {
@@ -151,7 +151,7 @@ async function clickChangesTab(user: ReturnType<typeof userEvent.setup>) {
 }
 
 /** Clicks the Files tab in the review toolbar. */
-async function clickFilesTab(user: ReturnType<typeof userEvent.setup>) {
+async function clickFilesTab(user: ReturnType<typeof setupUser>) {
   await user.click(
     within(
       screen.getByRole("group", {
@@ -226,7 +226,7 @@ describe("WorkspaceReviewLayout", () => {
   });
 
   it("moves the Changes controls beside Commit after opening", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     render(
       <PlatformProvider adapter={createStubPlatform()}>
         <AppI18nProvider>
@@ -256,7 +256,7 @@ describe("WorkspaceReviewLayout", () => {
   });
 
   it("opens the Changes panel and forwards a requested answer file", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     render(
       <PlatformProvider adapter={createStubPlatform()}>
         <AppI18nProvider>
@@ -278,7 +278,7 @@ describe("WorkspaceReviewLayout", () => {
   });
 
   it("opens the Files panel and forwards a workspace file request with a line", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     render(
       <PlatformProvider adapter={createStubPlatform()}>
         <AppI18nProvider>
@@ -302,7 +302,7 @@ describe("WorkspaceReviewLayout", () => {
   });
 
   it("preserves workspace state when opening Changes", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     render(
       <PlatformProvider adapter={createStubPlatform()}>
         <AppI18nProvider>
@@ -328,7 +328,7 @@ describe("WorkspaceReviewLayout", () => {
   });
 
   it("shows only Files for a project review context", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     render(
       <PlatformProvider adapter={createStubPlatform()}>
         <AppI18nProvider>
@@ -354,7 +354,7 @@ describe("WorkspaceReviewLayout", () => {
   });
 
   it("keeps the files panel open and remounts it for a compatible target change", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const { rerender } = render(
       <PlatformProvider adapter={createStubPlatform()}>
         <AppI18nProvider>
@@ -382,7 +382,7 @@ describe("WorkspaceReviewLayout", () => {
   });
 
   it("switches an open Changes panel to Files when entering project context", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const { rerender } = render(
       <PlatformProvider adapter={createStubPlatform()}>
         <AppI18nProvider>
@@ -429,7 +429,7 @@ describe("WorkspaceReviewLayout", () => {
   });
 
   it("notifies when the review panel opens or closes", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const onOpenChange = vi.fn();
     render(
       <PlatformProvider adapter={createStubPlatform()}>
@@ -464,7 +464,7 @@ describe("WorkspaceReviewLayout", () => {
   });
 
   it("falls back to the Files panel when a requested file is not found in the diff", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     render(
       <PlatformProvider adapter={createStubPlatform()}>
         <AppI18nProvider>
@@ -488,7 +488,7 @@ describe("WorkspaceReviewLayout", () => {
   });
 
   it("routes openDiff to Files when the review context has no task", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     render(
       <PlatformProvider adapter={createStubPlatform()}>
         <AppI18nProvider>
@@ -512,7 +512,7 @@ describe("WorkspaceReviewLayout", () => {
   });
 
   it("drops a previous task's file request when switching tasks", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const { rerender } = render(
       <PlatformProvider adapter={createStubPlatform()}>
         <AppI18nProvider>
@@ -702,7 +702,7 @@ describe("WorkspaceReviewLayout", () => {
       await useReviewStore.persist.rehydrate();
     });
 
-    const user = userEvent.setup();
+    const user = setupUser();
     render(
       <PlatformProvider adapter={createStubPlatform()}>
         <AppI18nProvider>
@@ -735,7 +735,7 @@ describe("WorkspaceReviewLayout", () => {
       await useReviewStore.persist.rehydrate();
     });
 
-    const user = userEvent.setup();
+    const user = setupUser();
     render(
       <PlatformProvider adapter={createStubPlatform()}>
         <AppI18nProvider>
@@ -764,7 +764,7 @@ describe("WorkspaceReviewLayout", () => {
       await useReviewStore.persist.rehydrate();
     });
 
-    const user = userEvent.setup();
+    const user = setupUser();
     render(
       <PlatformProvider adapter={createStubPlatform()}>
         <AppI18nProvider>
@@ -796,7 +796,7 @@ describe("WorkspaceReviewLayout", () => {
       await useReviewStore.persist.rehydrate();
     });
 
-    const user = userEvent.setup();
+    const user = setupUser();
     render(
       <PlatformProvider adapter={createStubPlatform()}>
         <AppI18nProvider>
@@ -830,7 +830,7 @@ describe("WorkspaceReviewLayout", () => {
       await useReviewStore.persist.rehydrate();
     });
 
-    const user = userEvent.setup();
+    const user = setupUser();
     render(
       <PlatformProvider adapter={createStubPlatform()}>
         <AppI18nProvider>
@@ -868,7 +868,7 @@ describe("WorkspaceReviewLayout", () => {
       await useReviewStore.persist.rehydrate();
     });
 
-    const user = userEvent.setup();
+    const user = setupUser();
     render(
       <PlatformProvider adapter={createStubPlatform()}>
         <AppI18nProvider>

@@ -1,5 +1,4 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
 import { PlatformProvider } from "../../platform";
 import type { SpecCatalogResponse } from "@ora/contracts";
 import { TooltipProvider } from "@ora/ui";
@@ -16,6 +15,7 @@ import {
 import { createStubPlatform } from "../../test/stub-platform";
 import { invalidateSpecQueries, resolveMarkdownLink } from "./spec-query-utils";
 import { SpecsContent } from "./specs-view";
+import { setupUser } from "../../test/user";
 
 /** Creates a retry-free query client so failures remain deterministic. */
 function createQueryClient() {
@@ -52,7 +52,7 @@ function renderSpecSurface(
 
 describe("SpecsContent", () => {
   it("renders catalog Markdown and navigates only to catalog-member relative documents", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const client = createMockClient(createMockClientState());
     client.spec.catalog = vi.fn(
       async () =>

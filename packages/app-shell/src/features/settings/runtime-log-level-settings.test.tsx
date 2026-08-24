@@ -4,7 +4,6 @@ import type {
   RuntimeLogLevelStateResponse,
 } from "@ora/contracts";
 import { render, screen, waitFor } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { appI18n } from "../../i18n/i18n-instance";
 import {
@@ -16,6 +15,7 @@ import {
   createMockClientState,
 } from "../../test/mock-client";
 import { RuntimeLogLevelSettings } from "./runtime-log-level-settings";
+import { setupUser } from "../../test/user";
 
 describe("RuntimeLogLevelSettings", () => {
   beforeEach(async () => {
@@ -37,7 +37,7 @@ describe("RuntimeLogLevelSettings", () => {
   it.each(["Web", "Desktop"])(
     "applies a successful update through the %s contracts client",
     async () => {
-      const user = userEvent.setup();
+      const user = setupUser();
       const state = createMockClientState();
       const client = createMockClient(state);
       const setLevel = vi.spyOn(client.runtimeLogLevel, "set");
@@ -76,7 +76,7 @@ describe("RuntimeLogLevelSettings", () => {
   });
 
   it("prevents duplicate submissions while an update is pending", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const client = createMockClient(createMockClientState());
     let resolveUpdate:
       ((value: RuntimeLogLevelStateResponse) => void) | undefined;
@@ -106,7 +106,7 @@ describe("RuntimeLogLevelSettings", () => {
   });
 
   it("retains the last authoritative selection after an update fails", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const client = createMockClient(createMockClientState());
     client.runtimeLogLevel.set = vi
       .fn()

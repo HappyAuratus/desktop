@@ -1,5 +1,4 @@
 import { act, render, screen, waitFor, within } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
 import { TooltipProvider } from "@ora/ui";
 import { PlatformProvider } from "../../platform";
 import { describe, expect, it, beforeEach } from "vitest";
@@ -23,6 +22,7 @@ import {
 import { usePendingAgentStore } from "../../state/stores/pending-agent-store";
 import type { AgentStatus } from "@ora/contracts";
 import { ModelSelector } from "./model-selector";
+import { setupUser } from "../../test/user";
 
 beforeEach(() => {
   useWorkspaceSelectionStore.getState().clearSelection();
@@ -74,7 +74,7 @@ function picker() {
  * what the trigger settled on rather than what the open list still offers.
  */
 async function pickAgent(
-  user: ReturnType<typeof userEvent.setup>,
+  user: ReturnType<typeof setupUser>,
   agentLabel: RegExp,
 ) {
   await user.click(picker());
@@ -85,7 +85,7 @@ async function pickAgent(
 
 describe("ModelSelector agent isolation across not-yet-started chats", () => {
   it("keeps one task's picked agent stable while another task's pick changes", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     renderModelSelector();
 
     act(() => useWorkspaceSelectionStore.getState().selectTask("t1", "p1"));
@@ -113,14 +113,14 @@ describe("ModelSelector agent isolation across not-yet-started chats", () => {
  * Assertions are made against this element rather than by reopening the menu: which agents are
  * offered depends on the installed-plugin snapshot, and the loading answer is the whole catalog.
  */
-async function openAgentList(user: ReturnType<typeof userEvent.setup>) {
+async function openAgentList(user: ReturnType<typeof setupUser>) {
   await user.click(picker());
   return await screen.findByRole("menu");
 }
 
 describe("ModelSelector agent availability", () => {
   it("offers every agent the runtime reports reaching", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     renderModelSelector();
 
     act(() => useWorkspaceSelectionStore.getState().selectTask("t1", "p1"));
@@ -133,7 +133,7 @@ describe("ModelSelector agent availability", () => {
   });
 
   it("withholds an agent whose runtime nothing answered for", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     renderModelSelector(reportOpenCode("unavailable"));
 
     act(() => useWorkspaceSelectionStore.getState().selectTask("t1", "p1"));
@@ -146,7 +146,7 @@ describe("ModelSelector agent availability", () => {
   });
 
   it("withholds an agent nothing supervises at all", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     renderModelSelector((state) => {
       state.agentRuntimeStatuses = state.agentRuntimeStatuses.filter(
         (status) => status.agentRef !== "ora-space.opencode",

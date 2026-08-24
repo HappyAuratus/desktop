@@ -1,11 +1,11 @@
 import { render, screen } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import type { ChatToolCall, ChatTurn } from "@ora/chat";
 import { AppI18nProvider } from "../../i18n/i18n";
 import { TaskChangesNavigationProvider } from "../diff/task-changes-navigation";
 import { collectTurnDiffFiles } from "./turn-diff-files";
 import { TurnDiffSummary } from "./turn-diff-summary";
+import { setupUser } from "../../test/user";
 
 /** Creates one completed file-edit tool without involving the ACP transport. */
 function editTool(
@@ -88,7 +88,7 @@ describe("turn diff summary", () => {
   });
 
   it("opens the selected file in the diff viewer", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const openDiff = vi.fn();
     render(
       <AppI18nProvider>
@@ -117,7 +117,7 @@ describe("turn diff summary", () => {
   });
 
   it("collapses and reopens the changed file list from its summary header", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     render(
       <AppI18nProvider>
         <TurnDiffSummary
@@ -153,7 +153,7 @@ describe("turn diff summary", () => {
   });
 
   it("shows a full-content OpenCode write when the adapter omits ACP diff content", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const openDiff = vi.fn();
     const newFile = editTool("write-1", "quicksort.py", "", "");
     newFile.content = [];

@@ -1,5 +1,4 @@
 import { render, screen, waitFor } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
 import { TooltipProvider } from "@ora/ui";
 import { PlatformProvider } from "../../platform";
 import { describe, expect, it, beforeEach } from "vitest";
@@ -24,6 +23,7 @@ import { useUiStore } from "../../state/stores/ui-store";
 import { useWorkspaceSelectionStore } from "../../state/stores/workspace-selection-store";
 import { useDraftSessionsStore } from "../../state/stores/draft-sessions-store";
 import { WorkspaceDialogs } from "./workspace-dialogs";
+import { setupUser } from "../../test/user";
 
 beforeEach(() => {
   useUiStore.getState().setDialog(null);
@@ -37,7 +37,7 @@ describe("WorkspaceDialogs project creation", () => {
     ["C:\\workspace\\ora", "ora"],
     ["/workspace/ora/", "ora"],
   ])("derives the project name from %s", async (rootPath, expectedName) => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const state = createMockClientState();
     const client = createMockClient(state);
     const chatStore = createChatStore(client.session);
@@ -98,7 +98,7 @@ describe("WorkspaceDialogs project creation", () => {
 
 describe("WorkspaceDialogs task creation", () => {
   it("creates only worktree tasks and does not offer a workspace-mode selector", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const state = createMockClientState();
     const baseClient = createMockClient(state);
     let submittedBaseBranch: string | undefined;
@@ -176,7 +176,7 @@ describe("WorkspaceDialogs task creation", () => {
   });
 
   it("shows a spinner on the create button while worktree provisioning is in flight", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const state = createMockClientState();
     const baseClient = createMockClient(state);
     let releaseCreate: () => void = () => {};
@@ -249,7 +249,7 @@ describe("WorkspaceDialogs task creation", () => {
   });
 
   it("explains that worktree mode requires a Git repository", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const state = createMockClientState();
     const baseClient = createMockClient(state);
     const client: ContractsClient = {
@@ -306,7 +306,7 @@ describe("WorkspaceDialogs task creation", () => {
 
 describe("WorkspaceDialogs project deletion", () => {
   it("deletes every descendant session before deleting the project", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const state = createMockClientState();
     state.projects = [{ id: "p1", name: "Ora", rootPath: "/ora" }];
     state.sessions = [
@@ -397,7 +397,7 @@ describe("WorkspaceDialogs task deletion", () => {
   ] as const)(
     "deletes every %s session before deleting its task",
     async (_label, workspaceMode, sessionIds, description) => {
-      const user = userEvent.setup();
+      const user = setupUser();
       const state = createMockClientState();
       state.tasks = [
         {
@@ -481,7 +481,7 @@ describe("WorkspaceDialogs task deletion", () => {
   ] as const)(
     "uses a mode-specific resource-in-use error for %s tasks",
     async (workspaceMode, expectedError) => {
-      const user = userEvent.setup();
+      const user = setupUser();
       const state = createMockClientState();
       const baseClient = createMockClient(state);
       const client: ContractsClient = {
