@@ -373,6 +373,58 @@ describe("ComposerEditor", () => {
     editor.destroy();
   });
 
+  it("collapses the separator space when a later quote is its own command", () => {
+    const editor = new Editor({
+      extensions: createComposerExtensions({ placeholder: "Type" }),
+      content: {
+        type: "doc",
+        content: [{ type: "paragraph" }],
+      },
+    });
+
+    // Every gutter click arrives as a separate insertComposerFiles call with the
+    // caret parked at the end, which is the only way to reach the
+    // separator-collapse branch. Doing that work on a nested chain dispatched a
+    // second transaction mid-command and left the outer one stale, so this call
+    // threw *after* the chip had landed.
+    editor.commands.insertComposerFiles([{ path: "first.ts" }]);
+    editor.commands.focus("end");
+    expect(() =>
+      editor.commands.insertComposerFiles([{ path: "second.ts" }]),
+    ).not.toThrow();
+
+    const paragraph = editor.state.doc.firstChild;
+    expect(paragraph?.childCount).toBe(3);
+    expect(paragraph?.child(0).attrs.path).toBe("first.ts");
+    expect(paragraph?.child(1).attrs.path).toBe("second.ts");
+    expect(paragraph?.child(2).text).toBe(" ");
+    expect(documentPlainText(editor.state.doc)).toBe("`first.ts` `second.ts` ");
+    editor.destroy();
+  });
+
+  it("collapses the separator space when a quote follows a prompt token", () => {
+    const editor = new Editor({
+      extensions: createComposerExtensions({ placeholder: "Type" }),
+      content: {
+        type: "doc",
+        content: [{ type: "paragraph" }],
+      },
+    });
+
+    editor.commands.setPromptToken("command", "review");
+    editor.commands.focus("end");
+    expect(() =>
+      editor.commands.insertComposerFiles([{ path: "after-token.ts" }]),
+    ).not.toThrow();
+
+    const paragraph = editor.state.doc.firstChild;
+    expect(paragraph?.childCount).toBe(3);
+    expect(paragraph?.child(0).type.name).toBe("promptToken");
+    expect(paragraph?.child(1).attrs.path).toBe("after-token.ts");
+    expect(paragraph?.child(2).text).toBe(" ");
+    editor.destroy();
+  });
+
   it("restores documentPlainText as formatted nodes instead of leftover markers", () => {
     render(
       <ComposerEditor

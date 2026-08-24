@@ -49,6 +49,15 @@ Tiptap preset and plain-text helpers for prompt boxes (chat composer, HITL).
   empty quote lifts the quote instead of inserting another paragraph inside it.
   A trailing space after a fence info string also
   opens the fence.
+- Custom commands (`insertComposerFiles`, `setPromptToken`) compose through the
+  `commands.*` given to them so every step lands on the one transaction TipTap
+  opened for the call. A nested `editor.chain()…run()` inside a command commits
+  a second transaction while the outer one is still open; the outer transaction
+  is then applied to a state it was never built from and ProseMirror throws
+  `Applying a mismatched transaction` _after_ the content has already been
+  inserted. `insertComposerFiles` needs two steps whenever a quote lands right
+  behind an existing chip or token — it drops the separator space first so a
+  range selection cannot paint a caret-thin bar between adjacent atoms.
 - Prompt links open on pointerdown (not mouseup/`click`) so the first press
   leaves the editor instead of placing a caret. Desktop still routes through
   the host browser command; this preset only calls `window.open` when no

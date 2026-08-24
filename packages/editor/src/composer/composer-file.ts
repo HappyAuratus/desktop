@@ -342,11 +342,16 @@ export const ComposerFile = Node.create({
               (maybeAtom.type.name === "composerFile" ||
                 maybeAtom.type.name === "promptToken")
             ) {
-              return editor
-                .chain()
-                .deleteRange({ from: $from.pos - 1, to: $from.pos })
-                .insertContent(content)
-                .run();
+              // Both steps go through `commands`, which share this command's
+              // own transaction. A nested `editor.chain().run()` would dispatch
+              // a second transaction while this one is still open, so the outer
+              // (now stale) transaction is applied to a state it was not built
+              // from and ProseMirror throws "Applying a mismatched
+              // transaction" after the chips have already landed.
+              return (
+                commands.deleteRange({ from: $from.pos - 1, to: $from.pos }) &&
+                commands.insertContent(content)
+              );
             }
           }
           return commands.insertContent(content);
