@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import {
   AlertDialog,
@@ -368,14 +368,19 @@ export function WorkflowRunWorkspace({ runId }: WorkflowRunWorkspaceProps) {
     startRun.isPending || cancelRun.isPending || rerun.isPending;
 
   // Run-task worktree Diff / Files — same surface as chat Task Changes.
-  const reviewContext: WorkspaceReviewContext =
-    runTaskId !== null && projectId !== null && project !== undefined
-      ? {
-          kind: "task",
-          taskId: runTaskId,
-          projectId,
-        }
-      : { kind: "none" };
+  // Memoized for the same reason as in workspace-view: the review layout keys
+  // its one-shot restore off this object's identity.
+  const reviewContext = useMemo<WorkspaceReviewContext>(
+    () =>
+      runTaskId !== null && projectId !== null && project !== undefined
+        ? {
+            kind: "task",
+            taskId: runTaskId,
+            projectId,
+          }
+        : { kind: "none" },
+    [project, projectId, runTaskId],
+  );
 
   // If the run finishes while the stop dialog is open, dismiss it so Confirm
   // (which preventDefault + early-returns when !canStop) cannot leave a stuck modal.

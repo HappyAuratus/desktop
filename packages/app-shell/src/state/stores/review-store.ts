@@ -19,20 +19,56 @@ export interface ReviewFilePersist {
   column?: number;
 }
 
+/**
+ * Last previewed file per panel. Keyed by panel because the two tabs browse
+ * different path spaces: Changes only knows paths present in the diff, Files
+ * knows the whole checkout. A single shared slot lets a Changes-only path (a
+ * deleted or renamed file) be replayed into the Files panel after a restart.
+ */
+export type ReviewFilesPersist = Partial<
+  Record<ReviewPanelKind, ReviewFilePersist>
+>;
+
 export interface ReviewContextPersist {
   open: boolean;
   panel: ReviewPanelKind;
   width: number;
-  file?: ReviewFilePersist;
+  files: ReviewFilesPersist;
 }
 
 interface ReviewState {
   byContext: Record<string, ReviewContextPersist>;
-  /** Merges one checkout-scoped review snapshot onto disk. */
+  /**
+   * Merges one checkout-scoped review snapshot onto disk. `files` is merged
+   * per panel, so writing the Changes preview never disturbs the Files one.
+   */
   upsertContext: (
     contextKey: string,
     patch: Partial<ReviewContextPersist>,
   ) => void;
+  /**
+   * Drops scopes whose project or task no longer exists so deleted rows do not
+   * accumulate on disk (mirrors `pruneTreeExpansion` in the UI store).
+   */
+  pruneContexts: (
+    projectIds: readonly string[],
+    taskIds: readonly string[],
+  ) => void;
+}
+
+/** True when two per-panel file slices carry the same path/line/column. */
+function reviewFilesEqual(
+  left: ReviewFilesPersist,
+  right: ReviewFilesPersist,
+): boolean {
+  const panels: readonly ReviewPanelKind[] = ["changes", "files"];
+  return panels.every((panel) => {
+    const a = left[panel];
+    const b = right[panel];
+    return (
+      a?.path === b?.path && a?.line === b?.line && a?.column === b?.column
+    );
+  });
 }
 
 /** Clamps a persisted review width into the live drag range. */
@@ -69,19 +105,38 @@ function sanitizeFile(value: unknown): ReviewFilePersist | undefined {
   };
 }
 
+/** Keeps only the per-panel entries that survive `sanitizeFile`. */
+export function sanitizeFiles(value: unknown): ReviewFilesPersist {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    return {};
+  }
+  const record = value as Record<string, unknown>;
+  const changes = sanitizeFile(record.changes);
+  const files = sanitizeFile(record.files);
+  return {
+    ...(changes !== undefined ? { changes } : {}),
+    ...(files !== undefined ? { files } : {}),
+  };
+}
+
 /** Maps an untrusted disk entry onto the review fields the layout owns. */
 export function sanitizeReviewContextPersist(
   value: unknown,
 ): ReviewContextPersist {
   if (typeof value !== "object" || value === null || Array.isArray(value)) {
-    return { open: false, panel: "files", width: DEFAULT_REVIEW_WIDTH };
+    return {
+      open: false,
+      panel: "files",
+      width: DEFAULT_REVIEW_WIDTH,
+      files: {},
+    };
   }
   const record = value as Record<string, unknown>;
   return {
     open: record.open === true,
     panel: sanitizePanel(record.panel),
     width: clampReviewWidth(record.width),
-    file: sanitizeFile(record.file),
+    files: sanitizeFiles(record.files),
   };
 }
 
@@ -110,7 +165,12 @@ export function reviewContextKey(context: {
   return `task:${context.taskId}`;
 }
 
-/** Builds the file slice written while the review panel is open. */
+/**
+ * Builds the file slice written while the review panel is open.
+ *
+ * The caller stores the result under the *live* panel, so a Changes path can
+ * never end up as the Files panel's restored selection.
+ */
 export function buildReviewFilePersist(input: {
   open: boolean;
   panel: ReviewPanelKind;
@@ -163,22 +223,40 @@ export const useReviewStore = create<ReviewState>()(
               patch.width !== undefined
                 ? clampReviewWidth(patch.width)
                 : current.width,
-            file: patch.file !== undefined ? patch.file : current.file,
+            // Sanitize here too: `upsertContext` is the single write door, so
+            // everything in `byContext` stays sanitized by construction rather
+            // than by convention at each call site.
+            files:
+              patch.files !== undefined
+                ? { ...current.files, ...sanitizeFiles(patch.files) }
+                : current.files,
           };
           if (
             hasCurrent &&
             current.open === next.open &&
             current.panel === next.panel &&
             current.width === next.width &&
-            current.file?.path === next.file?.path &&
-            current.file?.line === next.file?.line &&
-            current.file?.column === next.file?.column
+            reviewFilesEqual(current.files, next.files)
           ) {
             return state;
           }
           return {
             byContext: { ...state.byContext, [contextKey]: next },
           };
+        }),
+      pruneContexts: (projectIds, taskIds) =>
+        set((state) => {
+          const live = new Set([
+            ...projectIds.map((id) => `project:${id}`),
+            ...taskIds.map((id) => `task:${id}`),
+          ]);
+          const entries = Object.entries(state.byContext).filter(([key]) =>
+            live.has(key),
+          );
+          if (entries.length === Object.keys(state.byContext).length) {
+            return state;
+          }
+          return { byContext: Object.fromEntries(entries) };
         }),
     }),
     {

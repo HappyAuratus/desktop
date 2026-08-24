@@ -70,19 +70,23 @@ describe("review-store", () => {
       open: false,
       panel: "files",
       width: DEFAULT_REVIEW_WIDTH,
+      files: {},
     });
     expect(
       sanitizeReviewContextPersist({
         open: true,
         panel: "changes",
         width: 99999,
-        file: { path: "", line: "bad" },
+        files: {
+          changes: { path: "", line: "bad" },
+          files: { path: "src/keep.ts", line: 3 },
+        },
       }),
     ).toEqual({
       open: true,
       panel: "changes",
       width: clampReviewWidth(99999),
-      file: undefined,
+      files: { files: { path: "src/keep.ts", line: 3 } },
     });
   });
 
@@ -96,7 +100,7 @@ describe("review-store", () => {
               open: true,
               panel: "changes",
               width: 720,
-              file: { path: "src/main.ts", line: 12 },
+              files: { changes: { path: "src/main.ts", line: 12 } },
             },
           },
         },
@@ -110,7 +114,7 @@ describe("review-store", () => {
       open: true,
       panel: "changes",
       width: 720,
-      file: { path: "src/main.ts", line: 12 },
+      files: { changes: { path: "src/main.ts", line: 12 } },
     });
   });
 
@@ -142,6 +146,45 @@ describe("review-store", () => {
       open: true,
       panel: "changes",
       width: 640,
+      files: {},
     });
+  });
+
+  it("keeps each panel's preview independent", () => {
+    useReviewStore.getState().upsertContext("task:t1", {
+      open: true,
+      panel: "files",
+      files: { files: { path: "src/a.ts" } },
+    });
+    useReviewStore.getState().upsertContext("task:t1", {
+      panel: "changes",
+      files: { changes: { path: "src/b.ts", line: 9 } },
+    });
+    // Switching back to Files must not adopt the Changes-only path.
+    useReviewStore.getState().upsertContext("task:t1", { panel: "files" });
+
+    expect(useReviewStore.getState().byContext["task:t1"]).toEqual({
+      open: true,
+      panel: "files",
+      width: DEFAULT_REVIEW_WIDTH,
+      files: {
+        files: { path: "src/a.ts" },
+        changes: { path: "src/b.ts", line: 9 },
+      },
+    });
+  });
+
+  it("prunes scopes whose project or task no longer exists", () => {
+    useReviewStore.getState().upsertContext("project:p1", { open: true });
+    useReviewStore.getState().upsertContext("project:gone", { open: true });
+    useReviewStore.getState().upsertContext("task:t1", { open: true });
+    useReviewStore.getState().upsertContext("task:gone", { open: true });
+
+    useReviewStore.getState().pruneContexts(["p1"], ["t1"]);
+
+    expect(Object.keys(useReviewStore.getState().byContext).sort()).toEqual([
+      "project:p1",
+      "task:t1",
+    ]);
   });
 });

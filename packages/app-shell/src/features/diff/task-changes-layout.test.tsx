@@ -72,6 +72,7 @@ vi.mock("../files/workspace-review-files-panel", () => ({
           ? ""
           : `${fileRequest.path}:${fileRequest.line ?? ""}`}
       </span>
+      <span data-testid="files-request-id">{fileRequest?.requestId ?? ""}</span>
       <button
         type="button"
         data-testid="simulate-files-preview"
@@ -157,6 +158,31 @@ async function clickFilesTab(user: ReturnType<typeof userEvent.setup>) {
         name: /工作区审查面板|Workspace review panels/,
       }),
     ).getByRole("button", { name: /^文件$|^Files$/ }),
+  );
+}
+
+/**
+ * Rebuilds the `context` prop as a fresh object literal on every render, the way
+ * `workspace-view` / `workflow-run-workspace` derive it. The button lets a test
+ * force a parent render without touching the review layout's own state.
+ */
+function RerenderHarness() {
+  const [tick, setTick] = useState(0);
+  return (
+    <>
+      <button
+        type="button"
+        data-testid="force-parent-render"
+        onClick={() => setTick((current) => current + 1)}
+      >
+        rerender {tick}
+      </button>
+      <WorkspaceReviewLayout
+        context={{ kind: "task", taskId: "task-1", projectId: "project-1" }}
+      >
+        <main>Workspace</main>
+      </WorkspaceReviewLayout>
+    </>
   );
 }
 
@@ -534,7 +560,7 @@ describe("WorkspaceReviewLayout", () => {
               open: true,
               panel: "changes",
               width: 720,
-              file: { path: "src/main.ts", line: 4 },
+              files: { changes: { path: "src/main.ts", line: 4 } },
             },
           },
         },
@@ -570,7 +596,7 @@ describe("WorkspaceReviewLayout", () => {
       open: true,
       panel: "files",
       width: 640,
-      file: { path: "src/a.ts" },
+      files: { files: { path: "src/a.ts" } },
     });
     useReviewStore.getState().upsertContext("task:task-2", {
       open: false,
@@ -636,7 +662,7 @@ describe("WorkspaceReviewLayout", () => {
       open: true,
       panel: "changes",
       width: 640,
-      file: { path: "README.md", line: 2 },
+      files: { files: { path: "README.md", line: 2 } },
     });
 
     await act(async () => {
@@ -669,7 +695,7 @@ describe("WorkspaceReviewLayout", () => {
       open: true,
       panel: "files",
       width: 640,
-      file: { path: "src/b.ts" },
+      files: { files: { path: "src/b.ts" } },
     });
 
     await act(async () => {
@@ -692,9 +718,9 @@ describe("WorkspaceReviewLayout", () => {
     await clickChangesTab(user);
     flushDebouncedPersistStorage();
 
-    expect(useReviewStore.getState().byContext["task:task-1"]?.file?.path).toBe(
-      "src/b.ts",
-    );
+    expect(useReviewStore.getState().byContext["task:task-1"]?.files).toEqual({
+      files: { path: "src/b.ts" },
+    });
   });
 
   it("reopens the last previewed file after the panel was closed on the prior session", async () => {
@@ -702,7 +728,7 @@ describe("WorkspaceReviewLayout", () => {
       open: false,
       panel: "files",
       width: 640,
-      file: { path: "src/closed.ts" },
+      files: { files: { path: "src/closed.ts" } },
     });
 
     await act(async () => {
@@ -755,7 +781,7 @@ describe("WorkspaceReviewLayout", () => {
     });
 
     expect(useReviewStore.getState().byContext["task:task-1"]).toMatchObject({
-      file: { path: "src/tree-picked.ts" },
+      files: { files: { path: "src/tree-picked.ts" } },
     });
   });
 
@@ -788,7 +814,86 @@ describe("WorkspaceReviewLayout", () => {
 
     expect(useReviewStore.getState().byContext["task:task-1"]).toMatchObject({
       panel: "changes",
-      file: { path: "src/diff-picked.ts" },
+      files: { changes: { path: "src/diff-picked.ts" } },
     });
+  });
+
+  it("restores once per scope even when the parent re-renders", async () => {
+    useReviewStore.getState().upsertContext("task:task-1", {
+      open: true,
+      panel: "files",
+      width: 640,
+      files: { files: { path: "src/a.ts" } },
+    });
+
+    await act(async () => {
+      await useReviewStore.persist.rehydrate();
+    });
+
+    const user = userEvent.setup();
+    render(
+      <PlatformProvider adapter={createStubPlatform()}>
+        <AppI18nProvider>
+          <RerenderHarness />
+        </AppI18nProvider>
+      </PlatformProvider>,
+    );
+
+    expect(screen.getByTestId("files-request")).toHaveTextContent("src/a.ts:");
+    const restoredRequestId =
+      screen.getByTestId("files-request-id").textContent;
+
+    // Each parent render hands down a brand new context object. Restore must
+    // stay one-shot per scope: re-running it bumps the request id, and a fresh
+    // id makes the files panel re-read and re-scroll the same file — once per
+    // streaming token in production.
+    await user.click(screen.getByTestId("force-parent-render"));
+    await user.click(screen.getByTestId("force-parent-render"));
+
+    expect(screen.getByTestId("files-request-id")).toHaveTextContent(
+      restoredRequestId ?? "",
+    );
+    expect(screen.getByTestId("files-request")).toHaveTextContent("src/a.ts:");
+  });
+
+  it("never adopts a Changes path as the Files panel selection", async () => {
+    useReviewStore.getState().upsertContext("task:task-1", {
+      open: true,
+      panel: "files",
+      width: 640,
+      files: { files: { path: "src/a.ts" } },
+    });
+
+    await act(async () => {
+      await useReviewStore.persist.rehydrate();
+    });
+
+    const user = userEvent.setup();
+    render(
+      <PlatformProvider adapter={createStubPlatform()}>
+        <AppI18nProvider>
+          <WorkspaceReviewLayout context={taskContext}>
+            <main>Workspace</main>
+          </WorkspaceReviewLayout>
+        </AppI18nProvider>
+      </PlatformProvider>,
+    );
+
+    await clickChangesTab(user);
+    await user.click(screen.getByTestId("simulate-diff-preview"));
+    await clickFilesTab(user);
+    await act(async () => {
+      flushDebouncedPersistStorage();
+    });
+
+    // The diff-only path stays under `changes`; Files keeps its own selection.
+    expect(useReviewStore.getState().byContext["task:task-1"]).toMatchObject({
+      panel: "files",
+      files: {
+        files: { path: "src/a.ts" },
+        changes: { path: "src/diff-picked.ts" },
+      },
+    });
+    expect(screen.getByTestId("files-request")).toHaveTextContent("src/a.ts:");
   });
 });

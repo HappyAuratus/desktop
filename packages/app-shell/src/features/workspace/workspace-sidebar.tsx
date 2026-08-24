@@ -32,6 +32,7 @@ import { useRestoreWorkspaceSelection } from "../../state/hooks/use-restore-work
 import { useStoreWithEqualityFn } from "zustand/traditional";
 import { usePersistHydrated } from "../../state/hooks/use-persist-hydrated";
 import { useUiStore } from "../../state/stores/ui-store";
+import { useReviewStore } from "../../state/stores/review-store";
 import { useWorkspaceSelectionStore } from "../../state/stores/workspace-selection-store";
 import {
   draftPlacements,
@@ -289,6 +290,9 @@ export function WorkspaceSidebar({ user, onSignOut }: WorkspaceSidebarProps) {
       return;
     }
     ui.pruneTreeExpansion(projectIds, taskIds);
+    // Same lifetime for the per-scope review layout: a deleted project or task
+    // must not keep its open/tab/width/preview entry on disk forever.
+    useReviewStore.getState().pruneContexts(projectIds, taskIds);
     // `expandTreeKey` gates re-runs so query refetches with the same ids do not
     // rebuild expand sets or churn subscribers.
     // eslint-disable-next-line react-hooks/exhaustive-deps -- ids captured in expandTreeKey
