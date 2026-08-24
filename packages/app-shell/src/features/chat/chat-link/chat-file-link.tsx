@@ -135,8 +135,8 @@ function LinkedChatFile({
 
   useEffect(() => {
     // Desktop is the only host: locationActions is always the cwd + OS-open
-    // pair, not a supported/unsupported discriminant. Project-only drafts rely
-    // on MessageList's project rootPath instead of resolveTaskCwd.
+    // pair, not a supported/unsupported discriminant. Main-Workspace drafts rely
+    // on MessageList's Workspace cwd instead of resolveTaskCwd.
     const taskId = chatLink.taskId;
     if (taskId === undefined) return;
     let cancelled = false;

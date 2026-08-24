@@ -12,6 +12,7 @@ mod user_config;
 mod workflow;
 mod workflow_run;
 mod workflow_run_engine;
+mod workspace;
 mod worktree;
 mod worktree_provisioning_lease;
 
@@ -29,5 +30,6 @@ pub use user_config::SqliteUserConfigRepository;
 pub use workflow::SqliteWorkflowRepository;
 pub use workflow_run::SqliteWorkflowRunRepository;
 pub use workflow_run_engine::SqliteWorkflowRunEngineRepository;
+pub use workspace::SqliteWorkspaceRepository;
 pub use worktree::SqliteWorktreeRepository;
 pub use worktree_provisioning_lease::SqliteWorktreeProvisioningLeaseRepository;

@@ -78,6 +78,10 @@ function createTauriLocationActions(): LocationActionsCapability {
       invoke<{ path: string }>("resolve_task_cwd", {
         request: { taskId },
       }).then((response) => response.path),
+    resolveWorkspaceCwd: (workspaceId) =>
+      invoke<{ path: string }>("resolve_workspace_cwd", {
+        request: { workspaceId },
+      }).then((response) => response.path),
     open: (target: LocationTarget, path: string) =>
       invoke("open_location", { request: { target, path } }),
   };

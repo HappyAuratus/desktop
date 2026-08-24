@@ -8,6 +8,7 @@ import type { TaskDiffScope, WarmSessionTarget } from "@ora/contracts";
  */
 export const queryKeys = {
   projects: ["projects"] as const,
+  workspaces: ["workspaces"] as const,
   projectBranches: (projectId: string) =>
     ["project-branches", projectId] as const,
   tasks: ["tasks"] as const,
@@ -31,6 +32,8 @@ export const queryKeys = {
   workflowArtifacts: (runId: string) => ["workflowArtifacts", runId] as const,
   agentRuntimeStatus: ["agentRuntimeStatus"] as const,
   taskWorkspace: (taskId: string) => ["task-workspace", taskId] as const,
+  workspaceCwd: (workspaceId: string) =>
+    ["workspace-cwd", workspaceId] as const,
   taskDiffs: (taskId: string) => ["task-diff", taskId] as const,
   taskDiff: (taskId: string, scope: TaskDiffScope) =>
     ["task-diff", taskId, scope] as const,
@@ -72,8 +75,11 @@ export const queryKeys = {
 /** Extracts the identifier a warm target is scoped to, for cache-key purposes. */
 function targetId(target: WarmSessionTarget | null): string {
   if (target === null) return "";
-  return target.type === "task" ? target.taskId : target.projectId;
+  return target.workspaceId;
 }
 
 export type WorkspaceQueryKey =
-  readonly ["projects"] | readonly ["tasks"] | readonly ["sessions"];
+  | readonly ["projects"]
+  | readonly ["workspaces"]
+  | readonly ["tasks"]
+  | readonly ["sessions"];

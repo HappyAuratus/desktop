@@ -17,6 +17,7 @@ pub mod task;
 pub mod task_diff;
 pub mod workflow;
 pub mod workflow_run;
+pub mod workspace;
 pub use agent_import::*;
 pub use app_event::*;
 
@@ -38,6 +39,7 @@ pub use task_diff::*;
 use ts_rs::{Config, ExportError};
 pub use workflow::*;
 pub use workflow_run::*;
+pub use workspace::*;
 
 /// Exports every contract DTO family into the shared TypeScript package for frontend consumers.
 ///
@@ -66,6 +68,7 @@ pub fn export_typescript_bindings_to(
     task_diff::export(&config)?;
     workflow::export(&config)?;
     workflow_run::export(&config)?;
+    workspace::export(&config)?;
 
     Ok(())
 }

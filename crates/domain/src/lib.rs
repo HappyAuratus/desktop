@@ -15,6 +15,7 @@ mod skill;
 mod task;
 mod workflow;
 mod workflow_run;
+mod workspace;
 mod worktree;
 
 #[cfg(test)]
@@ -31,7 +32,8 @@ pub use git_cleanup::{
 };
 pub use ids::{
     AgentDefinitionId, GitCleanupJobId, ProjectId, SessionId, SkillId, TaskId, WorkflowId,
-    WorkflowNodeRunId, WorkflowRunId, WorkflowSnapshotId, WorktreeId, WorktreeProvisioningLeaseId,
+    WorkflowNodeRunId, WorkflowRunId, WorkflowSnapshotId, WorkspaceId, WorktreeId,
+    WorktreeProvisioningLeaseId,
 };
 pub use namespace::Namespace;
 pub use plugin::{PluginEnabledState, PluginState};
@@ -43,12 +45,16 @@ pub use skill::{
     BACKUP_DIR_NAME, JOURNAL_DIR_NAME, STAGING_DIR_NAME, Skill, SkillDescriptionError,
     SkillNameError, validate_skill_description, validate_skill_name,
 };
-pub use task::{Task, TaskType};
+pub use task::Task;
 pub use workflow::{
     CreatedWorkflow, Workflow, WorkflowDetail, WorkflowSnapshot, WorkflowSummary, WorkflowVersion,
 };
 pub use workflow_run::{
     WorkflowNodeRun, WorkflowNodeStatus, WorkflowRun, WorkflowRunDetail, WorkflowRunStatus,
     WorkflowRunSummary,
+};
+pub use workspace::{
+    Workspace, WorkspaceKind, WorkspaceLifecycle, WorkspaceLocation, WorkspaceProvisionerKind,
+    WorkspaceProvisioning, WorkspaceProvisioningState,
 };
 pub use worktree::{Worktree, WorktreeActivity, WorktreeBaseline};

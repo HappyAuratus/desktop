@@ -15,7 +15,8 @@ import type { GetSpecCatalogRequest, ReadSpecRequest, ReadSpecResponse, SpecCata
 import type { CreateTaskRequest, CreateTaskResponse, DeleteTaskRequest, DeleteTaskResponse, GetTaskRequest, GetTaskResponse, GetTaskWorkspaceRequest, GetTaskWorkspaceResponse, ListTasksRequest, ListTasksResponse, UpdateTaskRequest, UpdateTaskResponse } from "./task.js";
 import type { CommitTaskChangesRequest, CommitTaskChangesResponse, GetTaskDiffRequest, GetTaskDiffResponse, PushTaskBranchRequest, PushTaskBranchResponse } from "./task_diff.js";
 import type { ActivateWorkflowRequest, ActivateWorkflowResponse, CreateWorkflowRequest, CreateWorkflowResponse, DeleteSnapshotRequest, DeleteSnapshotResponse, DeleteWorkflowRequest, DeleteWorkflowResponse, GetDraftRequest, GetDraftResponse, GetVersionRequest, GetVersionResponse, GetWorkflowRequest, GetWorkflowResponse, GetWorkflowSnapshotRequest, GetWorkflowSnapshotResponse, ListVersionsRequest, ListVersionsResponse, ListWorkflowsRequest, ListWorkflowsResponse, PublishWorkflowRequest, PublishWorkflowResponse, RollbackWorkflowRequest, RollbackWorkflowResponse, UpdateDraftRequest, UpdateDraftResponse, UpdateWorkflowRequest, UpdateWorkflowResponse } from "./workflow.js";
-import type { CancelWorkflowRunRequest, CancelWorkflowRunResponse, CompleteWorkflowNodeRequest, CompleteWorkflowNodeResponse, CreateWorkflowRunRequest, CreateWorkflowRunResponse, DeleteWorkflowRunRequest, DeleteWorkflowRunResponse, GetWorkflowRunRequest, GetWorkflowRunResponse, ListWorkflowNodeRunsRequest, ListWorkflowNodeRunsResponse, ListWorkflowRunsByWorkflowRequest, ListWorkflowRunsByWorkflowResponse, ListWorkflowRunsRequest, ListWorkflowRunsResponse, RestartWorkflowRunRequest, RestartWorkflowRunResponse, StartWorkflowRunRequest, StartWorkflowRunResponse, UpdateWorkflowRunInputRequest, UpdateWorkflowRunInputResponse } from "./workflowRun.js";
+import type { CancelWorkflowRunRequest, CancelWorkflowRunResponse, CompleteWorkflowNodeRequest, CompleteWorkflowNodeResponse, CreateWorkflowRunRequest, CreateWorkflowRunResponse, DeleteWorkflowRunRequest, DeleteWorkflowRunResponse, GetWorkflowRunRequest, GetWorkflowRunResponse, ListWorkflowNodeRunsRequest, ListWorkflowNodeRunsResponse, ListWorkflowRunsByWorkflowRequest, ListWorkflowRunsByWorkflowResponse, ListWorkflowRunsRequest, ListWorkflowRunsResponse, RenameWorkflowRunRequest, RenameWorkflowRunResponse, RestartWorkflowRunRequest, RestartWorkflowRunResponse, StartWorkflowRunRequest, StartWorkflowRunResponse, UpdateWorkflowRunInputRequest, UpdateWorkflowRunInputResponse } from "./workflowRun.js";
+import type { ListWorkspacesRequest, ListWorkspacesResponse } from "./workspace.js";
 export type FrontendEndpointDefinition = {
   operationName: string;
   namespace: string;
@@ -120,11 +121,13 @@ export type RequestByOperation = {
   listWorkflowRunsByWorkflow: ListWorkflowRunsByWorkflowRequest;
   listWorkflowNodeRuns: ListWorkflowNodeRunsRequest;
   deleteWorkflowRun: DeleteWorkflowRunRequest;
+  renameWorkflowRun: RenameWorkflowRunRequest;
   startWorkflowRun: StartWorkflowRunRequest;
   cancelWorkflowRun: CancelWorkflowRunRequest;
   restartWorkflowRun: RestartWorkflowRunRequest;
   updateWorkflowRunInput: UpdateWorkflowRunInputRequest;
   completeWorkflowNode: CompleteWorkflowNodeRequest;
+  listWorkspaces: ListWorkspacesRequest;
 };
 
 export type ResponseByOperation = {
@@ -222,11 +225,13 @@ export type ResponseByOperation = {
   listWorkflowRunsByWorkflow: ListWorkflowRunsByWorkflowResponse;
   listWorkflowNodeRuns: ListWorkflowNodeRunsResponse;
   deleteWorkflowRun: DeleteWorkflowRunResponse;
+  renameWorkflowRun: RenameWorkflowRunResponse;
   startWorkflowRun: StartWorkflowRunResponse;
   cancelWorkflowRun: CancelWorkflowRunResponse;
   restartWorkflowRun: RestartWorkflowRunResponse;
   updateWorkflowRunInput: UpdateWorkflowRunInputResponse;
   completeWorkflowNode: CompleteWorkflowNodeResponse;
+  listWorkspaces: ListWorkspacesResponse;
 };
 
 export type EndpointOperation = keyof RequestByOperation;
@@ -984,6 +989,14 @@ export const endpoints = {
     responseType: "DeleteWorkflowRunResponse",
     responseMode: "unary",
   },
+  renameWorkflowRun: {
+    operationName: "renameWorkflowRun",
+    namespace: "workflowRun",
+    memberName: "rename",
+    requestType: "RenameWorkflowRunRequest",
+    responseType: "RenameWorkflowRunResponse",
+    responseMode: "unary",
+  },
   startWorkflowRun: {
     operationName: "startWorkflowRun",
     namespace: "workflowRun",
@@ -1022,6 +1035,14 @@ export const endpoints = {
     memberName: "completeNode",
     requestType: "CompleteWorkflowNodeRequest",
     responseType: "CompleteWorkflowNodeResponse",
+    responseMode: "unary",
+  },
+  listWorkspaces: {
+    operationName: "listWorkspaces",
+    namespace: "workspace",
+    memberName: "list",
+    requestType: "ListWorkspacesRequest",
+    responseType: "ListWorkspacesResponse",
     responseMode: "unary",
   },
 } as const satisfies Record<EndpointOperation, FrontendEndpointDefinition>;

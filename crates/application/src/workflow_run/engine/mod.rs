@@ -27,7 +27,7 @@ pub use ports::{
     AdvanceWorkflowRunResult, BindWorkflowNodeSessionResult, CancelWorkflowRunResult,
     ExecutionContext, FileChange, NodeRunToStart, RestartWorkflowRunResult,
     StartPrerequisitesError, StartWorkflowRunResult, UpdateWorkflowRunInputResult,
-    WorkflowNodeRunIdGenerator, WorkflowRunEngineRepository, WorkflowRunWorktreeInitializer,
+    WorkflowNodeRunIdGenerator, WorkflowRunEngineRepository, WorkflowRunWorkspaceInitializer,
 };
 pub use skill_delivery::{
     AgentSkillDelivery, AgentSkillDeliveryError, AgentSkillDeliveryProvider,

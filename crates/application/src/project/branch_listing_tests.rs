@@ -4,7 +4,8 @@ use std::rc::Rc;
 
 use ora_contracts::{ListProjectBranchesRequest, ListProjectBranchesResponse, ProjectBranch};
 use ora_domain::{
-    AuditFields, Project, ProjectId, Task, TaskId, Worktree, WorktreeActivity, WorktreeBaseline,
+    AuditFields, Project, ProjectId, Task, TaskId, Workspace, WorkspaceId, WorkspaceKind,
+    WorkspaceLifecycle, WorkspaceLocation, Worktree, WorktreeActivity, WorktreeBaseline,
     WorktreeId,
 };
 use ora_logging::with_trace_logging;
@@ -13,7 +14,7 @@ use pretty_assertions::assert_eq;
 use crate::{
     ApplicationError, BranchLister, BranchListingError, BranchReference,
     ListProjectBranchesHandler, ProjectRepository, RepositoryError, TaskRepository,
-    WorktreeRepository,
+    WorkspaceRepository, WorktreeRepository,
 };
 
 /// Verifies branch labels are derived from project-owned tasks without leaking persistence into adapters.
@@ -38,6 +39,7 @@ fn maps_managed_branch_names_to_task_titles() {
             Rc::new(FakeProjectRepository::with_projects(
                 vec![project_fixture()],
             )),
+            Rc::new(FakeWorkspaceRepository::with_workspace(workspace_fixture())),
             Rc::new(FakeTaskRepository::with_tasks(vec![
                 task_fixture("task-1", "project-1", "Review branch"),
                 task_fixture("task-2", "project-2", "Another project"),
@@ -92,6 +94,7 @@ fn rejects_missing_projects_before_listing_branches() {
         let branch_lister = Rc::new(FakeBranchLister::succeed(Vec::new()));
         let handler = ListProjectBranchesHandler::new(
             Rc::new(FakeProjectRepository::with_projects(Vec::new())),
+            Rc::new(FakeWorkspaceRepository::empty()),
             Rc::new(FakeTaskRepository::with_tasks(Vec::new())),
             Rc::new(FakeWorktreeRepository::with_worktrees(Vec::new())),
             branch_lister.clone(),
@@ -125,6 +128,7 @@ fn normalizes_branch_lister_failures() {
         let worktree_repository = Rc::new(FakeWorktreeRepository::with_worktrees(Vec::new()));
         let non_repository_error = ListProjectBranchesHandler::new(
             project_repository.clone(),
+            Rc::new(FakeWorkspaceRepository::with_workspace(workspace_fixture())),
             task_repository.clone(),
             worktree_repository.clone(),
             Rc::new(FakeBranchLister::fail(BranchListingError::NotARepository)),
@@ -135,6 +139,7 @@ fn normalizes_branch_lister_failures() {
         .expect_err("non-repository project root should be rejected");
         let listing_error = ListProjectBranchesHandler::new(
             project_repository,
+            Rc::new(FakeWorkspaceRepository::with_workspace(workspace_fixture())),
             task_repository,
             worktree_repository,
             Rc::new(FakeBranchLister::fail(
@@ -162,7 +167,18 @@ fn project_fixture() -> Project {
     Project::new(
         ProjectId::new("project-1"),
         "Ora",
-        "/workspace/ora",
+        AuditFields::new(1, 1, false),
+    )
+}
+
+/// Creates the main workspace whose location should reach the branch lister.
+fn workspace_fixture() -> Workspace {
+    Workspace::new(
+        WorkspaceId::new("workspace-main"),
+        ProjectId::new("project-1"),
+        WorkspaceKind::Main,
+        WorkspaceLocation::local_filesystem("/workspace/ora"),
+        WorkspaceLifecycle::Active,
         AuditFields::new(1, 1, false),
     )
 }
@@ -172,6 +188,7 @@ fn task_fixture(task_id: &str, project_id: &str, title: &str) -> Task {
     Task::new(
         TaskId::new(task_id),
         ProjectId::new(project_id),
+        ora_domain::WorkspaceId::new(format!("workspace-{task_id}")),
         title,
         None,
         AuditFields::new(1, 1, false),
@@ -182,9 +199,8 @@ fn task_fixture(task_id: &str, project_id: &str, title: &str) -> Task {
 fn worktree_fixture(worktree_id: &str, task_id: &str, branch_name: Option<&str>) -> Worktree {
     Worktree::new(
         WorktreeId::new(worktree_id),
-        TaskId::new(task_id),
+        ora_domain::WorkspaceId::new(format!("workspace-{task_id}")),
         branch_name.map(str::to_string),
-        None,
         WorktreeBaseline::unavailable(),
         WorktreeActivity::Active,
         AuditFields::new(1, 1, false),
@@ -266,7 +282,11 @@ impl FakeProjectRepository {
 
 impl ProjectRepository for Rc<FakeProjectRepository> {
     /// Rejects unsupported project creation in this read-only fixture.
-    fn create_project(&self, _project: Project) -> Result<Project, RepositoryError> {
+    fn create_project(
+        &self,
+        _project: Project,
+        _main_workspace_location: WorkspaceLocation,
+    ) -> Result<Project, RepositoryError> {
         Err(RepositoryError::from_message(
             "create is unsupported in branch-list tests",
         ))
@@ -304,6 +324,56 @@ impl ProjectRepository for Rc<FakeProjectRepository> {
         Err(RepositoryError::from_message(
             "delete is unsupported in branch-list tests",
         ))
+    }
+}
+
+#[derive(Debug)]
+struct FakeWorkspaceRepository {
+    workspace: Option<Workspace>,
+}
+
+impl FakeWorkspaceRepository {
+    /// Builds a workspace repository with one visible main workspace.
+    fn with_workspace(workspace: Workspace) -> Self {
+        Self {
+            workspace: Some(workspace),
+        }
+    }
+
+    /// Builds an empty workspace repository for missing-project tests.
+    fn empty() -> Self {
+        Self { workspace: None }
+    }
+}
+
+impl WorkspaceRepository for Rc<FakeWorkspaceRepository> {
+    fn find_workspace(
+        &self,
+        workspace_id: &WorkspaceId,
+    ) -> Result<Option<Workspace>, RepositoryError> {
+        Ok(self
+            .workspace
+            .as_ref()
+            .filter(|workspace| workspace.id == *workspace_id)
+            .cloned())
+    }
+
+    fn find_main_workspace(
+        &self,
+        project_id: &ProjectId,
+    ) -> Result<Option<Workspace>, RepositoryError> {
+        Ok(self
+            .workspace
+            .as_ref()
+            .filter(|workspace| workspace.project_id == *project_id)
+            .cloned())
+    }
+
+    fn is_provisioning_ready(&self, workspace_id: &WorkspaceId) -> Result<bool, RepositoryError> {
+        Ok(self
+            .workspace
+            .as_ref()
+            .is_some_and(|workspace| workspace.id == *workspace_id))
     }
 }
 

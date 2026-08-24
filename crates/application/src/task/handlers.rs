@@ -1,4 +1,4 @@
-use crate::task::branch::{branch_name_for_task, task_branch_prefix};
+use crate::task::branch::{branch_name_for_workspace, workspace_branch_prefix};
 use crate::task::mapper::map_task;
 use crate::task::ports::{
     CreateTaskWorktreeRequest, TaskIdGenerator, TaskRepository, TaskWorktreeProvisioner,
@@ -11,10 +11,10 @@ use crate::worktree::WorktreeIdGenerator;
 use crate::{ApplicationError, Clock};
 use ora_contracts::{
     CreateTaskRequest, CreateTaskResponse, GetTaskRequest, GetTaskResponse, ListTasksRequest,
-    ListTasksResponse, TaskWorkspaceMode, UpdateTaskRequest, UpdateTaskResponse,
+    ListTasksResponse, UpdateTaskRequest, UpdateTaskResponse,
 };
 use ora_domain::{
-    AuditFields, ProjectId, Task as DomainTask, TaskId, Worktree as DomainWorktree,
+    AuditFields, ProjectId, Task as DomainTask, TaskId, WorkspaceId, Worktree as DomainWorktree,
     WorktreeActivity as DomainWorktreeActivity, WorktreeProvisioningLease,
     WorktreeProvisioningLeaseId,
 };
@@ -110,15 +110,12 @@ where
     WorktreeProvisioner: TaskWorktreeProvisioner,
     ClockSource: Clock + Clone + Send + 'static,
 {
-    /// Creates a task in either an owned linked worktree or the project root.
+    /// Creates a task together with its isolated linked Git worktree.
     pub fn handle(
         &self,
         request: CreateTaskRequest,
     ) -> Result<CreateTaskResponse, ApplicationError> {
-        match request.workspace_mode.unwrap_or_default() {
-            TaskWorkspaceMode::Worktree => self.create_worktree_task(request),
-            TaskWorkspaceMode::ProjectRoot => self.create_project_root_task(request),
-        }
+        self.create_worktree_task(request)
     }
 
     /// Provisions a linked worktree before persisting the task that owns it.
@@ -136,9 +133,8 @@ where
         self.worktree_provisioner
             .validate_repository()
             .map_err(ApplicationError::from_task_worktree_provisioner_error)?;
-        let task_id = self.select_available_task_id()?;
-        let branch_name = branch_name_for_task(&task_id);
-        let worktree_path = worktree_path_for_task(&self.work_dir, &task_id);
+        let (task_id, workspace_id, branch_name, worktree_path) =
+            self.select_available_worktree_identity()?;
         // Write-ahead lease: from here on the provisioned Git resources are
         // always owned by something durable — the lease, then the committed
         // rows — so no crash or lost race can orphan them.
@@ -147,7 +143,7 @@ where
         let lease = WorktreeProvisioningLease::new(
             WorktreeProvisioningLeaseId::new(Uuid::new_v4().to_string()),
             project_id.clone(),
-            task_id.clone(),
+            workspace_id.clone(),
             self.repository_root.to_string_lossy().into_owned(),
             worktree_path.to_string_lossy().into_owned(),
             branch_name.clone(),
@@ -169,7 +165,7 @@ where
                 .create_task_worktree(CreateTaskWorktreeRequest {
                     branch_name: branch_name.clone(),
                     base_reference_name,
-                    worktree_path: worktree_path.clone(),
+                    worktree_path,
                 }) {
                 Ok(provisioned) => provisioned,
                 Err(error) => {
@@ -199,9 +195,8 @@ where
             };
         let worktree = DomainWorktree::new(
             worktree_id,
-            task_id.clone(),
+            workspace_id.clone(),
             Some(branch_name),
-            Some(worktree_path.to_string_lossy().into_owned()),
             baseline,
             DomainWorktreeActivity::Active,
             AuditFields::new(now, now, false),
@@ -209,6 +204,7 @@ where
         let task = DomainTask::new(
             task_id,
             project_id.clone(),
+            workspace_id,
             request.title,
             Some(worktree.id.clone()),
             AuditFields::new(now, now, false),
@@ -247,51 +243,31 @@ where
             .release_to_cleanup(lease_id, self.clock.now_timestamp_millis());
     }
 
-    /// Persists a task that will run directly in its owning project's root directory.
-    fn create_project_root_task(
+    /// Generates independent Task and Workspace identities without colliding with Git resources.
+    fn select_available_worktree_identity(
         &self,
-        request: CreateTaskRequest,
-    ) -> Result<CreateTaskResponse, ApplicationError> {
-        let task_id = self.task_id_generator.generate_task_id();
-        let now = self.clock.now_timestamp_millis();
-        let task = DomainTask::new(
-            task_id,
-            ProjectId::new(request.project_id),
-            request.title,
-            None,
-            AuditFields::new(now, now, false),
-        );
-        match self
-            .workspace_commit
-            .commit_project_root_task(&task)
-            .map_err(ApplicationError::from_task_repository_error)?
-        {
-            WorkspaceCommitOutcome::Committed => Ok(CreateTaskResponse {
-                task: map_task(task),
-            }),
-            WorkspaceCommitOutcome::ProjectNotVisible => Err(ApplicationError::ProjectNotFound {
-                project_id: task.project_id.to_string(),
-            }),
-        }
-    }
-
-    /// Generates a task id whose branch prefix does not collide with existing task worktree folders.
-    fn select_available_task_id(&self) -> Result<TaskId, ApplicationError> {
+    ) -> Result<(TaskId, WorkspaceId, String, PathBuf), ApplicationError> {
         for _ in 0..MAX_TASK_ID_GENERATION_ATTEMPTS {
             let task_id = self.task_id_generator.generate_task_id();
-            let branch_prefix = task_branch_prefix(&task_id);
+            let workspace_id = WorkspaceId::new(Uuid::new_v4().to_string());
+            let branch_prefix = workspace_branch_prefix(&workspace_id);
 
-            if task_branch_prefix_exists_in_work_dir(&self.work_dir, &branch_prefix)? {
+            if workspace_branch_prefix_exists_in_work_dir(&self.work_dir, &branch_prefix)? {
                 continue;
             }
 
-            let branch_name = branch_name_for_task(&task_id);
+            let branch_name = branch_name_for_workspace(&workspace_id);
             let branch_exists = self
                 .worktree_provisioner
                 .task_branch_exists(&branch_name)
                 .map_err(ApplicationError::from_task_worktree_provisioner_error)?;
             if !branch_exists {
-                return Ok(task_id);
+                return Ok((
+                    task_id,
+                    workspace_id.clone(),
+                    branch_name,
+                    worktree_path_for_workspace(&self.work_dir, &workspace_id),
+                ));
             }
         }
 
@@ -411,10 +387,7 @@ where
             id: task_id,
             project_id: existing_task.project_id,
             title: request.title,
-            // Preserve the task kind and run association: updating a workflow-run task must not
-            // degrade it to a Default task, just as the owned worktree is carried forward.
-            task_type: existing_task.task_type,
-            workflow_run_id: existing_task.workflow_run_id,
+            workspace_id: existing_task.workspace_id,
             worktree_id: existing_task.worktree_id,
             audit_fields: AuditFields::new(
                 existing_task.audit_fields.created_at,
@@ -433,13 +406,13 @@ where
     }
 }
 
-/// Derives the owned linked-worktree path from the configured worktree root and full task id.
-fn worktree_path_for_task(work_dir: &Path, task_id: &TaskId) -> PathBuf {
-    work_dir.join(task_id.to_string())
+/// Derives the owned linked-worktree path from the configured root and Workspace identity.
+fn worktree_path_for_workspace(work_dir: &Path, workspace_id: &WorkspaceId) -> PathBuf {
+    work_dir.join(workspace_id.to_string())
 }
 
-/// Checks existing task worktree folders before branch creation because branch names use short ids.
-fn task_branch_prefix_exists_in_work_dir(
+/// Checks existing worktree folders before branch creation because branch names use short ids.
+fn workspace_branch_prefix_exists_in_work_dir(
     work_dir: &Path,
     branch_prefix: &str,
 ) -> Result<bool, ApplicationError> {
@@ -480,8 +453,8 @@ fn task_branch_prefix_exists_in_work_dir(
 }
 
 #[cfg(test)]
-mod task_branch_prefix_tests {
-    use super::task_branch_prefix_exists_in_work_dir;
+mod workspace_branch_prefix_tests {
+    use super::workspace_branch_prefix_exists_in_work_dir;
     use pretty_assertions::assert_eq;
     use std::fs;
     use std::path::PathBuf;
@@ -492,7 +465,7 @@ mod task_branch_prefix_tests {
         let work_dir = unique_test_work_dir("missing");
 
         assert_eq!(
-            task_branch_prefix_exists_in_work_dir(&work_dir, "12345678"),
+            workspace_branch_prefix_exists_in_work_dir(&work_dir, "12345678"),
             Ok(false)
         );
     }
@@ -505,7 +478,7 @@ mod task_branch_prefix_tests {
             .unwrap_or_else(|error| panic!("failed to create collision fixture: {error}"));
 
         assert_eq!(
-            task_branch_prefix_exists_in_work_dir(&work_dir, "12345678"),
+            workspace_branch_prefix_exists_in_work_dir(&work_dir, "12345678"),
             Ok(true)
         );
 
@@ -523,7 +496,7 @@ mod task_branch_prefix_tests {
             .unwrap_or_else(|error| panic!("failed to create ordinary file: {error}"));
 
         assert_eq!(
-            task_branch_prefix_exists_in_work_dir(&work_dir, "12345678"),
+            workspace_branch_prefix_exists_in_work_dir(&work_dir, "12345678"),
             Ok(false)
         );
 

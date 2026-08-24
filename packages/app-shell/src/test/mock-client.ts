@@ -15,6 +15,7 @@ import type {
   WorkflowSnapshot,
   WorkflowSummary,
   WorkflowVersion,
+  Workspace,
 } from "@ora/contracts";
 
 /** One in-memory workflow with its editable draft and published history. */
@@ -32,7 +33,7 @@ export interface MockWorkflowRunRecord {
   snapshotId: string;
   name: string;
   status: "pending" | "running" | "succeeded" | "failed" | "cancelled";
-  taskId: string;
+  workspaceId: string;
   createdAt: bigint;
   updatedAt: bigint;
 }
@@ -41,8 +42,10 @@ export interface MockWorkflowRunRecord {
 function mockWorkflowRun(record: MockWorkflowRunRecord): WorkflowRun {
   return {
     id: record.id,
+    workspaceId: record.workspaceId,
     workflowId: record.workflowId,
     snapshotId: record.snapshotId,
+    name: record.name,
     status: record.status,
     state: '{"current_nodes":[]}',
     input: null,
@@ -59,6 +62,7 @@ function mockWorkflowRun(record: MockWorkflowRunRecord): WorkflowRun {
 /** In-memory state mutated by the mock client so tests can assert post-call state. */
 export interface MockClientState {
   projects: Project[];
+  workspaces: Workspace[];
   tasks: Task[];
   sessions: Session[];
   agents: Agent[];
@@ -84,7 +88,7 @@ export interface MockClientState {
   workflows: MockWorkflowRecord[];
   workflowRuns: MockWorkflowRunRecord[];
   /** Warm sessions handed out but not yet attached, keyed by session id. */
-  warmSessions: Map<string, string>;
+  warmSessions: Map<string, { agentRef: string; workspaceId: string }>;
   /** What every warm and persisted session reports as its configuration. */
   configOptions: acp.SessionConfigOption[];
   /**
@@ -113,6 +117,7 @@ const AGENT_REFS = [
 export function createMockClientState(): MockClientState {
   return {
     projects: [],
+    workspaces: [],
     tasks: [],
     sessions: [],
     agents: [],
@@ -158,6 +163,34 @@ function nextTimestamp(): bigint {
   return BigInt(Date.now());
 }
 
+/** Returns or creates the mock project's canonical Workspace projection. */
+function mainWorkspaceFor(
+  state: MockClientState,
+  projectId: string,
+): Workspace {
+  const existing = state.workspaces.find(
+    (workspace) =>
+      workspace.projectId === projectId && workspace.kind === "main",
+  );
+  if (existing !== undefined) return existing;
+  const workspace: Workspace = {
+    id: `workspace-${projectId}`,
+    projectId,
+    kind: "main",
+    lifecycle: "active",
+  };
+  state.workspaces.push(workspace);
+  return workspace;
+}
+
+/** Returns every explicit workspace plus a stable main projection for seeded projects. */
+function visibleWorkspaces(state: MockClientState): Workspace[] {
+  for (const project of state.projects) {
+    mainWorkspaceFor(state, project.id);
+  }
+  return [...state.workspaces];
+}
+
 /** Returns one workflow record or fails like the real not-found endpoint. */
 function requireWorkflowRecord(
   state: MockClientState,
@@ -192,9 +225,9 @@ export function createMockClient(state: MockClientState): ContractsClient {
         const project: Project = {
           id: nextId("p", state.projects.length),
           name: req.name,
-          rootPath: req.rootPath,
         };
         state.projects.push(project);
+        mainWorkspaceFor(state, project.id);
         return { project };
       },
       update: async (req) => {
@@ -210,6 +243,9 @@ export function createMockClient(state: MockClientState): ContractsClient {
         return { projectId: req.projectId };
       },
     },
+    workspace: {
+      list: async () => ({ workspaces: visibleWorkspaces(state) }),
+    },
     task: {
       list: async () => ({ tasks: [...state.tasks] }),
       get: async (req) => ({
@@ -219,11 +255,15 @@ export function createMockClient(state: MockClientState): ContractsClient {
         const task: Task = {
           id: nextId("t", state.tasks.length),
           projectId: req.projectId,
+          workspaceId: `workspace-${nextId("t", state.tasks.length)}`,
           title: req.title,
-          workspaceMode: req.workspaceMode ?? "worktree",
-          type: "default",
-          workflowRunId: null,
         };
+        state.workspaces.push({
+          id: task.workspaceId,
+          projectId: task.projectId,
+          kind: "isolated",
+          lifecycle: "active",
+        });
         state.tasks.push(task);
         return { task };
       },
@@ -235,16 +275,14 @@ export function createMockClient(state: MockClientState): ContractsClient {
           title: req.title,
         };
         state.tasks[idx] = updated;
-        // Production lists derive the run display name from the run-task title.
-        for (const run of state.workflowRuns) {
-          if (run.taskId === req.taskId) run.name = req.title;
-        }
         return { task: updated };
       },
       delete: async (req) => {
         const idx = state.tasks.findIndex((t) => t.id === req.taskId);
+        const workspaceId =
+          idx >= 0 ? state.tasks[idx]!.workspaceId : `workspace-${req.taskId}`;
         if (idx >= 0) state.tasks.splice(idx, 1);
-        return { taskId: req.taskId };
+        return { taskId: req.taskId, workspaceId };
       },
       getWorkspace: async (req) => ({
         workspace: {
@@ -274,10 +312,15 @@ export function createMockClient(state: MockClientState): ContractsClient {
           "s",
           state.sessions.length + state.warmSessions.size,
         );
-        state.warmSessions.set(sessionId, req.agentRef);
+        const workspaceId = req.target.workspaceId;
+        state.warmSessions.set(sessionId, {
+          agentRef: req.agentRef,
+          workspaceId,
+        });
         const perCli = state.warmModelsByCli?.[req.agentRef];
         return {
           sessionId,
+          workspaceId,
           // A CLI mapped to null reports an empty catalog, which is how the
           // contract expresses "no models" after a failed warm handshake.
           configOptions:
@@ -288,9 +331,12 @@ export function createMockClient(state: MockClientState): ContractsClient {
       attach: async (req) => {
         const session: Session = {
           id: req.sessionId,
-          taskId: req.taskId,
+          workspaceId:
+            state.warmSessions.get(req.sessionId)?.workspaceId ??
+            req.workspaceId,
           agentRef:
-            state.warmSessions.get(req.sessionId) ?? "ora-space.opencode",
+            state.warmSessions.get(req.sessionId)?.agentRef ??
+            "ora-space.opencode",
           status: "running",
           title: null,
           historyState: { type: "writable" },
@@ -787,8 +833,10 @@ export function createMockClient(state: MockClientState): ContractsClient {
         const now = nextTimestamp();
         const run: WorkflowRun = {
           id,
+          workspaceId: req.workspaceId,
           workflowId: req.workflowId,
           snapshotId: "snap-1",
+          name: req.name ?? "",
           status: "pending",
           state: '{"current_nodes":[]}',
           input: null,
@@ -802,16 +850,19 @@ export function createMockClient(state: MockClientState): ContractsClient {
         };
         state.workflowRuns.push({
           id,
-          projectId: req.projectId,
+          projectId:
+            visibleWorkspaces(state).find(
+              (workspace) => workspace.id === req.workspaceId,
+            )?.projectId ?? "",
+          workspaceId: req.workspaceId,
           workflowId: req.workflowId,
           snapshotId: run.snapshotId,
           name: req.name ?? "",
           status: "pending",
-          taskId: nextId("task", state.tasks.length),
           createdAt: now,
           updatedAt: now,
         });
-        return { run, taskId: nextId("task", state.tasks.length) };
+        return { run };
       },
       get: async (req) => {
         const record = state.workflowRuns.find(
@@ -822,8 +873,10 @@ export function createMockClient(state: MockClientState): ContractsClient {
         return {
           run: {
             id: record.id,
+            workspaceId: record.workspaceId,
             workflowId: record.workflowId,
             snapshotId: record.snapshotId,
+            name: record.name,
             status: record.status,
             state: '{"current_nodes":[]}',
             input: null,
@@ -837,7 +890,7 @@ export function createMockClient(state: MockClientState): ContractsClient {
           },
           name: record.name,
           projectId: record.projectId,
-          taskId: record.taskId,
+          workspaceId: record.workspaceId,
           nodes: [],
         };
       },
@@ -888,6 +941,7 @@ export function createMockClient(state: MockClientState): ContractsClient {
           .map((record) => ({
             id: record.id,
             name: record.name,
+            workspaceId: record.workspaceId,
             projectId: record.projectId,
             workflowId: record.workflowId,
             status: record.status,
@@ -902,6 +956,7 @@ export function createMockClient(state: MockClientState): ContractsClient {
           .map((record) => ({
             id: record.id,
             name: record.name,
+            workspaceId: record.workspaceId,
             projectId: record.projectId,
             workflowId: record.workflowId,
             status: record.status,
@@ -917,6 +972,15 @@ export function createMockClient(state: MockClientState): ContractsClient {
         );
         if (idx >= 0) state.workflowRuns.splice(idx, 1);
         return { runId: req.runId };
+      },
+      rename: async (req) => {
+        const record = state.workflowRuns.find(
+          (candidate) => candidate.id === req.runId,
+        );
+        if (record === undefined)
+          throw new Error(`workflow run ${req.runId} not found`);
+        record.name = req.name;
+        return { run: mockWorkflowRun(record) };
       },
     },
   };

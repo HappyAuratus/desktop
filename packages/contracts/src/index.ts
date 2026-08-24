@@ -19,3 +19,4 @@ export * from "./task_diff.js";
 export * from "./transport.js";
 export * from "./workflow.js";
 export * from "./workflowRun.js";
+export * from "./workspace.js";

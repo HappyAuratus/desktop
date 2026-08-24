@@ -53,7 +53,7 @@ function agentPlugin(
 function session(agentRef: string): Session {
   return {
     id: "session-1",
-    taskId: "task-1",
+    workspaceId: "workspace-task-1",
     title: "Review",
     agentRef,
     status: "running",

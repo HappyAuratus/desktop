@@ -164,7 +164,7 @@ where
         .ok_or_else(|| ApplicationError::WorktreeNotFound {
             worktree_id: worktree_id.to_string(),
         })?;
-    if worktree.task_id != *task_id {
+    if worktree.workspace_id != task.workspace_id {
         return Err(ApplicationError::task_diff_failure(std::io::Error::other(
             "task worktree ownership does not match persisted task",
         )));

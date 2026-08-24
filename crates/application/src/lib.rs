@@ -49,8 +49,9 @@ pub use task::{
     RemoveTaskWorktreeRequest, ResourceRemoval, TaskGitResourceCleaner, TaskIdGenerator,
     TaskRepository, TaskWorktreeDeletionMode, TaskWorktreeProvisioner,
     TaskWorktreeProvisionerError, UpdateTaskHandler, UuidTaskIdGenerator, WorkspaceCommitOutcome,
-    WorktreeProvisioningLeaseStore, WorktreeRemoval, branch_name_for_task, legacy_checkout_probe,
-    reduce_cleanup_outcomes, validate_cleanup_identity,
+    WorktreeProvisioningLeaseStore, WorktreeRemoval, branch_name_for_workspace,
+    legacy_checkout_probe, reduce_cleanup_outcomes, validate_cleanup_identity,
+    workspace_branch_prefix,
 };
 pub use task::{PROVISIONING_LEASE_DURATION_MS, ProvisioningLeaseRenewal, TaskWorkspaceCommit};
 pub use task_diff::{
@@ -75,12 +76,12 @@ pub use workflow_run::{
     DeleteWorkflowRunResult, EngineError, ExecutionContext, FileChange, GetWorkflowRunHandler,
     GraphError, ListWorkflowNodeRunsHandler, ListWorkflowRunsByWorkflowHandler,
     ListWorkflowRunsHandler, MaterializedSkillBinding, NodeExecutor, NodeRunToStart, NodeType,
-    OutputPolicy, RestartWorkflowRunResult, SkillDiscoveryRoots, SkillMaterializationReceipt,
-    StartPrerequisitesError, StartWorkflowRunResult, UnknownNodeType, UpdateWorkflowRunInputResult,
-    UuidWorkflowNodeRunIdGenerator, UuidWorkflowRunIdGenerator, WorkflowGraph, WorkflowGraphNode,
-    WorkflowNodeRunIdGenerator, WorkflowRunCallback, WorkflowRunControlHandler,
-    WorkflowRunCreateOutcome, WorkflowRunEngine, WorkflowRunEngineRepository,
-    WorkflowRunIdGenerator, WorkflowRunPayload, WorkflowRunRepository,
-    WorkflowRunWorktreeInitializer, WorkflowValidationError,
+    OutputPolicy, RenameWorkflowRunHandler, RestartWorkflowRunResult, SkillDiscoveryRoots,
+    SkillMaterializationReceipt, StartPrerequisitesError, StartWorkflowRunResult, UnknownNodeType,
+    UpdateWorkflowRunInputResult, UuidWorkflowNodeRunIdGenerator, UuidWorkflowRunIdGenerator,
+    WorkflowGraph, WorkflowGraphNode, WorkflowNodeRunIdGenerator, WorkflowRunCallback,
+    WorkflowRunControlHandler, WorkflowRunCreateOutcome, WorkflowRunEngine,
+    WorkflowRunEngineRepository, WorkflowRunIdGenerator, WorkflowRunPayload, WorkflowRunRepository,
+    WorkflowRunWorkspaceInitializer, WorkflowValidationError, WorkspaceRepository,
 };
 pub use worktree::{UuidWorktreeIdGenerator, WorktreeIdGenerator, WorktreeRepository};

@@ -23,7 +23,7 @@ pub use repository::{
     SqliteGitCleanupJobRepository, SqlitePluginStateRepository, SqliteProjectRepository,
     SqliteSessionRepository, SqliteSkillRepository, SqliteTaskRepository,
     SqliteTaskWorkspaceRepository, SqliteUserConfigRepository, SqliteWorkflowRepository,
-    SqliteWorkflowRunEngineRepository, SqliteWorkflowRunRepository,
+    SqliteWorkflowRunEngineRepository, SqliteWorkflowRunRepository, SqliteWorkspaceRepository,
     SqliteWorktreeProvisioningLeaseRepository, SqliteWorktreeRepository,
 };
 pub use time::{SystemTimestampSource, TimestampSource};

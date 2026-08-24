@@ -338,12 +338,12 @@ async fn drive_agent_node(
     let agent_ref = resolve_agent_ref(&config.executor.agent_cli)?;
     let run_payload = parse_workflow_run_payload(context.run.payload.as_deref())?;
 
-    // Warm a reusable provider session for this run's task.
+    // Warm a reusable provider session for this run's workspace.
     let warm = agent_runtime
         .warm_session_for_owner(
             WarmSessionRequest {
-                target: WarmSessionTarget::Task {
-                    task_id: context.task.id.to_string(),
+                target: WarmSessionTarget::Workspace {
+                    workspace_id: context.run.workspace_id.to_string(),
                 },
                 agent_ref,
             },
@@ -360,7 +360,7 @@ async fn drive_agent_node(
     let attach = agent_runtime
         .attach_session(AttachSessionRequest {
             session_id: warm.session_id.clone(),
-            task_id: context.task.id.to_string(),
+            workspace_id: context.run.workspace_id.to_string(),
         })
         .await?;
     let session_id = SessionId::new(attach.session.id);
@@ -400,16 +400,16 @@ async fn drive_agent_node(
 
         // Assemble one explicit workflow handoff while preserving leading slash-command parsing.
         let node_runs = repository.list_node_runs(&context.run.id)?;
-        let worktree_root = agent_runtime.task_cwd(&context.task.id)?;
+        let workspace_root = agent_runtime.workspace_cwd(&context.workspace.id)?;
         let required_skills = resolve_required_skills(
             &run_payload,
             &node.id,
             &config.skills,
-            &worktree_root,
+            &workspace_root,
         )?;
         let prompt = assemble_workflow_prompt(WorkflowPromptRequest {
             node,
-            worktree_root: &worktree_root,
+            worktree_root: &workspace_root,
             role_content: role_content.as_deref(),
             graph_json: &context.graph_json,
             run_input: context.run.input.as_deref(),
@@ -420,7 +420,7 @@ async fn drive_agent_node(
 
         // Snapshot the worktree before this node runs so its completion diff is the node's own
         // incremental change (previous nodes' changes are already in the baseline).
-        let baseline = capture_worktree_snapshot(&worktree_root);
+        let baseline = capture_worktree_snapshot(&workspace_root);
 
         let mut stream = agent_runtime
             .prompt_session(PromptSessionRequest {
@@ -493,7 +493,7 @@ async fn drive_agent_node(
         // prompt, so only this node's own changes are reported, not earlier nodes' work.
         let file_changes = compute_file_changes(
             baseline.as_ref(),
-            capture_worktree_snapshot(&worktree_root).as_ref(),
+            capture_worktree_snapshot(&workspace_root).as_ref(),
         );
 
         Ok(AgentNodeOutcome::Completed {

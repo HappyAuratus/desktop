@@ -15,7 +15,7 @@ import { usePluginMutations } from "./use-plugin-mutations";
 
 const AGENT_REF = "ora-space.opencode";
 const PLUGIN_ID = `official/${AGENT_REF}`;
-const TARGET = { type: "task" as const, taskId: "task-1" };
+const TARGET = { type: "workspace" as const, workspaceId: "workspace-1" };
 
 beforeEach(() => {
   useAgentModelStore.setState({ known: {} });

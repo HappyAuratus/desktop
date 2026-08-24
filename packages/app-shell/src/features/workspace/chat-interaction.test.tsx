@@ -57,21 +57,19 @@ describe("chat interaction MVP", () => {
   it("sends an Enter-submitted message and renders a controlled streaming reply", async () => {
     const user = userEvent.setup();
     const state = createMockClientState();
-    state.projects = [{ id: "p1", name: "Ora", rootPath: "/ora" }];
+    state.projects = [{ id: "p1", name: "Ora" }];
     state.tasks = [
       {
         id: "t1",
         projectId: "p1",
+        workspaceId: "workspace-t1",
         title: "Chat interaction",
-        workspaceMode: "worktree",
-        type: "default",
-        workflowRunId: null,
       },
     ];
     state.sessions = [
       {
         id: "s1",
-        taskId: "t1",
+        workspaceId: "workspace-t1",
         agentRef: "ora-space.opencode",
         status: "running",
         title: null,

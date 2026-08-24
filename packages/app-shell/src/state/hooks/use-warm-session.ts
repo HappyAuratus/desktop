@@ -9,6 +9,8 @@ import { useContractsClient } from "../../contracts-client-context";
 import { useChatStore } from "../../chat-store-context";
 import { queryKeys } from "./query-keys";
 import { useSessions } from "./use-sessions";
+import { useTasks } from "./use-tasks";
+import { useWorkspaces } from "./use-workspaces";
 import { usePendingSwitch } from "../stores/pending-agent-store";
 import { useAgentModelStore } from "../stores/agent-model-store";
 import { useWorkspaceSelectionStore } from "../stores/workspace-selection-store";
@@ -35,7 +37,7 @@ export interface WarmSession {
    * and would otherwise have nowhere to go. Resolves to `null` only when there
    * is genuinely nothing to warm.
    */
-  ensureSessionId: () => Promise<string | null>;
+  ensureSession: () => Promise<WarmSessionResponse | null>;
 }
 
 /**
@@ -77,6 +79,7 @@ export function useWarmSession(
     projectId: string | null;
     taskId: string | null;
     sessionId: string | null;
+    workflowRunId?: string | null;
   },
   agentCli: KnownAgentCli | null,
 ): WarmSession {
@@ -88,6 +91,8 @@ export function useWarmSession(
     (state) => state.setConfigOptions,
   );
   const { data: sessions = [] } = useSessions();
+  const { data: tasks = [] } = useTasks();
+  const { data: workspaces = [] } = useWorkspaces();
   const { data: runtimeStatuses } = useAgentRuntimeStatus();
   const pendingSwitch = usePendingSwitch(selection.sessionId);
   const rememberModels = useAgentModelStore((state) => state.remember);
@@ -122,11 +127,11 @@ export function useWarmSession(
   const target =
     restorePending || (isPersisted && pendingSwitch === undefined)
       ? null
-      : warmTarget(selection);
+      : warmTarget(selection, tasks, workspaces);
 
   // The backend keys warm sessions by exactly these values, so the same surface
   // always resolves to the same session and repeated calls are cache hits rather
-  // than new provider sessions. The subscribing query below and `ensureSessionId`
+  // than new provider sessions. The subscribing query below and `ensureSession`
   // share this definition so they address one cache entry: two spellings of the
   // same request would hand the backend two provider sessions for one surface.
   const queryOptions = {
@@ -144,7 +149,7 @@ export function useWarmSession(
     enabled: target !== null && agentCli !== null && agentReady,
   });
 
-  const ensureSessionId = async (): Promise<string | null> => {
+  const ensureSession = async (): Promise<WarmSessionResponse | null> => {
     if (target === null || agentCli === null) return null;
     if (!agentReady) throw new Error(`Agent runtime ${agentCli} is not ready`);
     // Goes through the cache rather than calling the backend directly, so a
@@ -161,7 +166,7 @@ export function useWarmSession(
     // hook can be unmounted before the effect below ever runs and the handshake
     // the user waited on would be the one nothing remembered.
     rememberModels(agentCli, response.configOptions);
-    return response.sessionId;
+    return response;
   };
 
   useEffect(() => {
@@ -184,21 +189,45 @@ export function useWarmSession(
   return {
     sessionId: data?.sessionId ?? null,
     isOpening: isLoading || (target !== null && agentStarting),
-    ensureSessionId,
+    ensureSession,
   };
 }
 
 /** Derives what a chat surface should warm against, or `null` when nothing should. */
-function warmTarget(selection: {
-  projectId: string | null;
-  taskId: string | null;
-}): WarmSessionTarget | null {
-  if (selection.taskId !== null)
-    return { type: "task", taskId: selection.taskId };
+function warmTarget(
+  selection: {
+    projectId: string | null;
+    taskId: string | null;
+    workflowRunId?: string | null;
+  },
+  tasks: readonly { id: string; workspaceId: string }[],
+  workspaces: readonly {
+    id: string;
+    projectId: string;
+    kind: "main" | "isolated";
+  }[],
+): WarmSessionTarget | null {
+  if (
+    selection.workflowRunId !== null &&
+    selection.workflowRunId !== undefined
+  ) {
+    return null;
+  }
+  if (selection.taskId !== null) {
+    const task = tasks.find((candidate) => candidate.id === selection.taskId);
+    return task === undefined
+      ? null
+      : { type: "workspace", workspaceId: task.workspaceId };
+  }
   if (selection.projectId !== null) {
-    // A direct chat creates its Task in project-root mode when the first message
-    // is sent, so the project root is already the directory it will resolve to.
-    return { type: "projectRoot", projectId: selection.projectId };
+    const workspace = workspaces.find(
+      (candidate) =>
+        candidate.projectId === selection.projectId &&
+        candidate.kind === "main",
+    );
+    return workspace === undefined
+      ? null
+      : { type: "workspace", workspaceId: workspace.id };
   }
   return null;
 }
@@ -206,7 +235,7 @@ function warmTarget(selection: {
 /**
  * Reduces a warm target to the string key callers use to scope per-target UI state.
  *
- * Shares `warmTarget`'s precedence (task before project root) so a value keyed
+ * Shares `warmTarget`'s precedence (isolated task Workspace before main Workspace) so a value keyed
  * off this always lines up with the warm session it describes — most directly,
  * which agent a not-yet-started chat surface is currently offering.
  */
@@ -214,9 +243,13 @@ export function warmTargetKey(selection: {
   projectId: string | null;
   taskId: string | null;
 }): string | null {
-  const target = warmTarget(selection);
-  if (target === null) return null;
-  return target.type === "task"
-    ? `task:${target.taskId}`
-    : `project:${target.projectId}`;
+  // This helper is intentionally independent of query data; callers use it for
+  // local state keys even while the Workspace list is still loading.
+  const target =
+    selection.taskId !== null
+      ? `task:${selection.taskId}`
+      : selection.projectId !== null
+        ? `project:${selection.projectId}`
+        : null;
+  return target;
 }

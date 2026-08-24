@@ -55,12 +55,14 @@ export type LocationTarget = "explorer" | "terminal" | "vscode";
 /**
  * Hands an absolute path off to a file manager, terminal, or VS Code on the host OS.
  *
- * Desktop exposes the two calls the split button drives - resolving the git
- * worktree directory that backs a task, then opening it in the chosen target.
+ * Desktop exposes the calls the split button drives - resolving either a
+ * Workspace or task directory, then opening it in the chosen target.
  */
 export interface LocationActionsCapability {
-  /** Resolves the absolute working directory (git worktree root) backing one task. */
+  /** Resolves the absolute working directory backing one isolated worktree task. */
   resolveTaskCwd(taskId: string): Promise<string>;
+  /** Resolves the absolute local directory backing one Workspace. */
+  resolveWorkspaceCwd(workspaceId: string): Promise<string>;
   /** Opens one absolute path in the chosen host application. */
   open(target: LocationTarget, path: string): Promise<void>;
 }

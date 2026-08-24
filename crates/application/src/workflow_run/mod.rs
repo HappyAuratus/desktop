@@ -16,14 +16,15 @@ pub use engine::{
     StartPrerequisitesError, StartWorkflowRunResult, UnknownNodeType, UpdateWorkflowRunInputResult,
     WorkflowGraph, WorkflowGraphNode, WorkflowNodeRunIdGenerator, WorkflowRunCallback,
     WorkflowRunControlHandler, WorkflowRunEngine, WorkflowRunEngineRepository, WorkflowRunPayload,
-    WorkflowRunWorktreeInitializer, WorkflowValidationError,
+    WorkflowRunWorkspaceInitializer, WorkflowValidationError,
 };
 pub use handlers::{
     CreateWorkflowRunHandler, DeleteWorkflowRunHandler, GetWorkflowRunHandler,
     ListWorkflowNodeRunsHandler, ListWorkflowRunsByWorkflowHandler, ListWorkflowRunsHandler,
+    RenameWorkflowRunHandler,
 };
 pub use id_generator::{UuidWorkflowNodeRunIdGenerator, UuidWorkflowRunIdGenerator};
 pub use ports::{
     DeleteWorkflowRunResult, WorkflowRunCreateOutcome, WorkflowRunIdGenerator,
-    WorkflowRunRepository,
+    WorkflowRunRepository, WorkspaceRepository,
 };

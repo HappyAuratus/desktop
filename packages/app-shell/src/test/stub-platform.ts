@@ -16,6 +16,7 @@ export function createStubPlatform(): PlatformAdapter {
     windowControls: { kind: "none" },
     locationActions: {
       resolveTaskCwd: async () => "",
+      resolveWorkspaceCwd: async () => "",
       open: async () => undefined,
     },
     surfaces: {

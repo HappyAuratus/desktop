@@ -63,6 +63,10 @@ export function createContractsClient(
       delete: (request, options) =>
         executeOperation("deleteProject", request, transport, options),
     },
+    workspace: {
+      list: (request, options) =>
+        executeOperation("listWorkspaces", request, transport, options),
+    },
     task: {
       create: (request, options) =>
         executeOperation("createTask", request, transport, options),
@@ -280,6 +284,8 @@ export function createContractsClient(
         executeOperation("listWorkflowNodeRuns", request, transport, options),
       delete: (request, options) =>
         executeOperation("deleteWorkflowRun", request, transport, options),
+      rename: (request, options) =>
+        executeOperation("renameWorkflowRun", request, transport, options),
       start: (request, options) =>
         executeOperation("startWorkflowRun", request, transport, options),
       cancel: (request, options) =>

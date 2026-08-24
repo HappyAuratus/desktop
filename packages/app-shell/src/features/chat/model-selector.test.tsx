@@ -50,6 +50,26 @@ function renderModelSelector(
   seed: (state: MockClientState) => void = () => {},
 ) {
   const state = createMockClientState();
+  state.tasks = [
+    {
+      id: "t1",
+      projectId: "p1",
+      workspaceId: "workspace-t1",
+      title: "Task 1",
+    },
+    {
+      id: "t2",
+      projectId: "p1",
+      workspaceId: "workspace-t2",
+      title: "Task 2",
+    },
+  ];
+  state.workspaces = state.tasks.map((task) => ({
+    id: task.workspaceId,
+    projectId: task.projectId,
+    kind: "isolated" as const,
+    lifecycle: "active" as const,
+  }));
   seed(state);
   const client = createMockClient(state);
   const warm = vi.spyOn(client.session, "warm");

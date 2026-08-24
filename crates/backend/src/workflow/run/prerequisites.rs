@@ -2,7 +2,7 @@ use ora_application::{
     AgentDefinitionRepository, AgentSkillDelivery, AgentSkillDeliveryProvider,
     FilesystemSkillStorage, MaterializedSkillBinding, NodeType, RepositoryError,
     SkillDiscoveryRoots, SkillMaterializationReceipt, SkillRepository, StartPrerequisitesError,
-    WorkflowGraph, WorkflowRunWorktreeInitializer, has_usable_package,
+    WorkflowGraph, WorkflowRunWorkspaceInitializer, has_usable_package,
 };
 use ora_db::{RepositoryPool, SqliteAgentDefinitionRepository, SqliteSkillRepository};
 use ora_domain::{AgentDefinitionId, AgentRef, Namespace, SkillId};
@@ -49,20 +49,20 @@ impl AgentSkillDeliveryProvider for SharedAgentSkillDeliveryProvider {
     }
 }
 
-/// Validates and materializes a run worktree's initial state at deploy time.
+/// Validates and materializes a run workspace's initial state at deploy time.
 ///
 /// Roles and skills are deploy hard-dependencies: every agent's role must resolve in the agents
 /// catalog and every enabled skill must exist in the catalog. Enabled skills are copied into
-/// `<worktree>/.agents/skills/<normalized>/`, where agent CLIs auto-discover them, so the worktree
+/// `<workspace>/.agents/skills/<normalized>/`, where agent CLIs auto-discover them, so the workspace
 /// is complete from the moment the run is created and `start` needs no re-validation.
 #[derive(Clone)]
-pub struct SkillRoleWorktreeInitializer<DeliveryProvider = SharedAgentSkillDeliveryProvider> {
+pub struct SkillRoleWorkspaceInitializer<DeliveryProvider = SharedAgentSkillDeliveryProvider> {
     skills_root: PathBuf,
     pool: RepositoryPool,
     delivery_provider: DeliveryProvider,
 }
 
-impl SkillRoleWorktreeInitializer<SharedAgentSkillDeliveryProvider> {
+impl SkillRoleWorkspaceInitializer<SharedAgentSkillDeliveryProvider> {
     /// Builds an initializer from the skill catalog root and the shared repository pool.
     pub fn new(
         skills_root: PathBuf,
@@ -76,7 +76,7 @@ impl SkillRoleWorktreeInitializer<SharedAgentSkillDeliveryProvider> {
     }
 }
 
-impl<DeliveryProvider> SkillRoleWorktreeInitializer<DeliveryProvider> {
+impl<DeliveryProvider> SkillRoleWorkspaceInitializer<DeliveryProvider> {
     /// Builds an initializer with an injected Agent capability provider.
     pub fn with_delivery_provider(
         skills_root: PathBuf,
@@ -91,15 +91,15 @@ impl<DeliveryProvider> SkillRoleWorktreeInitializer<DeliveryProvider> {
     }
 }
 
-impl<DeliveryProvider> WorkflowRunWorktreeInitializer
-    for SkillRoleWorktreeInitializer<DeliveryProvider>
+impl<DeliveryProvider> WorkflowRunWorkspaceInitializer
+    for SkillRoleWorkspaceInitializer<DeliveryProvider>
 where
     DeliveryProvider: AgentSkillDeliveryProvider,
 {
-    fn initialize_worktree(
+    fn initialize_workspace(
         &self,
         graph: &WorkflowGraph,
-        worktree_root: &Path,
+        workspace_root: &Path,
     ) -> Result<SkillMaterializationReceipt, StartPrerequisitesError> {
         let roles = collect_roles(graph);
 
@@ -119,7 +119,7 @@ where
             &skill_repository,
             &self.delivery_provider,
             graph,
-            worktree_root,
+            workspace_root,
         )
     }
 }
@@ -423,7 +423,7 @@ mod tests {
     }
 
     #[test]
-    fn initialize_worktree_materializes_skills_into_the_given_worktree() {
+    fn initialize_workspace_materializes_skills_into_the_given_workspace() {
         let temp = TempDir::new().unwrap();
         let skills_root = temp.path().join("skills");
         let skill_dir = skills_root.join("sfmea_review");
@@ -440,7 +440,7 @@ mod tests {
                 &default_migration_catalog().expect("create migration catalog"),
             )
             .expect("bootstrap repository pool");
-        let initializer = SkillRoleWorktreeInitializer::new(skills_root, pool).unwrap();
+        let initializer = SkillRoleWorkspaceInitializer::new(skills_root, pool).unwrap();
         let graph = WorkflowGraph::parse(
             r#"{"nodes":[{"id":"a","data":{"kind":"agent","agentConfig":{"executor":{"agentCli":"ora-space.codex","modelId":"m"},"skills":[{"skillId":"sfmea_review","enabled":true}]}}}],"edges":[]}"#,
         )
@@ -448,7 +448,7 @@ mod tests {
         let worktree = temp.path().join("worktree");
         std::fs::create_dir_all(&worktree).unwrap();
 
-        let receipt = initializer.initialize_worktree(&graph, &worktree).unwrap();
+        let receipt = initializer.initialize_workspace(&graph, &worktree).unwrap();
 
         assert!(
             worktree
@@ -489,7 +489,7 @@ mod tests {
         .unwrap();
         let first_root = StrictRelativePath::parse(".claude/skills").unwrap();
         let second_root = StrictRelativePath::parse(".vendor/agent-skills").unwrap();
-        let initializer = SkillRoleWorktreeInitializer::with_delivery_provider(
+        let initializer = SkillRoleWorkspaceInitializer::with_delivery_provider(
             skills_root,
             test_pool(&temp),
             FixedDeliveryProvider {
@@ -508,7 +508,7 @@ mod tests {
         let worktree = temp.path().join("worktree");
         std::fs::create_dir_all(&worktree).unwrap();
 
-        let receipt = initializer.initialize_worktree(&graph, &worktree).unwrap();
+        let receipt = initializer.initialize_workspace(&graph, &worktree).unwrap();
 
         let package_paths = vec![
             first_root.append_segment("review"),
@@ -538,7 +538,7 @@ mod tests {
     #[test]
     fn enabled_skills_reject_an_agent_without_delivery_support() {
         let temp = TempDir::new().unwrap();
-        let initializer = SkillRoleWorktreeInitializer::with_delivery_provider(
+        let initializer = SkillRoleWorkspaceInitializer::with_delivery_provider(
             temp.path().join("skills"),
             test_pool(&temp),
             FixedDeliveryProvider {
@@ -551,7 +551,7 @@ mod tests {
         .unwrap();
 
         assert!(matches!(
-            initializer.initialize_worktree(&graph, temp.path()),
+            initializer.initialize_workspace(&graph, temp.path()),
             Err(StartPrerequisitesError::AgentSkillDeliveryUnsupported { agent_ref })
                 if agent_ref == "acme.agent"
         ));

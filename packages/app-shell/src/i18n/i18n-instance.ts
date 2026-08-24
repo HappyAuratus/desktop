@@ -45,8 +45,8 @@ export const translationResources = {
     "errors.permission_option_invalid": "所选权限选项无效。",
     "errors.prompt_empty": "消息不能为空。",
     "errors.prompt_too_large": "消息内容过大。",
+    "errors.workspace_unavailable": "工作区当前不可用。",
     "errors.task_worktree_unavailable": "任务工作树当前不可用。",
-    "errors.task_project_root_unavailable": "任务项目目录当前不可用。",
     "errors.file_system_path_not_found": "所选路径不存在。",
     "errors.spec_document_not_found":
       "该 Spec 文档已不存在或不再属于自动发现目录。",
@@ -1008,9 +1008,6 @@ export const translationResources = {
     "dialog.createWorktree": "创建工作树任务",
     "dialog.worktreeDescription": "Agent 在独立工作树中专注处理一项任务",
     "dialog.editTask": "编辑任务",
-    "dialog.workspaceMode": "工作区模式",
-    "dialog.workspaceModeWorktree": "工作树（Git 分支）",
-    "dialog.workspaceModeProjectRoot": "直接对话（项目根目录）",
     "dialog.worktreeRequiresGitRepository":
       "该目录不是 Git 仓库。请在 Git 仓库下创建 worktree 模式任务。",
     "dialog.saveTask": "保存任务",
@@ -1038,7 +1035,7 @@ export const translationResources = {
       "仅删除该会话记录；项目目录本身不受影响，此操作无法撤销。",
     "delete.sessionDescription": "该 Agent 会话将被永久删除，此操作无法撤销。",
     "delete.workflowRunDescription":
-      "将删除此次工作流运行及其任务的 Git 工作树和 ora/* 分支；未提交的修改将永久丢失。若仍在进行中，会先取消再删除；同项目下其他运行不受影响。",
+      "将删除此次工作流运行、节点记录及其节点创建的会话；共享工作区以及项目中的其他会话和运行不受影响。",
     "delete.deleting": "删除中…",
     "delete.failed": "无法删除，请先停止正在运行的会话。",
     "delete.runningSession": "直聊会话仍在停止，请稍后再试。",
@@ -1464,9 +1461,8 @@ export const translationResources = {
       "The selected permission option is invalid.",
     "errors.prompt_empty": "The message cannot be empty.",
     "errors.prompt_too_large": "The message is too large.",
+    "errors.workspace_unavailable": "The workspace is unavailable.",
     "errors.task_worktree_unavailable": "The task worktree is unavailable.",
-    "errors.task_project_root_unavailable":
-      "The task project directory is unavailable.",
     "errors.file_system_path_not_found": "The selected path was not found.",
     "errors.spec_document_not_found":
       "The Spec document no longer exists or is outside the automatically detected sources.",
@@ -2537,9 +2533,6 @@ export const translationResources = {
     "dialog.worktreeDescription":
       "Make agent focus on one task in an isolated worktree.",
     "dialog.editTask": "Edit task",
-    "dialog.workspaceMode": "Workspace mode",
-    "dialog.workspaceModeWorktree": "Worktree (Git branch)",
-    "dialog.workspaceModeProjectRoot": "Direct chat (project root)",
     "dialog.worktreeRequiresGitRepository":
       "This directory is not a Git repository. Choose a Git repository to create a worktree task.",
     "dialog.saveTask": "Save task",
@@ -2570,7 +2563,7 @@ export const translationResources = {
     "delete.sessionDescription":
       "This agent session will be permanently deleted. This cannot be undone.",
     "delete.workflowRunDescription":
-      "This workflow run and its task's Git worktree and ora/* branch will be deleted; uncommitted changes will be permanently lost. If it is still active it is cancelled first; other runs in the same project are unaffected.",
+      "This workflow run, its node records, and sessions created for its nodes will be deleted. The shared workspace and other sessions or runs in the project are unaffected.",
     "delete.deleting": "Deleting...",
     "delete.failed": "Unable to delete. Stop any running session first.",
     "delete.runningSession":

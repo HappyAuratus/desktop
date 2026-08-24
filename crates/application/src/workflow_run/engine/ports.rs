@@ -2,8 +2,8 @@ use super::skill_delivery::SkillMaterializationReceipt;
 use crate::RepositoryError;
 use crate::workflow_run::engine::graph::WorkflowGraph;
 use ora_domain::{
-    SessionId, Task, WorkflowNodeRun, WorkflowNodeRunId, WorkflowNodeStatus, WorkflowRun,
-    WorkflowRunId, Worktree,
+    SessionId, WorkflowNodeRun, WorkflowNodeRunId, WorkflowNodeStatus, WorkflowRun, WorkflowRunId,
+    Workspace,
 };
 use std::path::Path;
 use thiserror::Error;
@@ -37,8 +37,7 @@ pub struct FileChange {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ExecutionContext {
     pub run: WorkflowRun,
-    pub task: Task,
-    pub worktree: Worktree,
+    pub workspace: Workspace,
     pub graph_json: String,
 }
 
@@ -48,7 +47,7 @@ pub trait WorkflowNodeRunIdGenerator {
     fn generate_node_run_id(&self) -> WorkflowNodeRunId;
 }
 
-/// Failures raised while setting up a run's worktree initial state at deploy time.
+/// Failures raised while setting up a run workspace's initial state at deploy time.
 #[derive(Debug, Error)]
 pub enum StartPrerequisitesError {
     #[error("workflow skill not found: {skill_id}")]
@@ -65,20 +64,20 @@ pub enum StartPrerequisitesError {
     Repository(#[from] RepositoryError),
 }
 
-/// Validates and materializes a run worktree's initial state at deploy time.
+/// Validates and materializes a run workspace's initial state at deploy time.
 ///
 /// Skills and roles are deploy dependencies: every agent's role must resolve in the agents catalog
 /// and every enabled skill must resolve in the catalog. The backend implementation also copies the
 /// enabled skills into the worktree-relative discovery roots declared by each Agent's delivery
 /// capability while the worktree is being created, so the run's initial state is complete before
 /// it is persisted and `start` needs no re-validation.
-pub trait WorkflowRunWorktreeInitializer: Send + Sync {
+pub trait WorkflowRunWorkspaceInitializer: Send + Sync {
     /// Resolves every declared role and skill in the graph and materializes the enabled skills
-    /// into the freshly provisioned run worktree.
-    fn initialize_worktree(
+    /// into the selected run workspace.
+    fn initialize_workspace(
         &self,
         graph: &WorkflowGraph,
-        worktree_root: &Path,
+        workspace_root: &Path,
     ) -> Result<SkillMaterializationReceipt, StartPrerequisitesError>;
 }
 
@@ -146,7 +145,7 @@ pub enum UpdateWorkflowRunInputResult {
 /// a single immediate transaction that maintains `state.current_nodes`. No generic overwrite of
 /// the full run state is exposed to callers.
 pub trait WorkflowRunEngineRepository {
-    /// Loads the run, its task, its worktree, and the frozen snapshot graph in one read.
+    /// Loads the run, its workspace, and the frozen snapshot graph in one read.
     fn find_execution_context(
         &self,
         run_id: &WorkflowRunId,

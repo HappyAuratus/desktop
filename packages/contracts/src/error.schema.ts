@@ -130,10 +130,10 @@ export const contractErrorSchema = z.object({
         "code": z.literal("prompt_too_large"),
         "params": emptyErrorParamsSchema
     }), z.object({
-        "code": z.literal("task_worktree_unavailable"),
+        "code": z.literal("workspace_unavailable"),
         "params": emptyErrorParamsSchema
     }), z.object({
-        "code": z.literal("task_project_root_unavailable"),
+        "code": z.literal("task_worktree_unavailable"),
         "params": emptyErrorParamsSchema
     }), z.object({
         "code": z.literal("file_system_path_not_found"),
@@ -417,10 +417,10 @@ export const publicErrorSchema = z.union([z.object({
         "code": z.literal("prompt_too_large"),
         "params": emptyErrorParamsSchema
     }), z.object({
-        "code": z.literal("task_worktree_unavailable"),
+        "code": z.literal("workspace_unavailable"),
         "params": emptyErrorParamsSchema
     }), z.object({
-        "code": z.literal("task_project_root_unavailable"),
+        "code": z.literal("task_worktree_unavailable"),
         "params": emptyErrorParamsSchema
     }), z.object({
         "code": z.literal("file_system_path_not_found"),
