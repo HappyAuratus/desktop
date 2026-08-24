@@ -128,10 +128,25 @@ export function TaskDiffView({
   // scroll spy: on mount it treats an empty viewport as "scrolled to the end".
   const suppressScrollSyncRef = useRef(false);
   const onPreviewPathChangeRef = useRef(onPreviewPathChange);
+  /** Last path reported upward, so repeat notifications collapse to one call. */
+  const notifiedPreviewPathRef = useRef<string | null>(null);
 
   useEffect(() => {
     onPreviewPathChangeRef.current = onPreviewPathChange;
   });
+
+  /**
+   * Reports the previewed file to the review layout.
+   *
+   * Must stay callable from plain event/effect code only — never from a
+   * `setState` updater, which React may re-run and which must not touch another
+   * component's state.
+   */
+  const notifyPreviewPath = useCallback((path: string) => {
+    if (notifiedPreviewPathRef.current === path) return;
+    notifiedPreviewPathRef.current = path;
+    onPreviewPathChangeRef.current?.(path);
+  }, []);
 
   const files = useMemo(
     () =>
@@ -174,9 +189,15 @@ export function TaskDiffView({
       pathsMatchForWorkspace(fileRequest.path, path),
     );
     if (matchingPath !== undefined) {
-      onPreviewPathChangeRef.current?.(matchingPath);
+      notifyPreviewPath(matchingPath);
     }
-  }, [appliedFileRequestId, diffQuery.isLoading, filePaths, fileRequest]);
+  }, [
+    appliedFileRequestId,
+    diffQuery.isLoading,
+    filePaths,
+    fileRequest,
+    notifyPreviewPath,
+  ]);
 
   /**
    * Scrolls the Diff viewport so `path` sits near the top.
@@ -204,14 +225,14 @@ export function TaskDiffView({
     (path: string, behavior: ScrollBehavior = "smooth") => {
       suppressScrollSyncRef.current = true;
       setSelectedFilePath(path);
-      onPreviewPathChangeRef.current?.(path);
+      notifyPreviewPath(path);
       if (scrollToPath(path, behavior)) return;
       requestAnimationFrame(() => {
         if (!scrollToPath(path, behavior))
           suppressScrollSyncRef.current = false;
       });
     },
-    [scrollToPath],
+    [notifyPreviewPath, scrollToPath],
   );
 
   useLayoutEffect(() => {
@@ -344,11 +365,12 @@ export function TaskDiffView({
             activePath = path;
           }
         }
-        setSelectedFilePath((currentPath) => {
-          if (currentPath === activePath) return currentPath;
-          onPreviewPathChangeRef.current?.(activePath);
-          return activePath;
-        });
+        // Notify outside the updater: updaters must be pure, and this one
+        // would otherwise setState on the parent review layout.
+        notifyPreviewPath(activePath);
+        setSelectedFilePath((currentPath) =>
+          currentPath === activePath ? currentPath : activePath,
+        );
       });
     };
 
@@ -357,7 +379,7 @@ export function TaskDiffView({
       root.removeEventListener("scroll", updateActiveFile);
       if (frame !== null) cancelAnimationFrame(frame);
     };
-  }, [filePaths]);
+  }, [filePaths, notifyPreviewPath]);
 
   const commitChanges = useMutation({
     mutationFn: (message: string) =>
