@@ -62,6 +62,8 @@ interface WorkspaceFilesViewProps {
   surface?: "explorer" | "search";
   onSurfaceChange?: (surface: "explorer" | "search") => void;
   fileRequest?: WorkspaceFileRequest;
+  /** Reports the file currently previewed so review layout can persist it. */
+  onPreviewPathChange?: (path: string) => void;
 }
 
 /** External Files-panel open request. requestId must change to re-apply the same path. */
@@ -95,6 +97,7 @@ export function WorkspaceFilesView({
   surface: controlledSurface,
   onSurfaceChange,
   fileRequest,
+  onPreviewPathChange,
 }: WorkspaceFilesViewProps) {
   const { t } = useTranslation();
   const client = useContractsClient();
@@ -197,6 +200,11 @@ export function WorkspaceFilesView({
     );
     return () => clearTimeout(timer);
   }, [fileFilterText]);
+
+  useEffect(() => {
+    if (selectedPath === null) return;
+    onPreviewPathChange?.(selectedPath);
+  }, [onPreviewPathChange, selectedPath]);
 
   // A new chat requestId must re-read even when the path is unchanged. Otherwise
   // a file the user deleted after an earlier preview stays on screen from cache.

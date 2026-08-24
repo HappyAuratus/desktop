@@ -1,5 +1,5 @@
 import type * as acp from "@agentclientprotocol/sdk";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@ora/ui";
 import type { AttachSessionResponse, Session, Task } from "@ora/contracts";
 import { useTranslation } from "react-i18next";
@@ -192,12 +192,17 @@ export function WorkspaceView({ userName }: WorkspaceViewProps) {
   // model picker act on. Resolving it the same way here is what lets anything
   // reported before that first send reach the screen.
   const conversationSessionId = selection.sessionId ?? warmSessionId;
-  const reviewContext: WorkspaceReviewContext =
-    task !== undefined && project !== undefined
-      ? { kind: "task", taskId: task.id, projectId: project.id }
-      : project !== undefined
-        ? { kind: "project", projectId: project.id }
-        : { kind: "none" };
+  // Memoized: WorkspaceReviewLayout keys per-scope restore off this object's
+  // identity, and this component re-renders on every streaming chat update.
+  const reviewContext = useMemo<WorkspaceReviewContext>(
+    () =>
+      task !== undefined && project !== undefined
+        ? { kind: "task", taskId: task.id, projectId: project.id }
+        : project !== undefined
+          ? { kind: "project", projectId: project.id }
+          : { kind: "none" },
+    [project, task],
+  );
   const conversation = useStore(chatStore, (state) =>
     conversationSessionId === null
       ? undefined
