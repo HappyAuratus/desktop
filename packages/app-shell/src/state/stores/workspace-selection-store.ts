@@ -300,20 +300,7 @@ export const useWorkspaceSelectionStore = create<WorkspaceSelectionState>()(
                 },
           );
         },
-        commitRestoredSelection: (selection) => {
-          const previousDraftId = get().selection.draftId;
-          set({
-            selection,
-            pendingRestore: null,
-            createFocus: createFocusFromSelection(selection),
-          });
-          if (
-            previousDraftId !== null &&
-            previousDraftId !== selection.draftId
-          ) {
-            useDraftSessionsStore.getState().discardIfEmpty(previousDraftId);
-          }
-        },
+        commitRestoredSelection: (selection) => replaceSelection(selection),
         clearPendingRestore: () => set({ pendingRestore: null }),
       };
     },
@@ -345,7 +332,10 @@ export const useWorkspaceSelectionStore = create<WorkspaceSelectionState>()(
           ...current,
           selection: EMPTY_WORKSPACE_SELECTION,
           pendingRestore: diskPending,
-          createFocus: null,
+          // A tree click before hydration sets only createFocus (selection stays
+          // empty). Clearing it here would undo the very gesture restore takes
+          // care to preserve when it commits.
+          createFocus: current.createFocus,
         };
       },
     },

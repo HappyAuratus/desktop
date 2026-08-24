@@ -477,7 +477,7 @@ describe("useWorkspaceSelectionStore", () => {
     });
   });
 
-  it("does not persist createFocus across rehydrate", async () => {
+  it("never writes createFocus to disk", async () => {
     useWorkspaceSelectionStore
       .getState()
       .setCreateFocus({ projectId: "p1", taskId: "t1" });
@@ -485,13 +485,30 @@ describe("useWorkspaceSelectionStore", () => {
     expect(raw).not.toBeNull();
     expect(raw!).not.toContain("createFocus");
 
+    // Rehydrate must not resurrect a focus from disk — there is none to read.
+    useWorkspaceSelectionStore.setState({
+      selection: empty,
+      pendingRestore: null,
+      createFocus: null,
+    });
+    await useWorkspaceSelectionStore.persist.rehydrate();
+    expect(useWorkspaceSelectionStore.getState().createFocus).toBeNull();
+  });
+
+  it("keeps a pre-hydration tree click's createFocus", async () => {
+    // A tree row click before hydration sets only createFocus; selection stays
+    // empty. Async rehydrate must not discard that gesture — restore relies on
+    // it still being there when it commits.
     useWorkspaceSelectionStore.setState({
       selection: empty,
       pendingRestore: null,
       createFocus: { projectId: "p1", taskId: "t1" },
     });
     await useWorkspaceSelectionStore.persist.rehydrate();
-    expect(useWorkspaceSelectionStore.getState().createFocus).toBeNull();
+    expect(useWorkspaceSelectionStore.getState().createFocus).toEqual({
+      projectId: "p1",
+      taskId: "t1",
+    });
   });
 
   it("setCreateFocus is a no-op when the focus is unchanged", () => {
