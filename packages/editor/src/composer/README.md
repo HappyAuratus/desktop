@@ -27,7 +27,12 @@ Tiptap preset and plain-text helpers for prompt boxes (chat composer, HITL).
   `start:end:path` citation fence; Diff-gutter quotes also set `origin: "diff"`
   and expand to a mini `diff --git` patch with unified markers. A mixed
   add/delete range is still one chip; `diffSide` is omitted and the body
-  carries `+/-/ `.
+  carries `+/-/ `. The patch's hunk note names the quoted file lines
+  (`lines 2-40`) because the hunk counts describe the body, which is shorter
+  whenever a drag crossed a collapsed hunk. `parseComposerFileQuote` is the
+  inverse of both payloads: read-only surfaces only hold the sent text, so it
+  is what lets them rebuild the chip — including its label — from the fence
+  alone. Any other fence parses to null and stays a code block.
   Path-only `@` mentions stay backtick paths.
   Inline code that contains backticks, and fenced blocks that contain a ` ``` `
   line, serialize with a longer CommonMark fence so parse cannot close early.

@@ -65,6 +65,7 @@ export function composerFilePlainText(attrs: ComposerFileAttrs): string {
       return diffQuotePlainText(
         attrs.path,
         attrs.startLine,
+        end,
         attrs.snippet,
         attrs.diffSide,
         fence,
@@ -133,16 +134,20 @@ function optionalString(value: unknown): string | undefined {
 function diffQuotePlainText(
   path: string,
   startLine: number,
+  endLine: number,
   snippet: string,
   diffSide: "old" | "new" | undefined,
   fence: string,
 ): string {
   const { oldCount, newCount } = unifiedHunkCounts(snippet);
-  const sideNote =
-    diffSide === "old" || diffSide === "new"
-      ? ` quoted from git diff (${diffSide} side)`
-      : " quoted from git diff";
-  const hunk = `@@ -${startLine},${oldCount} +${startLine},${newCount} @@${sideNote}`;
+  const side =
+    diffSide === "old" || diffSide === "new" ? ` (${diffSide} side)` : "";
+  // The hunk counts describe the quoted lines, not the span they came from: a
+  // drag across a collapsed hunk quotes lines 2 and 40 as a two-line body. The
+  // range note keeps the real span for the agent, and lets chat history rebuild
+  // the chip label from the payload alone.
+  const note = ` quoted from git diff${side}, lines ${startLine}-${endLine}`;
+  const hunk = `@@ -${startLine},${oldCount} +${startLine},${newCount} @@${note}`;
   const body = [
     `diff --git a/${path} b/${path}`,
     `--- a/${path}`,

@@ -42,6 +42,10 @@ import {
   prepareUserMessageMarkdown,
   remarkComposerHighlight,
 } from "./user-message-markdown";
+import {
+  fileQuoteMarkdownComponents,
+  remarkComposerFileQuote,
+} from "./user-message-file-quotes";
 
 interface MarkdownMessageProps {
   content: string;
@@ -318,7 +322,17 @@ function createMarkdownComponents(density: MarkdownDensity): Components {
 }
 
 const markdownComponents = createMarkdownComponents("default");
-const compactMarkdownComponents = createMarkdownComponents("compact");
+// Only the compact surface renders sent prompts, so only it turns quote fences
+// back into chips.
+const compactMarkdownComponents = {
+  ...createMarkdownComponents("compact"),
+  ...fileQuoteMarkdownComponents,
+};
+const compactRemarkPlugins = [
+  ...markdownRemarkPlugins,
+  remarkComposerHighlight,
+  remarkComposerFileQuote,
+];
 
 /** Stable `pre` override so index updates do not remount CodeBlock state. */
 function ChatMarkdownPreOverride({
@@ -351,13 +365,8 @@ export function MarkdownDocument({
         : { ...baseComponents, ...components },
     [baseComponents, components],
   );
-  const remarkPlugins = useMemo(
-    () =>
-      density === "compact"
-        ? [...markdownRemarkPlugins, remarkComposerHighlight]
-        : markdownRemarkPlugins,
-    [density],
-  );
+  const remarkPlugins =
+    density === "compact" ? compactRemarkPlugins : markdownRemarkPlugins;
   const parseable =
     density === "compact" ? prepareUserMessageMarkdown(content) : content;
   return (
