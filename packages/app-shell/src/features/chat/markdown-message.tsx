@@ -17,8 +17,8 @@ import {
   IconCopy,
 } from "@tabler/icons-react";
 import { Button, cn } from "@ora/ui";
-import type { Components } from "react-markdown";
-import ReactMarkdown from "react-markdown";
+import type { Components, UrlTransform } from "react-markdown";
+import ReactMarkdown, { defaultUrlTransform } from "react-markdown";
 import { useTranslation } from "react-i18next";
 import remarkGfm from "remark-gfm";
 import type { BundledLanguage, ThemedTokenWithVariants } from "shiki";
@@ -315,6 +315,18 @@ function createMarkdownComponents(density: MarkdownDensity): Components {
 const markdownComponents = createMarkdownComponents("default");
 const compactMarkdownComponents = createMarkdownComponents("compact");
 
+/** Removes URLs rejected by react-markdown instead of leaving empty DOM attributes. */
+const sanitizedUrlTransform: UrlTransform = (url) => {
+  const transformed = defaultUrlTransform(url);
+  return transformed === "" ? undefined : transformed;
+};
+
+/** Preserves assistant link destinations for chat-link while keeping media URLs sanitized. */
+const assistantUrlTransform: UrlTransform = (url, key, node) =>
+  node.tagName === "a" && key === "href"
+    ? url
+    : sanitizedUrlTransform(url, key, node);
+
 /** Stable `pre` override so index updates do not remount CodeBlock state. */
 function ChatMarkdownPreOverride({
   children,
@@ -449,6 +461,9 @@ export function MarkdownMessage({
         remarkPlugins={markdownRemarkPlugins}
         rehypePlugins={rehypePlugins}
         components={streaming ? streamingMarkdownComponents : markdownWithLinks}
+        urlTransform={
+          chatLink === null ? sanitizedUrlTransform : assistantUrlTransform
+        }
       >
         {parseableMarkdown}
       </ReactMarkdown>
@@ -459,6 +474,7 @@ export function MarkdownMessage({
       streaming,
       streamingMarkdownComponents,
       markdownWithLinks,
+      chatLink,
     ],
   );
 

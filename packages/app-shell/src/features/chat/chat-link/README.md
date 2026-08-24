@@ -7,7 +7,8 @@ Files viewer, the Diff viewer, or ACP tool collection with line-diff counts.
 ## Responsibilities
 
 - Parse path-like inline code and Markdown hrefs (`parse.ts`)
-- Build a **path-only** session artifact index from tool diffs, locations, and glob/search dumps (`artifact-index.ts`)
+- Normalize ANSI terminal output and parse aligned PowerShell tables (`tool-output-table.ts`)
+- Build a path-only file and directory artifact index from tool diffs, locations, and glob/search dumps (`artifact-index.ts`)
 - Classify a candidate as Diff, Files, Web, or none (`classify.ts`)
 - Provide `ChatLinkContext` from the message list and render `ChatFileLink`
 
@@ -19,15 +20,17 @@ Files viewer, the Diff viewer, or ACP tool collection with line-diff counts.
 
 ## Invariants
 
-- Inline code becomes a link only when it is path-like **and** hits that turn’s index.
+- Inline code becomes a link only when it is path-like or its basename hits that turn's typed artifact index.
 - Each assistant turn receives a **cumulative** index of tools up to that turn (`collectCumulativeArtifactIndices`). A path that was only read still opens Files on that turn, even if a later turn edits it. Mentions from the edit turn onward open Changes.
 - Failed and cancelled tool calls are not indexed.
 - When ACP omits `locations`, read tools may still contribute referenced paths from `rawInput` (`filePath`, `path`, `AbsolutePath`, …).
 - Navigation uses the index hit’s workspace-relative path, never the raw clicked token when a unique hit exists. A bare filename links when that last segment is unique across **edited and referenced together**. If several hits share the basename, the workspace-root file (`README.md`) still links; same-level nested copies stay plain text. An explicit Markdown file href still attempts Files with the typed string.
-- Search/glob/execute dumps that list one file per line (or a `filenames` / `files` array) are referenced artifacts even when ACP omitted per-file `locations`. Singular keys such as `file` / `path` may also hold an array. `file:` URIs are stripped to filesystem paths. Glob patterns (`**/*.md`) and search-root directories are not indexed. Path-only plaintext fences, markdown list items, and expanded tool dumps use the same classifier.
+- Search/glob/execute dumps that list one artifact per line, including slash-terminated directories and ripgrep-style `path:line:column:text` output (or a `filenames` / `files` array), are indexed even when ACP omitted per-entry `locations`. Explicit files open a preview and explicit directories open Files/Explorer. Ambiguous entries from a recognized directory-listing operation remain `unknown`; clicking them lists their parent once and follows the returned `WorkspaceEntry.kind` instead of guessing from dots or extensions.
+- PowerShell `Mode Name`, `Name Mode`, and aligned default tables provide explicit file/directory evidence. Explicit file evidence wins over earlier unknown or directory guesses, including extensionless files such as `install`. Tree markers (`├──`, `└──`) and Markdown list markers are display syntax, not part of the navigation path.
+- ANSI-colored PowerShell headers are normalized before column detection. Recognized directory listings may also use aligned multi-column names separated by two or more spaces; those entries stay `unknown` until Files resolves their real kind. Comma/semicolon-separated prose and multi-column plaintext fences are linked token by token, while non-concrete glob summaries such as `README.*.md` remain text.
 - Tool dumps keep `whitespace-pre-wrap` so indented JSON, trees, and aligned columns do not collapse. Markdown `a` / `p` / `li` overrides are not re-walked by the parent, so `[src/main.rs](src/main.rs)` cannot nest a file button inside another file button.
-- Web `http(s)` hrefs keep their original percent-encoding. `javascript:` / `data:` / `vbscript:` / `mailto:` and other non-file schemes (`ssh:`, `ftp:`, …) are inert. File paths decode `%20` once.
-- Absolute ACP paths are stripped with the active checkout cwd (`getWorkspace` / project `rootPath`, plus desktop `resolveTaskCwd` when a task exists) before Diff/Files requests. A hit outside that cwd is not a link: suffix-matching it must not open a different relative path inside the worktree. An absolute Markdown href outside the cwd stays unlinked for the same reason (Files rejects rooted paths). Codex may still open absolute paths in View Code; Ora does not, because `readWorkspaceFile` / `readProjectFile` reject rooted paths.
+- Assistant anchor destinations bypass react-markdown's URL pre-filter so Windows drive paths and `file:` URIs reach this module unchanged; image and other media URLs keep the default filter. Web `http(s)` hrefs keep their original percent-encoding. `javascript:` / `data:` / `vbscript:` / `mailto:` and other non-file schemes (`ssh:`, `ftp:`, …) are inert. File paths decode percent escapes once and accept `:line:column`, `#LlineCcolumn`, query line/column, and `(line N, column N)` suffixes.
+- Absolute ACP paths are stripped with the active checkout cwd (`getWorkspace` / project `rootPath`) before Diff/Files requests. A hit outside that cwd is not a link: suffix-matching it must not open a different relative path inside the worktree. An absolute Markdown href outside the cwd stays unlinked for the same reason (Files rejects rooted paths).
 - If a requested diff file is not in the active task patch, navigation falls back to Files. A line missing from a file that **is** in the patch still opens that file in Changes, with no toast.
 - If Files cannot read a requested path (including a file the user deleted after the agent read it), the viewer shows the localized missing-path copy, not the raw `Remote Ora request failed` transport message. A new chat `requestId` invalidates the Files query for that path so a deleted file is not shown from cache. An edited path still opens Changes even if the workspace file is gone, because the task patch is independent of the live tree.
 - Desktop “File Manager” reveals a file in the **system** file manager (`explorer /select,` on Windows, `open -R` on macOS). It does not open the file with the default editor (often Cursor). Directories still open as folder windows. A missing path is revealed the same way so a deleted file does not fall back to Cursor.
@@ -38,8 +41,8 @@ Files viewer, the Diff viewer, or ACP tool collection with line-diff counts.
 ## Interactions
 
 - `MessageList` provides a per-turn `ChatLinkContext` around each `ResponseTurn` for task or project-only drafts. `ChatView` remounts the list when `taskId` / `projectId` changes so the per-turn artifact cache cannot leak across checkouts.
-- `TaskChangesNavigation.openDiff` / `openWorkspaceFile` in the review layout
-- Desktop `locationActions` for Explorer, VS Code, and copying an OS-absolute path. The capability is always the cwd + OS-open pair (no `unsupported` variant); Terminal stays hidden because it is a directory opener. An empty `resolveTaskCwd` result keeps the session cwd instead of forcing a blank host path. Explorer / VS Code / Copy path are omitted until an OS-absolute cwd is known so the menu never copies a worktree-relative path. The frontend still passes the file’s OS-absolute path; `open_location` on Desktop reveals that file in the system file manager instead of launching the default association. A Diff (edited) link also offers Preview in Files. A Files (read-only) link has no extra in-app item: left click already opens Files, and View in Changes is omitted because a per-turn index cannot classify the same mention as both Files and edited.
+- `TaskChangesNavigation.openDiff` / `openWorkspaceFile` / `openWorkspaceDirectory` / `openWorkspaceArtifact` in the review layout
+- Desktop `locationActions` for Explorer, VS Code, and copying an OS-absolute path. Links reuse the checkout cwd already resolved by `MessageList`; they do not launch one cwd IPC per mounted link. Explorer / VS Code / Copy path are omitted until an OS-absolute cwd is known. A Diff link also offers Preview in Files.
 - Shared slash matching in `packages/app-shell/src/lib/workspace-path.ts`
 
 ## Appearance

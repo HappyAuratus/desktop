@@ -64,6 +64,8 @@ interface WorkspaceFilesViewProps {
   fileRequest?: WorkspaceFileRequest;
   /** Reports the file currently previewed so review layout can persist it. */
   onPreviewPathChange?: (path: string) => void;
+  directoryRequest?: WorkspaceDirectoryRequest;
+  artifactRequest?: WorkspaceArtifactRequest;
 }
 
 /** External Files-panel open request. requestId must change to re-apply the same path. */
@@ -73,6 +75,15 @@ export interface WorkspaceFileRequest {
   line?: number;
   column?: number;
 }
+
+/** External Files-panel directory request that expands and selects a tree node. */
+export interface WorkspaceDirectoryRequest {
+  path: string;
+  requestId: number;
+}
+
+/** External request whose real file/directory kind is resolved from its parent listing. */
+export type WorkspaceArtifactRequest = WorkspaceFileRequest;
 
 interface DirectoryTreeProps {
   scope: FilesScope;
@@ -98,6 +109,8 @@ export function WorkspaceFilesView({
   onSurfaceChange,
   fileRequest,
   onPreviewPathChange,
+  directoryRequest,
+  artifactRequest,
 }: WorkspaceFilesViewProps) {
   const { t } = useTranslation();
   const client = useContractsClient();
@@ -116,14 +129,10 @@ export function WorkspaceFilesView({
       ? workspaceQuery.data?.rootPath
       : projectsQuery.data?.find((project) => project.id === projectId)
           ?.rootPath;
-  // Absolute ACP paths need the checkout root before we consume requestId; otherwise
-  // a later cwd load cannot re-strip and readWorkspaceFile/readProjectFile reject roots.
-  // A failed checkout query never yields a root, so treat pending and error alike:
-  // keep deferring until cwd resolves instead of feeding an unstripped absolute path.
   const checkoutPending =
-    scope.kind === "task"
-      ? workspaceQuery.isPending || workspaceQuery.isError
-      : projectsQuery.isPending || projectsQuery.isError;
+    scope.kind === "task" ? workspaceQuery.isPending : projectsQuery.isPending;
+  const checkoutError =
+    scope.kind === "task" ? workspaceQuery.error : projectsQuery.error;
   const [internalSurface, setInternalSurface] = useState<"explorer" | "search">(
     "explorer",
   );
@@ -134,16 +143,51 @@ export function WorkspaceFilesView({
   };
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(new Set([""]));
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
+  const [selectedDirectory, setSelectedDirectory] = useState<string | null>(
+    null,
+  );
   const [selectedTarget, setSelectedTarget] =
     useState<WorkspaceFileMatchTarget | null>(null);
   const [appliedFileRequestId, setAppliedFileRequestId] = useState<
     number | null
+  >(null);
+  const [appliedDirectoryRequestId, setAppliedDirectoryRequestId] = useState<
+    number | null
+  >(null);
+  const [appliedArtifactRequestId, setAppliedArtifactRequestId] = useState<
+    number | null
+  >(null);
+  const [pendingArtifact, setPendingArtifact] = useState<{
+    path: string;
+    line?: number;
+    column?: number;
+  } | null>(null);
+  const [artifactResolutionMessage, setArtifactResolutionMessage] = useState<
+    string | null
   >(null);
   const [searchKind, setSearchKind] = useState<WorkspaceSearchKind>("files");
   const [searchText, setSearchText] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const [fileFilterText, setFileFilterText] = useState("");
   const [debouncedFileFilter, setDebouncedFileFilter] = useState("");
+  const checkoutErrorMessage =
+    checkoutError === null ? null : localizeContractError(checkoutError, t);
+  const showCheckoutFailure = (absolute: boolean) => {
+    if (!absolute || cwd || checkoutErrorMessage === null) return false;
+    if (
+      artifactResolutionMessage !== checkoutErrorMessage ||
+      selectedPath !== null ||
+      selectedDirectory !== null ||
+      pendingArtifact !== null
+    ) {
+      setSelectedPath(null);
+      setSelectedDirectory(null);
+      setSelectedTarget(null);
+      setPendingArtifact(null);
+      setArtifactResolutionMessage(checkoutErrorMessage);
+    }
+    return true;
+  };
 
   if (
     fileRequest !== undefined &&
@@ -154,16 +198,19 @@ export function WorkspaceFilesView({
       isAbsoluteWorkspacePath(rawPath) ||
       isAbsoluteWorkspacePath(normalizeDiffPath(displayPath(rawPath)));
     // Defer absolute-path stripping until the checkout root resolves; a later cwd
-    // load re-processes the same requestId once isPending/isError clear.
+    // load re-processes the same requestId.
     const checkoutDeferred = absolute && checkoutPending && !cwd;
-    if (!checkoutDeferred) {
+    if (!showCheckoutFailure(absolute) && !checkoutDeferred) {
       setAppliedFileRequestId(fileRequest.requestId);
+      setPendingArtifact(null);
+      setArtifactResolutionMessage(null);
       const stripped = cwd
         ? (stripTaskCwdPrefix(rawPath, cwd) ??
           stripTaskCwdPrefix(normalizeDiffPath(rawPath), cwd))
         : null;
       const targetPath = stripped ?? normalizeDiffPath(displayPath(rawPath));
       setSelectedPath(targetPath);
+      setSelectedDirectory(null);
       const parts = targetPath.split("/");
       if (parts.length > 1) {
         setExpanded((prev) => {
@@ -185,6 +232,71 @@ export function WorkspaceFilesView({
               matchedText: "",
             },
       );
+    }
+  }
+
+  if (
+    artifactRequest !== undefined &&
+    artifactRequest.requestId !== appliedArtifactRequestId
+  ) {
+    const rawPath = artifactRequest.path.replace(/[\\/]+$/, "");
+    const absolute =
+      isAbsoluteWorkspacePath(rawPath) ||
+      isAbsoluteWorkspacePath(normalizeDiffPath(displayPath(rawPath)));
+    const checkoutDeferred = absolute && checkoutPending && !cwd;
+    if (!showCheckoutFailure(absolute) && !checkoutDeferred) {
+      setAppliedArtifactRequestId(artifactRequest.requestId);
+      setSelectedPath(null);
+      setSelectedDirectory(null);
+      setSelectedTarget(null);
+      setArtifactResolutionMessage(t("files.loading"));
+      const stripped = cwd
+        ? (stripTaskCwdPrefix(rawPath, cwd) ??
+          stripTaskCwdPrefix(normalizeDiffPath(rawPath), cwd))
+        : null;
+      setPendingArtifact({
+        path: stripped ?? normalizeDiffPath(displayPath(rawPath)),
+        line: artifactRequest.line,
+        column: artifactRequest.column,
+      });
+      if (controlledSurface === undefined) setInternalSurface("explorer");
+    }
+  }
+
+  if (
+    directoryRequest !== undefined &&
+    directoryRequest.requestId !== appliedDirectoryRequestId
+  ) {
+    const rawPath = directoryRequest.path.replace(/[\\/]+$/, "");
+    const absolute =
+      isAbsoluteWorkspacePath(rawPath) ||
+      isAbsoluteWorkspacePath(normalizeDiffPath(displayPath(rawPath)));
+    const checkoutDeferred = absolute && checkoutPending && !cwd;
+    if (!showCheckoutFailure(absolute) && !checkoutDeferred) {
+      setAppliedDirectoryRequestId(directoryRequest.requestId);
+      setPendingArtifact(null);
+      setArtifactResolutionMessage(null);
+      const stripped = cwd
+        ? (stripTaskCwdPrefix(rawPath, cwd) ??
+          stripTaskCwdPrefix(normalizeDiffPath(rawPath), cwd))
+        : null;
+      const targetPath = (
+        stripped ?? normalizeDiffPath(displayPath(rawPath))
+      ).replace(/\/+$/, "");
+      setSelectedPath(null);
+      setSelectedTarget(null);
+      setSelectedDirectory(targetPath);
+      if (controlledSurface === undefined) setInternalSurface("explorer");
+      setExpanded((prev) => {
+        const next = new Set(prev);
+        let current = "";
+        for (const part of targetPath.split("/")) {
+          if (part === "") continue;
+          current = current === "" ? part : `${current}/${part}`;
+          next.add(current);
+        }
+        return next;
+      });
     }
   }
 
@@ -232,6 +344,64 @@ export function WorkspaceFilesView({
     queryFn: ({ signal }) => scopeApi.readFile(selectedPath!, signal),
     enabled: selectedPath !== null,
   });
+  const pendingArtifactParent = pendingArtifact?.path.includes("/")
+    ? pendingArtifact.path.slice(0, pendingArtifact.path.lastIndexOf("/"))
+    : "";
+  const artifactParentQuery = useQuery({
+    queryKey: directoryQueryKey(scope, pendingArtifactParent),
+    queryFn: ({ signal }) =>
+      scopeApi.listDirectory(pendingArtifactParent, signal),
+    enabled: pendingArtifact !== null,
+    staleTime: 0,
+    refetchOnMount: "always",
+  });
+
+  if (pendingArtifact !== null && artifactParentQuery.error !== null) {
+    setArtifactResolutionMessage(
+      localizeContractError(artifactParentQuery.error, t),
+    );
+    setPendingArtifact(null);
+  } else if (
+    pendingArtifact !== null &&
+    artifactParentQuery.data !== undefined &&
+    !artifactParentQuery.isFetching
+  ) {
+    const entry = artifactParentQuery.data.entries.find(
+      (candidate) =>
+        candidate.path.toLowerCase() === pendingArtifact.path.toLowerCase(),
+    );
+    if (entry === undefined) {
+      setArtifactResolutionMessage(t("errors.file_system_path_not_found"));
+    } else if (entry.kind === "directory") {
+      setArtifactResolutionMessage(null);
+      setSelectedPath(null);
+      setSelectedTarget(null);
+      setSelectedDirectory(entry.path);
+      setExpanded((current) => {
+        const next = new Set(current);
+        let path = "";
+        for (const part of entry.path.split("/")) {
+          path = path === "" ? part : `${path}/${part}`;
+          next.add(path);
+        }
+        return next;
+      });
+    } else {
+      setArtifactResolutionMessage(null);
+      setSelectedDirectory(null);
+      setSelectedPath(pendingArtifact.path);
+      setSelectedTarget(
+        pendingArtifact.line === undefined
+          ? null
+          : {
+              line: pendingArtifact.line,
+              column: pendingArtifact.column ?? 1,
+              matchedText: "",
+            },
+      );
+    }
+    setPendingArtifact(null);
+  }
   const searchQuery = useQuery({
     queryKey: searchQueryKey(scope, searchKind, debouncedSearch),
     queryFn: ({ signal }) =>
@@ -255,6 +425,9 @@ export function WorkspaceFilesView({
   );
 
   const openSearchResult = (result: WorkspaceSearchResult) => {
+    setPendingArtifact(null);
+    setArtifactResolutionMessage(null);
+    setSelectedDirectory(null);
     setSelectedPath(result.path);
     setSelectedTarget(
       result.kind === "match"
@@ -286,7 +459,7 @@ export function WorkspaceFilesView({
           <div className="flex h-full min-w-0 flex-col">
             {selectedPath === null ? (
               <div className="flex flex-1 items-center justify-center text-sm text-muted-foreground">
-                {t("files.selectFile")}
+                {artifactResolutionMessage ?? t("files.selectFile")}
               </div>
             ) : (
               <>
@@ -399,9 +572,19 @@ export function WorkspaceFilesView({
                       path=""
                       depth={0}
                       expanded={expanded}
-                      selectedPath={selectedPath}
-                      onToggleDirectory={toggleDirectory}
+                      selectedPath={selectedDirectory ?? selectedPath}
+                      onToggleDirectory={(path) => {
+                        setPendingArtifact(null);
+                        setArtifactResolutionMessage(null);
+                        setSelectedPath(null);
+                        setSelectedTarget(null);
+                        setSelectedDirectory(path);
+                        toggleDirectory(path);
+                      }}
                       onSelectFile={(path) => {
+                        setPendingArtifact(null);
+                        setArtifactResolutionMessage(null);
+                        setSelectedDirectory(null);
                         setSelectedPath(path);
                         setSelectedTarget(null);
                       }}
@@ -447,6 +630,7 @@ export function WorkspaceFilesView({
         <Button
           size="sm"
           variant={surface === "explorer" ? "secondary" : "ghost"}
+          aria-pressed={surface === "explorer"}
           onClick={() => setSurface("explorer")}
         >
           <IconFolderOpen />
@@ -455,6 +639,7 @@ export function WorkspaceFilesView({
         <Button
           size="sm"
           variant={surface === "search" ? "secondary" : "ghost"}
+          aria-pressed={surface === "search"}
           onClick={() => setSurface("search")}
         >
           <IconSearch />
@@ -541,6 +726,8 @@ function WorkspaceTreeEntry({
     <>
       <button
         type="button"
+        aria-expanded={isDirectory ? isExpanded : undefined}
+        aria-current={selectedPath === entry.path ? "page" : undefined}
         className={`flex h-7 w-full items-center gap-1 border-l-2 pr-2 text-left text-xs hover:bg-muted ${
           selectedPath === entry.path
             ? "border-primary bg-accent/80 text-accent-foreground"

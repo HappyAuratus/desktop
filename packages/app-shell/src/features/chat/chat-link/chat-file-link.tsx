@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { type ReactNode } from "react";
 import {
   ContextMenu,
   ContextMenuContent,
@@ -35,7 +35,7 @@ export interface ChatFileLinkProps {
 
 type FileLinkClassification = Extract<
   ChatLinkClassification,
-  { kind: "diff" | "files" }
+  { kind: "diff" | "files" | "directory" | "artifact" }
 >;
 
 /** Opens the classified in-app target for a chat file mention. */
@@ -43,6 +43,25 @@ function openClassified(
   classified: FileLinkClassification,
   navigation: NonNullable<ReturnType<typeof useTaskChangesNavigation>>,
 ) {
+  if (classified.kind === "artifact") {
+    navigation.openWorkspaceArtifact?.(
+      classified.path,
+      classified.line,
+      classified.column,
+    );
+    return;
+  }
+  if (classified.kind === "directory") {
+    if (
+      classified.path !== "" &&
+      navigation.openWorkspaceArtifact !== undefined
+    ) {
+      navigation.openWorkspaceArtifact(classified.path);
+    } else {
+      navigation.openWorkspaceDirectory?.(classified.path);
+    }
+    return;
+  }
   if (classified.kind === "diff") {
     navigation.openDiff(classified.path, classified.line);
     return;
@@ -103,12 +122,7 @@ export function ChatFileLink({
   }
 
   return (
-    <LinkedChatFile
-      source={source}
-      raw={raw}
-      className={className}
-      initial={classified}
-    >
+    <LinkedChatFile source={source} className={className} initial={classified}>
       {children}
     </LinkedChatFile>
   );
@@ -117,13 +131,11 @@ export function ChatFileLink({
 /** Desktop cwd resolution and context menu live here so plain-code fallbacks stay platform-free. */
 function LinkedChatFile({
   source,
-  raw,
   className,
   initial,
   children,
 }: {
   source: "inline-code" | "href";
-  raw: string;
   className?: string;
   initial: FileLinkClassification;
   children: ReactNode;
@@ -132,56 +144,36 @@ function LinkedChatFile({
   const chatLink = useChatLinkContext()!;
   const navigation = useTaskChangesNavigation()!;
   const { locationActions } = usePlatform();
-  const [desktopCwd, setDesktopCwd] = useState<string | null>(null);
-
-  useEffect(() => {
-    // Desktop is the only host: locationActions is always the cwd + OS-open
-    // pair, not a supported/unsupported discriminant. Project-only drafts rely
-    // on MessageList's project rootPath instead of resolveTaskCwd.
-    const taskId = chatLink.taskId;
-    if (taskId === undefined) return;
-    let cancelled = false;
-    void locationActions
-      .resolveTaskCwd(taskId)
-      .then((path) => {
-        if (cancelled) return;
-        // Empty cwd is the same as "not resolved yet": keep null so tests and
-        // first paint do not get a redundant setState after the stub resolves.
-        const next = path.trim() === "" ? null : path;
-        setDesktopCwd((current) => (current === next ? current : next));
-      })
-      .catch(() => {
-        if (!cancelled) {
-          setDesktopCwd((current) => (current === null ? current : null));
-        }
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [chatLink.taskId, locationActions]);
-
-  const cwd = desktopCwd ?? chatLink.cwd ?? null;
-  const refreshed = classifyChatCandidate({
-    source,
-    raw,
-    index: chatLink.index,
-    hasNavigation: true,
-    cwd,
-  });
-  const classified: FileLinkClassification =
-    refreshed.kind === "diff" || refreshed.kind === "files"
-      ? refreshed
-      : initial;
+  const cwd = chatLink.cwd ?? null;
+  const classified = initial;
 
   // Explorer / VS Code / copy need a host path. Hide them until cwd is known
   // rather than handing a worktree-relative path to the OS.
   const osPath =
     cwd === null ? null : joinOsAbsolutePath(classified.displayPath, cwd);
-  const ariaLabel = t("chat.fileLink.aria", { path: classified.path });
+  const ariaLabel = t(
+    classified.kind === "directory" || classified.kind === "artifact"
+      ? "chat.fileLink.pathAria"
+      : "chat.fileLink.aria",
+    { path: classified.path },
+  );
   const linkClassName = [CHAT_FILE_LINK_CLASS, className]
     .filter((part) => part !== undefined && part !== "")
     .join(" ");
   const showPreviewInFiles = classified.kind === "diff";
+  const triggerChildren =
+    source === "inline-code" ? (
+      <code className={CHAT_FILE_LINK_CODE_CLASS}>{children}</code>
+    ) : (
+      children
+    );
+  const buttonProps = {
+    type: "button" as const,
+    className: linkClassName,
+    title: classified.displayPath,
+    "aria-label": ariaLabel,
+    onClick: () => openClassified(classified, navigation),
+  };
 
   const openOs = async (target: "explorer" | "vscode") => {
     if (osPath === null) return;
@@ -210,54 +202,44 @@ function LinkedChatFile({
     }
   };
 
+  const hasContextMenu = osPath !== null || showPreviewInFiles;
+
   return (
     <ContextMenu>
-      <ContextMenuTrigger
-        render={
-          <button
-            type="button"
-            className={linkClassName}
-            title={classified.displayPath}
-            aria-label={ariaLabel}
-            onClick={() => openClassified(classified, navigation)}
-          />
-        }
-      >
-        {source === "inline-code" ? (
-          <code className={CHAT_FILE_LINK_CODE_CLASS}>{children}</code>
-        ) : (
-          children
-        )}
+      <ContextMenuTrigger render={<button {...buttonProps} />}>
+        {triggerChildren}
       </ContextMenuTrigger>
-      <ContextMenuContent>
-        {osPath !== null && (
-          <>
-            <ContextMenuItem onClick={() => void openOs("explorer")}>
-              {t("locationActions.explorer")}
+      {hasContextMenu && (
+        <ContextMenuContent>
+          {osPath !== null && (
+            <>
+              <ContextMenuItem onClick={() => void openOs("explorer")}>
+                {t("locationActions.explorer")}
+              </ContextMenuItem>
+              <ContextMenuItem onClick={() => void openOs("vscode")}>
+                {t("locationActions.vscode")}
+              </ContextMenuItem>
+              <ContextMenuItem onClick={() => void copyPath()}>
+                {t("locationActions.copyPath")}
+              </ContextMenuItem>
+            </>
+          )}
+          {osPath !== null && showPreviewInFiles && <ContextMenuSeparator />}
+          {showPreviewInFiles && (
+            <ContextMenuItem
+              onClick={() =>
+                navigation.openWorkspaceFile(
+                  classified.path,
+                  classified.line,
+                  classified.column,
+                )
+              }
+            >
+              {t("chat.fileLink.previewInFiles")}
             </ContextMenuItem>
-            <ContextMenuItem onClick={() => void openOs("vscode")}>
-              {t("locationActions.vscode")}
-            </ContextMenuItem>
-            <ContextMenuItem onClick={() => void copyPath()}>
-              {t("locationActions.copyPath")}
-            </ContextMenuItem>
-          </>
-        )}
-        {osPath !== null && showPreviewInFiles && <ContextMenuSeparator />}
-        {showPreviewInFiles && (
-          <ContextMenuItem
-            onClick={() =>
-              navigation.openWorkspaceFile(
-                classified.path,
-                classified.line,
-                classified.column,
-              )
-            }
-          >
-            {t("chat.fileLink.previewInFiles")}
-          </ContextMenuItem>
-        )}
-      </ContextMenuContent>
+          )}
+        </ContextMenuContent>
+      )}
     </ContextMenu>
   );
 }
