@@ -1,6 +1,7 @@
 mod agent_definition;
 mod cascade;
 mod connection;
+mod effect;
 mod git_cleanup_job;
 mod plugin;
 mod project;
@@ -19,6 +20,7 @@ mod worktree_provisioning_lease;
 pub use agent_definition::SqliteAgentDefinitionRepository;
 pub use cascade::{CascadeDeleteOutcome, SqliteCascadeRepository};
 pub use connection::RepositoryPool;
+pub use effect::{SourceMutationOutcome, SourcePublication, SqliteEffectRepository};
 pub use git_cleanup_job::SqliteGitCleanupJobRepository;
 pub use plugin::SqlitePluginStateRepository;
 pub use project::SqliteProjectRepository;

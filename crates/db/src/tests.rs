@@ -23,13 +23,13 @@ impl TimestampSource for FixedTimestampSource {
     }
 }
 
-/// Verifies a fresh database applies every logical schema module and snapshots its SQL.
+/// Verifies the current schema includes the linear Effect persistence migration.
 #[test]
 fn bootstraps_the_current_workspace_schema() {
     let catalog = default_migration_catalog().expect("build migration catalog");
     assert_eq!(
         catalog.target_versions(),
-        ["0001", "0002", "0003", "0004", "0005"]
+        ["0001", "0002", "0003", "0004", "0005", "0006"]
     );
 
     let database = with_trace_logging(|| {
@@ -44,6 +44,15 @@ fn bootstraps_the_current_workspace_schema() {
         load_table_names(database.connection()),
         vec![
             "agents",
+            "effect_audit_events",
+            "effect_consumer_status",
+            "effect_managed_skills",
+            "effect_operations",
+            "effect_reconcile_requests",
+            "effect_source_propagation_requests",
+            "effect_source_states",
+            "effect_surface_status",
+            "effect_surfaces",
             "git_cleanup_jobs",
             "migrations",
             "plugin_state",
@@ -56,6 +65,8 @@ fn bootstraps_the_current_workspace_schema() {
             "workflow_runs",
             "workflow_snapshots",
             "workflows",
+            "workspace_effect_desired_skills",
+            "workspace_effects",
             "workspace_locations",
             "workspace_provisioning",
             "workspaces",

@@ -32,6 +32,8 @@ pub enum DatabaseError {
     CorruptPluginId(#[from] ora_domain::PluginIdError),
     #[error("workflow run state is corrupt: {0}")]
     CorruptWorkflowRunState(#[from] serde_json::Error),
+    #[error("Effect state is corrupt: {0}")]
+    CorruptEffectState(String),
     #[error("workflow run execution context is incomplete")]
     IncompleteWorkflowRunContext,
     #[error("user configuration value for `{key}` is corrupt")]

@@ -2946,6 +2946,7 @@ dependencies = [
  "gray_matter",
  "ora-contracts",
  "ora-domain",
+ "ora-effect",
  "ora-logging",
  "ora-skill-package",
  "ora-test-support",
@@ -2977,6 +2978,7 @@ dependencies = [
  "ora-contracts",
  "ora-db",
  "ora-domain",
+ "ora-effect",
  "ora-fs",
  "ora-history",
  "ora-logging",
@@ -3024,7 +3026,9 @@ dependencies = [
  "ora-application",
  "ora-contracts",
  "ora-domain",
+ "ora-effect",
  "ora-logging",
+ "ora-skill-package",
  "pretty_assertions",
  "r2d2",
  "rusqlite",
@@ -3082,6 +3086,22 @@ dependencies = [
  "serde",
  "serde_json",
  "thiserror 2.0.20",
+]
+
+[[package]]
+name = "ora-effect"
+version = "0.0.0"
+dependencies = [
+ "ora-domain",
+ "ora-skill-package",
+ "ora-utils",
+ "pretty_assertions",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tempfile",
+ "thiserror 2.0.20",
+ "uuid",
 ]
 
 [[package]]

@@ -13,6 +13,9 @@ that any other crate can consume without introducing dependency cycles.
   special-entry rejection, portable case-conflict detection, and cumulative entry/byte budgets.
 - `atomic`: atomically replacing a file by writing a same-directory temporary file and renaming
   it over the destination, so readers never observe partial content.
+- `directory`: rejects links and special entries while copying or fingerprinting directory trees;
+  fingerprints cover portable paths, file bytes, entry kinds, and executable permissions while
+  allowing callers to exclude their own metadata files.
 - `hash` (Cargo feature `validation`): streaming SHA-256 digests over a reader or file without
   buffering the whole input.
 - `http` (Cargo feature `http`): the transport-agnostic `HttpDownload` contract plus an offline

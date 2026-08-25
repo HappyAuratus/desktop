@@ -12,13 +12,14 @@ Ora keeps SQLite migration definitions in Rust code inside `ora-db` rather than 
 
 ## Shipped catalog
 
-| Version | Adds                                                                                                                                  |
-| ------- | ------------------------------------------------------------------------------------------------------------------------------------- |
-| `0001`  | User configuration, projects, workspace locations and provisioning, workspaces, worktrees, task labels, and workspace-owned sessions. |
-| `0002`  | Namespaced skills and configurable agents.                                                                                            |
-| `0003`  | Workflow definitions, snapshots, workspace-owned runs, and node runs.                                                                 |
-| `0004`  | Durable Git cleanup jobs and worktree provisioning leases.                                                                            |
-| `0005`  | Plugin eligibility.                                                                                                                   |
+| Version | Adds                                                                                                                                                                               |
+| ------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `0001`  | User configuration, projects, workspace locations and provisioning, workspaces, worktrees, task labels, and workspace-owned sessions.                                              |
+| `0002`  | Namespaced skills and configurable agents.                                                                                                                                         |
+| `0003`  | Workflow definitions, snapshots, workspace-owned runs, and node runs.                                                                                                              |
+| `0004`  | Durable Git cleanup jobs and worktree provisioning leases.                                                                                                                         |
+| `0005`  | Plugin eligibility.                                                                                                                                                                |
+| `0006`  | Workspace Effect source state, normalized Desired selections, surface descriptors, ownership ledgers, status, file-operation journals, and durable reconcile/propagation requests. |
 
 `default_migration_catalog()` returns all migrations with every version as the active target.
 
@@ -36,6 +37,8 @@ A catalog carries the full migration list plus an **active target prefix**, whic
 Each migration direction and its bookkeeping update run inside **one SQLite transaction**, so a failing `down` preserves that migration's schema and row, while a failing `up` never records the version. Rebuilding a suffix consists of multiple such steps: if a new `up` fails, already completed rollback steps remain committed and the database stays at that rolled-back prefix.
 
 The catalog is a clean prototype schema organized by logical dependency rather than a compatibility history. It omits retired intermediate tables and columns. Databases whose `migrations` table predates SQL snapshots are unsupported and should be recreated.
+
+Rolling back `0006` removes only Workspace Effect state and durable Effect work; the earlier application schema remains intact.
 
 ## Operational logging
 

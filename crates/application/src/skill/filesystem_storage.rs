@@ -151,6 +151,10 @@ impl FilesystemSkillStorage {
 }
 
 impl SkillStorage for FilesystemSkillStorage {
+    fn formal_package_path(&self, name: &str) -> Option<PathBuf> {
+        Some(self.formal_path(name))
+    }
+
     fn create_staging(&self) -> Result<PathBuf, SkillStorageError> {
         let root = self.reserved_root(STAGING_DIR_NAME);
         fs::create_dir_all(&root).map_err(map_storage_error)?;

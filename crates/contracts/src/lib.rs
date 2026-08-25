@@ -3,6 +3,7 @@ pub mod app_event;
 pub mod agent;
 pub mod agent_import;
 pub mod developer_mode;
+pub mod effect;
 pub mod error;
 pub mod file_system;
 pub mod git;
@@ -23,6 +24,7 @@ pub use app_event::*;
 
 pub use agent::*;
 pub use developer_mode::*;
+pub use effect::*;
 pub use error::*;
 pub use file_system::*;
 pub use git::*;
@@ -54,6 +56,7 @@ pub fn export_typescript_bindings_to(
     app_event::export(&config)?;
     agent::export(&config)?;
     developer_mode::export(&config)?;
+    effect::export(&config)?;
     error::export(&config)?;
     file_system::export(&config)?;
     git::export(&config)?;

@@ -5,7 +5,9 @@ The public application surface is split across `ora-domain`, `ora-contracts`, `o
 ## Ownership
 
 - `ora-domain` owns schema-backed entities, identifier newtypes, and categorical enums. See [Domain Models](domain-models.md).
-- `ora-contracts` owns serialization-friendly request, response, stream-event, and public-error DTOs for Project, Task, Task Diff review, Spec management, Session, Skill, Skill Import, Agent, Workflow, Git identity, and workspace-file operations.
+- `ora-contracts` owns serialization-friendly request, response, stream-event, and public-error
+  DTOs for Project, Task, Task Diff review, Spec management, Session, Skill, Skill Import, Effect,
+  Agent, Workflow, Git identity, and workspace-file operations.
 - `ora-contracts` keeps Rust field names idiomatic while serializing JSON payloads in `camelCase` for adapter and frontend consumption.
 - ACP v1 wire types are owned by the official `agent-client-protocol-schema` crate in Rust and `@agentclientprotocol/sdk` package in TypeScript. `ora-contracts` may embed those types in Ora application DTOs, but does not duplicate the ACP schema.
 - The `xtask` exporter owns the generation-only frontend endpoint catalog: operation names, client namespaces, request and response types, and unary-versus-stream response mode.
@@ -24,6 +26,8 @@ Contracts are the app-facing protocol, not a projection of the domain. Each enti
 - `Task`: `id`, `projectId`, `workspaceId`, `title`
 - `Session`: `id`, `taskId`, `agentCli`, `status`, `historyState`
 - `Skill`: `id`, `namespace`, `name`, `description`, `availability`
+- `WorkspaceEffect`: `workspaceId`, `generation`, and the complete normalized desired Skill set;
+  surface status exposes desired/observed/applied generations plus structured current conditions.
 - `Agent`: `id`, `namespace`, `name`, `description`
 - `ProjectBranch`: `name`, `refName`, `displayName`
 - Workspace file contracts keep task identity in the request and expose only normalized relative paths: `WorkspaceEntry`, `ReadWorkspaceFileResponse`, `SearchWorkspaceResponse`, and `WorkspaceFileEventBatch`. The server resolves the task's managed workspace; callers never provide a filesystem root.
@@ -65,6 +69,7 @@ The handler set is intentionally narrower than full CRUD per entity, because som
 | `session`          | get, list, delete                                                                                                               |
 | `skill`            | create, get, list, update, delete, startup reconciliation                                                                       |
 | `skill_import`     | prepare, get, commit, cancel batch sessions                                                                                     |
+| `effect`           | get desired, replace desired with generation CAS, get surface status, retry surface                                             |
 | `agent_definition` | create, get, list, update, delete                                                                                               |
 | `task_diff`        | read diff, commit, push                                                                                                         |
 | `workflow`         | create, get, list, update, delete, getDraft, updateDraft, publish, rollback, activate, listVersions, getVersion, deleteSnapshot |

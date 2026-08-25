@@ -8,6 +8,8 @@
 #[cfg(feature = "archive")]
 pub mod archive;
 pub mod atomic;
+#[cfg(feature = "validation")]
+pub mod directory;
 pub mod fs;
 mod git_branch;
 #[cfg(feature = "validation")]
