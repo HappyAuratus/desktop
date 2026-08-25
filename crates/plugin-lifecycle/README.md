@@ -22,14 +22,21 @@ an agent plugin: it holds a `PluginConnection` pinned to one generation and read
 notifications through the sink, while enable, stop, scan, and uninstall keep deciding how long the
 process lives.
 
-Only explicit scans rebuild the installed snapshot. Per-plugin actions operate on cached identity,
-serialize changes for the same plugin, and allow unrelated plugins to progress independently.
-Missing durable state means disabled, and only the first enable creates a durable row. Uninstall
-publishes a stopped runtime before durable or filesystem cleanup so later cleanup failures never
-leave a process reported as running. Filesystem cleanup removes the complete
-`plugins/installed/<namespace>/<name>` tree so no older version can reappear after the selected
-version is uninstalled, prunes the namespace directory when it is empty, and then removes the
-plugin's data directory.
+Only explicit scans rebuild the installed snapshot. List responses additionally read the current
+Plugin Configuration summary from immutable package declarations and plugin-global value files
+under `<data-dir>/plugins/data/<namespace>/<name>/store.json`, so the settings list reflects
+persisted completeness without a separate editor fetch. When the cached package root is no longer
+a traversable directory, the summary stays `NotDeclared` rather than `configuration_load_failed`. Per-plugin actions operate on cached
+identity, serialize changes for the same plugin, and allow unrelated plugins to progress
+independently.
+Missing durable state means disabled, and only the first enable creates a durable row. A package
+with an invalid Plugin Configuration declaration remains visible but cannot be enabled. Uninstall
+closes surfaces, stops the process, then atomically stages the complete
+`plugins/installed/<namespace>/<name>` tree and, when selected, `plugins/data/<namespace>/<name>`
+before deleting durable state. A repository or staging failure attempts every staged move in
+reverse order and reports any rollback failure; after commit, staging cleanup is independent and
+empty namespace directories are pruned. Cleanup failures retain their staged paths in memory and
+are retried by later scans without reversing the already committed uninstall.
 Each scan reapplies durable eligibility to every retained package, stops runtimes that durable state
 no longer permits, and removes durable rows for packages missing from disk. To return one coherent
 snapshot, a scan acquires cached plugin operation locks in stable identifier order and may therefore
@@ -44,8 +51,9 @@ keep the two in sync.
 
 Plugins are identified by `ora_domain::PluginId` (`<namespace>/<name>`); request contracts carry
 the canonical string, and a malformed id is reported as `PluginNotFound`. Installed packages live
-in `<data-dir>/plugins/installed/<name>/` (read-only, discovered by `ora-plugin-manager`);
-uninstall removes that package directory and the plugin's data directory.
+in `<data-dir>/plugins/installed/<namespace>/<name>/<version>` (read-only, discovered by
+`ora-plugin-manager`); uninstall stages that package tree and, when requested, the plugin's data
+directory.
 
 Before launching, the lifecycle creates `<data-dir>/plugins/data/<namespace>/<name>/` (with
 `downloads/`) through `PluginDataDirectories`, derives Deno permissions from the plugin kind

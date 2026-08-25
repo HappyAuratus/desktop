@@ -182,10 +182,14 @@ where
                         Err(PluginLifecycleError::NoProcess { .. }) => {
                             return Err(ConnectionError::NoProcess);
                         }
+                        Err(PluginLifecycleError::InvalidConfigurationDeclaration { .. }) => {
+                            return Err(ConnectionError::Disabled);
+                        }
                         Err(
                             error @ (PluginLifecycleError::Repository(_)
                             | PluginLifecycleError::RuntimeStop { .. }
-                            | PluginLifecycleError::PackageRemoval { .. }),
+                            | PluginLifecycleError::PackageRemoval { .. }
+                            | PluginLifecycleError::UninstallStaging { .. }),
                         ) => return Err(ConnectionError::Failed(error.to_string())),
                     }
                 }

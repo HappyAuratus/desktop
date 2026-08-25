@@ -128,6 +128,11 @@ impl From<PluginLifecycleError> for BackendError {
                 PublicError::PluginDisabled(EmptyErrorParams {}),
                 "plugin must be enabled before activation",
             ),
+            PluginLifecycleError::InvalidConfigurationDeclaration { .. } => (
+                ErrorClassification::InvalidRequest,
+                PublicError::PluginConfigurationDeclarationInvalid(EmptyErrorParams {}),
+                "plugin configuration declaration is invalid",
+            ),
             PluginLifecycleError::NoProcess { .. } => (
                 ErrorClassification::InvalidRequest,
                 PublicError::InvalidRequest(EmptyErrorParams {}),
@@ -135,7 +140,8 @@ impl From<PluginLifecycleError> for BackendError {
             ),
             PluginLifecycleError::Repository(_)
             | PluginLifecycleError::RuntimeStop { .. }
-            | PluginLifecycleError::PackageRemoval { .. } => (
+            | PluginLifecycleError::PackageRemoval { .. }
+            | PluginLifecycleError::UninstallStaging { .. } => (
                 ErrorClassification::Internal,
                 PublicError::InternalError(EmptyErrorParams {}),
                 "plugin lifecycle operation failed",

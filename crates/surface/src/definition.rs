@@ -153,6 +153,8 @@ mod tests {
             license: None,
             contributes,
             logo: None,
+            configuration_declaration:
+                ora_plugin_manager::PluginConfigurationDeclarationValidity::NotDeclared,
         }
     }
 

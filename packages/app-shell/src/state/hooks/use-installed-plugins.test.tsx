@@ -24,6 +24,8 @@ describe("useInstalledPlugins", () => {
       agentDisplayName: "Reviewer",
       enabled: false,
       logo: null,
+      installationValidity: { validity: "valid" },
+      configuration: { state: "not_declared" },
       runtime: "stopped",
     });
     const { result, queryClient } = renderHookWithClient(

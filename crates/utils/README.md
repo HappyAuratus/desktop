@@ -11,8 +11,9 @@ that any other crate can consume without introducing dependency cycles.
 - `archive` (Cargo feature `archive`): safe materialization of untrusted `.zip` / `.tar.gz`
   archives and folder trees into a destination directory with zip-slip defenses, encrypted and
   special-entry rejection, portable case-conflict detection, and cumulative entry/byte budgets.
-- `atomic`: atomically replacing a file by writing a same-directory temporary file and renaming
-  it over the destination, so readers never observe partial content.
+- `atomic`: atomically replacing a file by writing a same-directory temporary file, optionally
+  preparing its metadata, and renaming it over the destination, so readers never observe partial
+  content or a destination change after preparation fails.
 - `directory`: rejects links and special entries while copying or fingerprinting directory trees;
   fingerprints cover portable paths, file bytes, entry kinds, and executable permissions while
   allowing callers to exclude their own metadata files.

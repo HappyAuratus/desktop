@@ -23,6 +23,8 @@ function webviewPlugin(
     startUrl: "https://www.example.com/",
     logo: null,
     enabled,
+    installationValidity: { validity: "valid" },
+    configuration: { state: "not_declared" },
     runtime: "stopped",
   };
 }
@@ -46,6 +48,8 @@ function workbenchPlugin(
     title,
     logo: null,
     enabled: true,
+    installationValidity: { validity: "valid" },
+    configuration: { state: "not_declared" },
     runtime: "stopped",
   };
 }
@@ -63,6 +67,8 @@ const agentPlugin: InstalledPlugin = {
   agentDisplayName: "Review Agent",
   logo: null,
   enabled: true,
+  installationValidity: { validity: "valid" },
+  configuration: { state: "not_declared" },
   runtime: "running",
 };
 

@@ -1,3 +1,5 @@
+use std::{fs, path::Path};
+
 /// The single command registry shared with `lib.rs`, where it expands to the invoke handler.
 const DESKTOP_COMMAND_REGISTRY: &str = include_str!("src/app_commands.rs");
 
@@ -18,35 +20,56 @@ fn desktop_commands() -> Vec<String> {
         .collect()
 }
 
-/// Extracts the command names granted to the trusted main Webview from the ACL permission file.
+/// Ensures every registered desktop command can be invoked by the trusted main Webview.
 ///
-/// `main-commands.toml` lists every allowed command as a quoted entry inside `commands.allow`.
-/// Only lines that start with a double quote are command entries; header keys such as
-/// `identifier` and `description` never do, so this filter selects exactly the grant list. The
-/// file is read at run time rather than via `include_str!` so a fix applied after a guard failure
-/// is picked up without forcing a build-script recompile; the `cargo:rerun-if-changed` directive
-/// still re-runs this script whenever the file changes.
-fn main_command_permissions() -> Vec<String> {
+/// Parses `commands.allow` from TOML rather than scanning quoted lines so permission metadata
+/// keys cannot be mistaken for grants. The path is rooted at `CARGO_MANIFEST_DIR` so the check
+/// stays correct when cargo invokes the build script from another working directory.
+fn validate_main_command_permissions(commands: &[String]) {
     let manifest_dir = std::env::var("CARGO_MANIFEST_DIR")
         .expect("CARGO_MANIFEST_DIR is always set when cargo runs a build script");
-    let path = std::path::Path::new(&manifest_dir)
+    let permission_path = Path::new(&manifest_dir)
         .join("permissions")
         .join("main-commands.toml");
-    let contents = std::fs::read_to_string(&path)
-        .unwrap_or_else(|error| panic!("failed to read {}: {error}", path.display()));
-    contents
-        .lines()
-        .map(str::trim)
-        .filter(|line| line.starts_with('"'))
-        .filter_map(|line| line.strip_prefix('"'))
-        .filter_map(|rest| rest.split('"').next())
-        .map(str::to_owned)
-        .collect()
+    let permission_source = fs::read_to_string(&permission_path).unwrap_or_else(|error| {
+        panic!(
+            "failed to read desktop command permissions from {}: {error}",
+            permission_path.display()
+        )
+    });
+    let permissions = toml::from_str::<toml::Value>(&permission_source)
+        .unwrap_or_else(|error| panic!("failed to parse {}: {error}", permission_path.display()));
+    let allowed_commands = permissions
+        .get("permission")
+        .and_then(toml::Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(|permission| permission.get("commands"))
+        .filter_map(toml::Value::as_table)
+        .filter_map(|commands| commands.get("allow"))
+        .filter_map(toml::Value::as_array)
+        .flatten()
+        .filter_map(toml::Value::as_str)
+        .collect::<std::collections::BTreeSet<_>>();
+    let missing_commands = commands
+        .iter()
+        .filter(|command| !allowed_commands.contains(command.as_str()))
+        .cloned()
+        .collect::<Vec<_>>();
+
+    // Tauri registers commands independently from its capability allowlist, so a missing
+    // permission otherwise survives compilation and only fails when a user opens the feature.
+    assert!(
+        missing_commands.is_empty(),
+        "registered desktop commands missing from {}: {}",
+        permission_path.display(),
+        missing_commands.join(", ")
+    );
 }
 
 fn main() {
-    println!("cargo:rerun-if-changed=src/app_commands.rs");
     println!("cargo:rerun-if-changed=permissions/main-commands.toml");
+    println!("cargo:rerun-if-changed=src/app_commands.rs");
     let commands = desktop_commands();
     assert!(
         !commands.is_empty(),
@@ -57,19 +80,7 @@ fn main() {
     // from that file is callable by nobody, so the main Webview invoke is denied at runtime and
     // surfaces to the user as "tauri_invoke_failure". Enforce it at build time so the two files
     // cannot drift.
-    let permissions = main_command_permissions();
-    let granted: std::collections::HashSet<&str> = permissions.iter().map(String::as_str).collect();
-    let ungranted: Vec<&str> = commands
-        .iter()
-        .filter(|command| !granted.contains(command.as_str()))
-        .map(String::as_str)
-        .collect();
-    assert!(
-        ungranted.is_empty(),
-        "commands registered in src/app_commands.rs are missing from \
-         permissions/main-commands.toml; grant them to the main Webview or the invoke is denied \
-         at runtime: {ungranted:?}"
-    );
+    validate_main_command_permissions(&commands);
     // `AppManifest::commands` keeps a `'static` slice; leaking the build-time list is the
     // cheapest way to hand it one, and a build script's memory ends with the process anyway.
     let command_names: &'static [&'static str] = Box::leak(

@@ -18,6 +18,7 @@ use ora_db::{
 use ora_domain::PluginId;
 use ora_effect::Digest;
 use ora_logging::{ora_debug, ora_info, ora_warn};
+use ora_plugin_config::ConfigurationService;
 use ora_plugin_lifecycle::{
     ConnectionError, DenoPluginRuntime, DenoPluginRuntimeLauncher, InboundNotification,
     PluginGenerationKey, PluginGenerationLease, PluginLifecycle, PluginLifecycleConfig,
@@ -159,12 +160,13 @@ pub(crate) struct AgentPluginAttachment {
 
 /// Groups plugin discovery and lifecycle operations behind the backend's plugin interface.
 pub(crate) struct PluginApi {
-    lifecycle: BackendPluginLifecycle,
+    pub(crate) lifecycle: BackendPluginLifecycle,
     registry_sources: Vec<RegistrySource>,
     registry_index_path: PathBuf,
     data_directory: PathBuf,
     installer: Installer<ReqwestDownloader>,
     notifications: BroadcastNotificationSink,
+    pub(crate) configuration: ConfigurationService,
     skill_repository: SqliteSkillRepository,
     clock: SystemClock,
 }
@@ -189,6 +191,7 @@ impl PluginApi {
         let registry_index_path = plugins_directory.join("cache").join("registry_index.json");
         let installer = Installer::new(ReqwestDownloader::new(ProxyConfig::default()));
         let notifications = BroadcastNotificationSink::new();
+        let configuration = ConfigurationService::new(data_directory.clone());
         let lifecycle = PluginLifecycle::open(
             PluginLifecycleConfig {
                 data_directory: data_directory.clone(),
@@ -208,6 +211,7 @@ impl PluginApi {
             data_directory,
             installer,
             notifications,
+            configuration,
             skill_repository: SqliteSkillRepository::new(pool),
             clock,
         })

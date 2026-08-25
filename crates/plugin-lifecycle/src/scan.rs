@@ -1,10 +1,12 @@
 use super::{
     EnabledRuntime, ManagedPluginState, PluginLifecycle, PluginLifecycleError,
     PluginNotificationSink, PluginRuntime, PluginRuntimeLauncher, PluginStatusPublisher,
+    has_valid_configuration_declaration,
 };
 use ora_application::{Clock, PluginStateRepository};
 use ora_contracts::{ScanPluginsRequest, ScanPluginsResponse};
 use ora_domain::PluginEnabledState;
+use ora_logging::ora_warn;
 use ora_plugin_manager::PluginManager;
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -23,6 +25,17 @@ where
         _request: ScanPluginsRequest,
     ) -> Result<ScanPluginsResponse, PluginLifecycleError> {
         let _scan = self.inner.scan_lock.lock().await;
+        self.inner
+            .pending_uninstall_cleanup
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .retain(|staged| match staged.cleanup() {
+                Ok(()) => false,
+                Err(error) => {
+                    ora_warn!(%error, "plugin uninstall staging cleanup retry failed");
+                    true
+                }
+            });
         let cached_ids = self
             .read_state()
             .installed
@@ -43,6 +56,10 @@ where
             .iter()
             .map(|plugin| plugin.id.clone())
             .collect::<BTreeSet<_>>();
+        let installed_by_id = installed
+            .iter()
+            .map(|plugin| (plugin.id.clone(), plugin))
+            .collect::<BTreeMap<_, _>>();
         let removed_ids = cached_ids
             .difference(&installed_ids)
             .cloned()
@@ -82,7 +99,25 @@ where
             .map_err(PluginLifecycleError::Repository)?
         {
             if installed_ids.contains(&persisted.plugin_id) {
-                persisted_by_id.insert(persisted.plugin_id, persisted.enabled);
+                let valid = installed_by_id
+                    .get(&persisted.plugin_id)
+                    .is_some_and(|plugin| has_valid_configuration_declaration(plugin));
+                let enabled = if valid {
+                    persisted.enabled
+                } else {
+                    if persisted.enabled == PluginEnabledState::Enabled {
+                        self.inner
+                            .repository
+                            .set_plugin_enabled(
+                                &persisted.plugin_id,
+                                PluginEnabledState::Disabled,
+                                self.inner.clock.now_timestamp_millis(),
+                            )
+                            .map_err(PluginLifecycleError::Repository)?;
+                    }
+                    PluginEnabledState::Disabled
+                };
+                persisted_by_id.insert(persisted.plugin_id, enabled);
             } else {
                 orphaned_persisted_ids.push(persisted.plugin_id);
             }

@@ -35,6 +35,8 @@ function webviewPlugin(
     startUrl: `https://example.test/${id}`,
     logo: null,
     enabled: true,
+    installationValidity: { validity: "valid" },
+    configuration: { state: "not_declared" },
     runtime: "stopped",
   };
 }

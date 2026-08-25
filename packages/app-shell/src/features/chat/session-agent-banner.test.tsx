@@ -45,6 +45,8 @@ function agentPlugin(
     agentDisplayName: "Review Agent",
     enabled,
     logo: null,
+    installationValidity: { validity: "valid" },
+    configuration: { state: "not_declared" },
     ...runtime,
   };
 }

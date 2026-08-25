@@ -1,21 +1,24 @@
 import type * as acp from "@agentclientprotocol/sdk";
-import type {
-  Agent,
-  AgentRuntimeStatus,
-  AvailablePlugin,
-  ContractsClient,
-  InstalledPlugin,
-  Project,
-  RuntimeLogLevelStateResponse,
-  Session,
-  Skill,
-  Task,
-  Workflow,
-  WorkflowRun,
-  WorkflowSnapshot,
-  WorkflowSummary,
-  WorkflowVersion,
-  Workspace,
+import {
+  RemoteContractError,
+  type Agent,
+  type AgentRuntimeStatus,
+  type AvailablePlugin,
+  type ContractsClient,
+  type InstalledPlugin,
+  type PluginConfigurationDetails,
+  type PluginSettingValue,
+  type Project,
+  type RuntimeLogLevelStateResponse,
+  type Session,
+  type Skill,
+  type Task,
+  type Workflow,
+  type WorkflowRun,
+  type WorkflowSnapshot,
+  type WorkflowSummary,
+  type WorkflowVersion,
+  type Workspace,
 } from "@ora/contracts";
 
 /** One in-memory workflow with its editable draft and published history. */
@@ -68,6 +71,7 @@ export interface MockClientState {
   agents: Agent[];
   skills: Skill[];
   installedPlugins: InstalledPlugin[];
+  pluginConfigurations: Map<string, PluginConfigurationDetails>;
   /**
    * What the agent runtime reports reaching, which is what decides the agents the pickers offer.
    *
@@ -123,6 +127,7 @@ export function createMockClientState(): MockClientState {
     agents: [],
     skills: [],
     installedPlugins: [],
+    pluginConfigurations: new Map(),
     agentRuntimeStatuses: AGENT_REFS.map((agentRef) => ({
       agentRef,
       status: "ready",
@@ -410,6 +415,26 @@ export function createMockClient(state: MockClientState): ContractsClient {
     },
     plugin: {
       listInstalled: async () => ({ plugins: [...state.installedPlugins] }),
+      getConfiguration: async (req) => {
+        const configuration = state.pluginConfigurations.get(req.pluginId);
+        if (configuration === undefined)
+          throw new Error(`plugin configuration ${req.pluginId} not found`);
+        return { configuration: structuredClone(configuration) };
+      },
+      saveConfiguration: async (req) => ({
+        configuration: structuredClone(commitPluginConfiguration(state, req)),
+      }),
+      resetConfiguration: async (req) => ({
+        configuration: structuredClone(
+          commitPluginConfiguration(state, {
+            pluginId: req.pluginId,
+            expectedRevision:
+              req.mode === "reset_all" ? req.expectedRevision : 0n,
+            declarationFingerprint: req.declarationFingerprint,
+            values: {},
+          }),
+        ),
+      }),
       listAvailable: async () => ({
         updatedAt: state.availablePluginsUpdatedAt,
         plugins: [...state.availablePlugins],
@@ -466,6 +491,8 @@ export function createMockClient(state: MockClientState): ContractsClient {
         if (idx < 0)
           throw new Error(`installed plugin ${req.pluginId} not found`);
         state.installedPlugins.splice(idx, 1);
+        if (req.dataDisposition === "delete")
+          state.pluginConfigurations.delete(req.pluginId);
         return { pluginId: req.pluginId };
       },
       import: async (req) => {
@@ -495,6 +522,8 @@ export function createMockClient(state: MockClientState): ContractsClient {
           agentDisplayName: available.name,
           enabled: true,
           logo: available.logo,
+          installationValidity: { validity: "valid" },
+          configuration: { state: "not_declared" },
           runtime: "stopped",
         });
         return { pluginId: req.pluginId };
@@ -986,4 +1015,95 @@ export function createMockClient(state: MockClientState): ContractsClient {
       },
     },
   };
+}
+
+/**
+ * Commits one editor write into in-memory mock state.
+ *
+ * Save and reset share this so completeness and list-facing summaries cannot drift
+ * between the two mock endpoints.
+ */
+function commitPluginConfiguration(
+  state: MockClientState,
+  req: {
+    pluginId: string;
+    expectedRevision: bigint;
+    declarationFingerprint: string;
+    values: { [key in string]: PluginSettingValue };
+  },
+): PluginConfigurationDetails {
+  const current = state.pluginConfigurations.get(req.pluginId);
+  if (current === undefined)
+    throw new Error(`plugin configuration ${req.pluginId} not found`);
+  if (req.declarationFingerprint !== current.declarationFingerprint)
+    throw configurationWriteConflict(
+      "plugin_configuration_declaration_changed",
+    );
+  if (req.expectedRevision !== current.revision)
+    throw configurationWriteConflict("configuration_revision_conflict");
+  const settings = current.settings.map((field) => {
+    const storedValue = req.values[field.declaration.id];
+    if (storedValue !== undefined)
+      return {
+        ...field,
+        storedValue,
+        effectiveValue: storedValue,
+        source: "stored" as const,
+        valueErrorCode: null,
+      };
+    return {
+      ...field,
+      storedValue: null,
+      effectiveValue: field.declaration.default,
+      source:
+        field.declaration.default === null
+          ? ("absent" as const)
+          : ("default" as const),
+      valueErrorCode: null,
+    };
+  });
+  // Mock never injects valueErrorCode; incompleteness is only a missing required value.
+  const incomplete = settings.some(
+    (field) =>
+      field.declaration.required &&
+      (field.effectiveValue === null ||
+        (typeof field.effectiveValue === "string" &&
+          field.effectiveValue.trim() === "")),
+  );
+  const configuration: PluginConfigurationDetails = {
+    ...current,
+    revision: current.revision + 1n,
+    settings,
+    summary: {
+      state: "available",
+      completeness: incomplete ? "incomplete" : "complete",
+    },
+  };
+  state.pluginConfigurations.set(req.pluginId, configuration);
+  const plugin = state.installedPlugins.find(
+    (candidate) => candidate.id === req.pluginId,
+  );
+  if (plugin !== undefined) {
+    plugin.configuration = {
+      state: "available",
+      completeness: incomplete ? "incomplete" : "complete",
+    };
+  }
+  return configuration;
+}
+
+/** Mirrors the two optimistic-concurrency failures returned by the desktop contract. */
+function configurationWriteConflict(
+  code:
+    | "configuration_revision_conflict"
+    | "plugin_configuration_declaration_changed",
+): RemoteContractError {
+  return new RemoteContractError(
+    {
+      code,
+      params: {},
+      requestId: "00000000-0000-4000-8000-000000000001",
+    },
+    null,
+  );
 }

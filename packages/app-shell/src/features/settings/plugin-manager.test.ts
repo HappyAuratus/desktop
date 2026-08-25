@@ -16,6 +16,8 @@ const plugins: InstalledPlugin[] = [
     agentDisplayName: "Review Agent",
     enabled: false,
     logo: null,
+    installationValidity: { validity: "valid" },
+    configuration: { state: "not_declared" },
     runtime: "stopped",
   },
   {
@@ -31,6 +33,8 @@ const plugins: InstalledPlugin[] = [
     agentDisplayName: "Plan Agent",
     enabled: false,
     logo: null,
+    installationValidity: { validity: "valid" },
+    configuration: { state: "not_declared" },
     runtime: "stopped",
   },
   {
@@ -45,6 +49,8 @@ const plugins: InstalledPlugin[] = [
     kind: "skill",
     enabled: true,
     logo: null,
+    installationValidity: { validity: "valid" },
+    configuration: { state: "not_declared" },
     runtime: "stopped",
   },
 ];

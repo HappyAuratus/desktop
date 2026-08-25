@@ -9,6 +9,7 @@ mod scan;
 mod state;
 mod storage;
 mod surface_closer;
+mod uninstall;
 
 pub use connection::{ConnectionError, PluginGenerationKey, PluginGenerationLease};
 pub use data_dir::PluginDataDirectories;
@@ -36,16 +37,21 @@ use state::{
     reconcile_persisted_state,
 };
 use surface_closer::SurfaceCloserSlot;
+use uninstall::{StagedUninstall, stage_uninstall};
 
 use ora_application::{Clock, PluginStateRepository, RepositoryError};
 use ora_contracts::{
     ActivatePluginRequest, ActivatePluginResponse, DisablePluginRequest, DisablePluginResponse,
-    EnablePluginRequest, EnablePluginResponse, ListInstalledPluginsResponse, StopPluginRequest,
-    StopPluginResponse, UninstallPluginRequest, UninstallPluginResponse,
+    EnablePluginRequest, EnablePluginResponse, ListInstalledPluginsResponse, PluginDataDisposition,
+    StopPluginRequest, StopPluginResponse, UninstallPluginRequest, UninstallPluginResponse,
 };
 use ora_domain::{PluginEnabledState, PluginId};
 use ora_logging::ora_warn;
-use ora_plugin_manager::{InstalledPlugin as DiscoveredPlugin, PluginContribution, PluginManager};
+use ora_plugin_config::ConfigurationService;
+use ora_plugin_manager::{
+    InstalledPlugin as DiscoveredPlugin, PluginConfigurationDeclarationValidity,
+    PluginContribution, PluginManager,
+};
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, PoisonError, RwLock, RwLockReadGuard, RwLockWriteGuard};
@@ -70,6 +76,8 @@ pub enum PluginLifecycleError {
     PluginDisabled { plugin_id: String },
     #[error("plugin `{plugin_id}` has no process to activate")]
     NoProcess { plugin_id: String },
+    #[error("plugin `{plugin_id}` has an invalid configuration declaration")]
+    InvalidConfigurationDeclaration { plugin_id: String },
     #[error("failed to stop plugin `{plugin_id}`")]
     RuntimeStop {
         plugin_id: String,
@@ -78,6 +86,12 @@ pub enum PluginLifecycleError {
     },
     #[error("failed to remove plugin package at `{path}`")]
     PackageRemoval {
+        path: PathBuf,
+        #[source]
+        source: std::io::Error,
+    },
+    #[error("failed to stage plugin uninstall at `{path}`")]
+    UninstallStaging {
         path: PathBuf,
         #[source]
         source: std::io::Error,
@@ -118,12 +132,14 @@ pub(crate) struct PluginLifecycleInner<
     pub(crate) state: RwLock<LifecycleState<RuntimeLauncher::Runtime>>,
     scan_lock: AsyncMutex<()>,
     operation_locks: Mutex<BTreeMap<PluginId, Arc<AsyncMutex<()>>>>,
+    pending_uninstall_cleanup: Mutex<Vec<StagedUninstall>>,
     repository: Repository,
     clock: LifecycleClock,
     pub(crate) launcher: RuntimeLauncher,
     pub(crate) publisher: StatusPublisher,
     pub(crate) sink: NotificationSink,
     pub(crate) data_directories: PluginDataDirectories,
+    pub(crate) configuration: ConfigurationService,
     surface_closer: SurfaceCloserSlot,
     pub(crate) config: PluginLifecycleConfig,
 }
@@ -166,12 +182,14 @@ where
                 state: RwLock::new(LifecycleState::new(installed, managed_by_id)),
                 scan_lock: AsyncMutex::new(()),
                 operation_locks: Mutex::new(BTreeMap::new()),
+                pending_uninstall_cleanup: Mutex::new(Vec::new()),
                 repository,
                 clock,
                 launcher,
                 publisher,
                 sink,
                 data_directories: PluginDataDirectories::new(&config.data_directory),
+                configuration: ConfigurationService::new(config.data_directory.clone()),
                 surface_closer: SurfaceCloserSlot::default(),
                 config,
             }),
@@ -191,7 +209,10 @@ where
         &self.inner.data_directories
     }
 
-    /// Returns the cached installed snapshot without touching the filesystem.
+    /// Returns the cached installed snapshot, reading current configuration summaries from disk.
+    ///
+    /// Package identity stays cached until an explicit scan; configuration completeness is not,
+    /// because a later editor save would otherwise leave the list showing a stale Available state.
     pub fn list_installed_plugins(&self) -> ListInstalledPluginsResponse {
         let state = self.read_state();
         ListInstalledPluginsResponse {
@@ -204,10 +225,17 @@ where
                         state
                             .managed(&plugin.id)
                             .unwrap_or(&ManagedPluginState::Disabled),
+                        &self.inner.configuration,
                     )
                 })
                 .collect(),
         }
+    }
+
+    /// Returns the package root that owns one installed plugin's immutable declaration.
+    pub fn installed_package_root(&self, plugin_id: &str) -> Result<PathBuf, PluginLifecycleError> {
+        self.require_installed(&parse_request_id(plugin_id)?)
+            .map(|plugin| plugin.package_root)
     }
 
     /// Returns one installed package from the cached discovery snapshot, if present.
@@ -233,6 +261,11 @@ where
         let plugin_id = parse_request_id(&request.plugin_id)?;
         let operation = self.acquire_operation(&plugin_id).await;
         let plugin = self.require_installed(&plugin_id)?;
+        if !has_valid_configuration_declaration(&plugin) {
+            return Err(PluginLifecycleError::InvalidConfigurationDeclaration {
+                plugin_id: request.plugin_id,
+            });
+        }
         self.inner
             .repository
             .set_plugin_enabled(
@@ -285,7 +318,7 @@ where
                 .unwrap_or(&ManagedPluginState::Disabled);
             (
                 EnablePluginResponse {
-                    plugin: discovered_plugin_contract(&plugin, managed),
+                    plugin: discovered_plugin_contract(&plugin, managed, &self.inner.configuration),
                 },
                 changed,
                 attempt,
@@ -360,6 +393,7 @@ where
             plugin: discovered_plugin_contract(
                 &plugin,
                 &ManagedPluginState::<RuntimeLauncher::Runtime>::Disabled,
+                &self.inner.configuration,
             ),
         })
     }
@@ -372,6 +406,11 @@ where
         let plugin_id = parse_request_id(&request.plugin_id)?;
         let operation = self.acquire_operation(&plugin_id).await;
         let plugin = self.require_installed(&plugin_id)?;
+        if !has_valid_configuration_declaration(&plugin) {
+            return Err(PluginLifecycleError::InvalidConfigurationDeclaration {
+                plugin_id: request.plugin_id.clone(),
+            });
+        }
         // A webview plugin is configuration only; activating it would launch nothing and then
         // report a failure the user cannot act on.
         if plugin.contributes.entrypoint().is_none() {
@@ -394,7 +433,11 @@ where
                     | ManagedPluginState::Enabled(EnabledRuntime::Running { .. })),
                 ) => {
                     return Ok(ActivatePluginResponse {
-                        plugin: discovered_plugin_contract(&plugin, managed),
+                        plugin: discovered_plugin_contract(
+                            &plugin,
+                            managed,
+                            &self.inner.configuration,
+                        ),
                     });
                 }
                 Some(ManagedPluginState::Enabled(EnabledRuntime::Stopped))
@@ -402,7 +445,11 @@ where
                     let starting =
                         ManagedPluginState::Enabled(EnabledRuntime::Starting { attempt });
                     let response = ActivatePluginResponse {
-                        plugin: discovered_plugin_contract(&plugin, &starting),
+                        plugin: discovered_plugin_contract(
+                            &plugin,
+                            &starting,
+                            &self.inner.configuration,
+                        ),
                     };
                     state.set_managed(&plugin_id, starting);
                     (attempt, response)
@@ -467,7 +514,7 @@ where
             .managed(&plugin_id)
             .unwrap_or(&ManagedPluginState::Disabled);
         Ok(StopPluginResponse {
-            plugin: discovered_plugin_contract(&plugin, managed),
+            plugin: discovered_plugin_contract(&plugin, managed, &self.inner.configuration),
         })
     }
 
@@ -504,26 +551,63 @@ where
             transition_to_stopped(Arc::clone(&self.inner), plugin_id.clone(), attempt);
         }
 
-        self.inner
-            .repository
-            .delete_plugin_state(&plugin_id)
-            .map_err(PluginLifecycleError::Repository)?;
-        if let Some(plugin) = &plugin {
-            remove_plugin_installation(&plugin.package_root)?;
+        let staged = match &plugin {
+            Some(plugin) => Some(stage_uninstall(
+                &self.inner.config.data_directory,
+                plugin,
+                request.data_disposition,
+            )?),
+            None => None,
+        };
+        if plugin.is_none() && matches!(request.data_disposition, PluginDataDisposition::Delete) {
+            self.inner
+                .data_directories
+                .remove(&plugin_id)
+                .map_err(|source| PluginLifecycleError::PackageRemoval {
+                    path: self.inner.data_directories.path_for(&plugin_id),
+                    source,
+                })?;
         }
-        self.inner
-            .data_directories
-            .remove(&plugin_id)
-            .map_err(|source| PluginLifecycleError::PackageRemoval {
-                path: self.inner.data_directories.path_for(&plugin_id),
-                source,
-            })?;
+        if let Err(error) = self.inner.repository.delete_plugin_state(&plugin_id) {
+            if let Some(staged) = staged
+                && let Err(rollback_error) = staged.rollback()
+            {
+                ora_warn!(
+                    plugin_id = %request.plugin_id,
+                    %error,
+                    %rollback_error,
+                    "plugin state deletion failed and staged uninstall rollback also failed"
+                );
+                return Err(rollback_error);
+            }
+            return Err(PluginLifecycleError::Repository(error));
+        }
         {
             let mut state = self.write_state();
             state.installed.retain(|plugin| plugin.id != plugin_id);
             state.remove_managed(&plugin_id);
         }
         self.inner.publisher.publish_status_changed(&plugin_id);
+
+        if let Some(staged) = staged
+            && let Err(error) = staged.cleanup()
+        {
+            ora_warn!(
+                plugin_id = %request.plugin_id,
+                %error,
+                "plugin uninstall committed but staging cleanup will be retried"
+            );
+            self.inner
+                .pending_uninstall_cleanup
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .push(staged);
+        }
+        if let Some(plugin) = &plugin
+            && let Some(namespace_root) = plugin.package_root.parent().and_then(Path::parent)
+        {
+            remove_empty_namespace_directory(namespace_root);
+        }
 
         Ok(UninstallPluginResponse {
             plugin_id: request.plugin_id,
@@ -592,56 +676,25 @@ where
     }
 }
 
-/// Removes every installed version for one discovered package and prunes its empty namespace.
-///
-/// The package root is `installed/<namespace>/<name>/<version>`; removing only the selected
-/// version would let an older one reappear on the next scan, which is not what "uninstall" means.
-fn remove_plugin_installation(package_root: &Path) -> Result<(), PluginLifecycleError> {
-    let package_name_root =
-        package_root
-            .parent()
-            .ok_or_else(|| PluginLifecycleError::PackageRemoval {
-                path: package_root.to_path_buf(),
-                source: std::io::Error::new(
-                    std::io::ErrorKind::InvalidInput,
-                    "installed package root does not contain a version directory",
-                ),
-            })?;
-    if package_name_root.exists() {
-        std::fs::remove_dir_all(package_name_root).map_err(|source| {
-            PluginLifecycleError::PackageRemoval {
-                path: package_name_root.to_path_buf(),
-                source,
-            }
-        })?;
-    }
-
-    let Some(namespace_root) = package_name_root.parent() else {
-        return Ok(());
-    };
-    match std::fs::remove_dir(namespace_root) {
-        Ok(()) => Ok(()),
-        Err(error)
-            if matches!(
-                error.kind(),
-                std::io::ErrorKind::NotFound | std::io::ErrorKind::DirectoryNotEmpty
-            ) =>
-        {
-            Ok(())
-        }
-        Err(source) => Err(PluginLifecycleError::PackageRemoval {
-            path: namespace_root.to_path_buf(),
-            source,
-        }),
+/// Removes an empty namespace directory while retaining unexpected filesystem failures in logs.
+fn remove_empty_namespace_directory(path: &Path) {
+    if let Err(error) = std::fs::remove_dir(path)
+        && !matches!(
+            error.kind(),
+            std::io::ErrorKind::DirectoryNotEmpty | std::io::ErrorKind::NotFound
+        )
+    {
+        ora_warn!(path = %path.display(), %error, "could not remove empty plugin namespace directory");
     }
 }
 
-#[cfg(test)]
-mod data_plane_tests;
-#[cfg(test)]
-mod storage_tests;
-#[cfg(test)]
-mod tests;
+/// Keeps every launch path aligned with installation declaration validity.
+pub(crate) fn has_valid_configuration_declaration(plugin: &DiscoveredPlugin) -> bool {
+    !matches!(
+        plugin.configuration_declaration,
+        PluginConfigurationDeclarationValidity::Invalid { .. }
+    )
+}
 
 /// Parses the canonical plugin id carried by a request.
 ///
@@ -653,3 +706,10 @@ fn parse_request_id(plugin_id: &str) -> Result<PluginId, PluginLifecycleError> {
         plugin_id: plugin_id.to_string(),
     })
 }
+
+#[cfg(test)]
+mod data_plane_tests;
+#[cfg(test)]
+mod storage_tests;
+#[cfg(test)]
+mod tests;

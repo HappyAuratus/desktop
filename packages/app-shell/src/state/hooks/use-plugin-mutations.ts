@@ -1,4 +1,4 @@
-import type { InstalledPlugin } from "@ora/contracts";
+import type { InstalledPlugin, PluginDataDisposition } from "@ora/contracts";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useContractsClient } from "../../contracts-client-context";
 import { useAgentModelStore } from "../stores/agent-model-store";
@@ -56,7 +56,11 @@ export function usePluginMutations(pluginId: string, agentRef?: string) {
     onSettled: invalidate,
   });
   const uninstall = useMutation({
-    mutationFn: () => client.plugin.uninstall({ pluginId }),
+    mutationFn: (dataDisposition?: PluginDataDisposition) =>
+      client.plugin.uninstall({
+        pluginId,
+        dataDisposition: dataDisposition ?? "delete",
+      }),
     // Unlike the other lifecycle endpoints, uninstall returns only the plugin
     // id. Callers that still own the installed snapshot provide its package
     // identity so agent availability and display caches cannot survive removal.

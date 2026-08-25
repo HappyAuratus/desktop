@@ -38,6 +38,8 @@ describe("usePluginMutations", () => {
         agentDisplayName: "OpenCode",
         enabled: false,
         logo: null,
+        installationValidity: { validity: "valid" },
+        configuration: { state: "not_declared" },
         runtime: "stopped",
       },
     ];
@@ -89,6 +91,8 @@ describe("usePluginMutations", () => {
         agentDisplayName: "OpenCode",
         enabled: true,
         logo: null,
+        installationValidity: { validity: "valid" },
+        configuration: { state: "not_declared" },
         runtime: "running",
       },
     ];
@@ -169,6 +173,8 @@ describe("usePluginMutations", () => {
         agentDisplayName: "OpenCode",
         enabled: true,
         logo: null,
+        installationValidity: { validity: "valid" },
+        configuration: { state: "not_declared" },
         runtime: "running",
       },
     ];
@@ -216,7 +222,7 @@ describe("usePluginMutations", () => {
     await waitFor(() => expect(result.current.runtime.isSuccess).toBe(true));
     await waitFor(() => expect(result.current.models.isSuccess).toBe(true));
     await act(async () => {
-      await result.current.mutations.uninstall.mutateAsync();
+      await result.current.mutations.uninstall.mutateAsync("delete");
     });
 
     await waitFor(() =>

@@ -12,6 +12,7 @@ members = [
     "crates/gitlancer",
     "crates/history",
     "crates/logging",
+    "crates/plugin-config",
     "crates/plugin-manifest",
     "crates/plugin-lifecycle",
     "crates/plugin-manager",
@@ -39,6 +40,7 @@ default-members = [
     "crates/gitlancer",
     "crates/history",
     "crates/logging",
+    "crates/plugin-config",
     "crates/plugin-manifest",
     "crates/plugin-lifecycle",
     "crates/plugin-manager",
@@ -76,6 +78,7 @@ ora-fs = { path = "crates/fs" }
 gitlancer = { path = "crates/gitlancer" }
 ora-history = { path = "crates/history" }
 ora-logging = { path = "crates/logging" }
+ora-plugin-config = { path = "crates/plugin-config" }
 ora-plugin-manifest = { path = "crates/plugin-manifest" }
 ora-plugin-lifecycle = { path = "crates/plugin-lifecycle" }
 ora-plugin-manager = { path = "crates/plugin-manager" }

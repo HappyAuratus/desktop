@@ -7,6 +7,7 @@ mod error;
 mod git_cleanup;
 mod identity;
 mod plugin;
+mod plugin_configuration;
 mod plugin_gateway;
 mod project;
 mod request_lifecycle;

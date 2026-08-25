@@ -39,6 +39,7 @@ fn discovers_complete_manifest() {
                 entrypoint: PortableRelativePath::parse("main.js").unwrap(),
             }),
             logo: None,
+            configuration_declaration: crate::PluginConfigurationDeclarationValidity::NotDeclared,
         }]
     );
 }

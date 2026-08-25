@@ -22,6 +22,7 @@ embedded-surfaces = ["tauri/unstable"]
 
 [build-dependencies]
 tauri-build = { version = "2.6.3", features = [] }
+toml = { workspace = true }
 
 [dependencies]
 chrono-tz = "0.10"

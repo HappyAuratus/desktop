@@ -1,9 +1,13 @@
 use crate::PluginLifecycleError;
 use ora_application::PluginStateRepository;
-use ora_contracts::{InstalledPlugin, InstalledPluginContribution, PluginRuntimeStatus};
+use ora_contracts::{
+    InstalledPlugin, InstalledPluginContribution, PluginConfigurationCompleteness,
+    PluginConfigurationSummary, PluginInstallationValidity, PluginRuntimeStatus,
+};
 use ora_domain::{PluginEnabledState, PluginId};
+use ora_plugin_config::{ConfigurationCompleteness, ConfigurationService, ConfigurationSummary};
 use ora_plugin_manager::InstalledPlugin as DiscoveredPlugin;
-use ora_plugin_manager::PluginContribution;
+use ora_plugin_manager::{PluginConfigurationDeclarationValidity, PluginContribution};
 use std::collections::{BTreeMap, BTreeSet};
 use tokio::sync::watch;
 
@@ -169,6 +173,7 @@ where
 pub(super) fn discovered_plugin_contract<Runtime>(
     plugin: &DiscoveredPlugin,
     managed: &ManagedPluginState<Runtime>,
+    configuration: &ConfigurationService,
 ) -> InstalledPlugin {
     let (enabled, runtime) = match managed {
         ManagedPluginState::Disabled => (false, PluginRuntimeStatus::Stopped),
@@ -205,6 +210,30 @@ pub(super) fn discovered_plugin_contract<Runtime>(
         PluginContribution::Skill(_) => InstalledPluginContribution::Skill,
     };
 
+    let installation_validity = match &plugin.configuration_declaration {
+        PluginConfigurationDeclarationValidity::Invalid { .. } => {
+            PluginInstallationValidity::InvalidDeclaration {
+                error_code: "plugin_configuration_declaration_invalid".to_string(),
+            }
+        }
+        PluginConfigurationDeclarationValidity::NotDeclared
+        | PluginConfigurationDeclarationValidity::Valid => PluginInstallationValidity::Valid,
+    };
+    let configuration = match configuration.summary(&plugin.id.canonical(), &plugin.package_root) {
+        ConfigurationSummary::NotDeclared => PluginConfigurationSummary::NotDeclared,
+        ConfigurationSummary::Available { completeness } => PluginConfigurationSummary::Available {
+            completeness: match completeness {
+                ConfigurationCompleteness::Complete => PluginConfigurationCompleteness::Complete,
+                ConfigurationCompleteness::Incomplete => {
+                    PluginConfigurationCompleteness::Incomplete
+                }
+            },
+        },
+        ConfigurationSummary::Unavailable { error_code } => {
+            PluginConfigurationSummary::Unavailable { error_code }
+        }
+    };
+
     InstalledPlugin {
         id: plugin.id.canonical(),
         namespace: plugin.id.namespace().to_string(),
@@ -217,6 +246,8 @@ pub(super) fn discovered_plugin_contract<Runtime>(
         contribution,
         enabled,
         logo: plugin.logo.clone(),
+        installation_validity,
+        configuration,
         runtime,
     }
 }

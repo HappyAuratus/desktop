@@ -8,7 +8,8 @@ use ora_application::{Clock, PluginStateRepository};
 use ora_contracts::{
     ActivatePluginRequest, ActivatePluginResponse, DisablePluginRequest, DisablePluginResponse,
     EnablePluginRequest, EnablePluginResponse, InstalledPlugin, InstalledPluginContribution,
-    ListInstalledPluginsResponse, PluginRuntimeStatus, ScanPluginsRequest, ScanPluginsResponse,
+    ListInstalledPluginsResponse, PluginConfigurationSummary, PluginDataDisposition,
+    PluginInstallationValidity, PluginRuntimeStatus, ScanPluginsRequest, ScanPluginsResponse,
     StopPluginRequest, StopPluginResponse, UninstallPluginRequest, UninstallPluginResponse,
 };
 use ora_db::{
@@ -201,6 +202,7 @@ async fn manages_static_skill_plugin_without_a_runtime() {
         lifecycle
             .uninstall_plugin(UninstallPluginRequest {
                 plugin_id: plugin_id.clone(),
+                data_disposition: PluginDataDisposition::Delete,
             })
             .await
             .expect("uninstall Skill plugin"),
@@ -1098,6 +1100,7 @@ async fn uninstalls_running_plugin_after_stopping_it() {
         uninstall_lifecycle
             .uninstall_plugin(UninstallPluginRequest {
                 plugin_id: "official/ora.example".to_string(),
+                data_disposition: PluginDataDisposition::Delete,
             })
             .await
     });
@@ -1192,6 +1195,7 @@ async fn uninstall_records_stopped_state_before_package_removal() {
         uninstall_lifecycle
             .uninstall_plugin(UninstallPluginRequest {
                 plugin_id: "official/ora.example".to_string(),
+                data_disposition: PluginDataDisposition::Delete,
             })
             .await
     });
@@ -1207,7 +1211,7 @@ async fn uninstall_records_stopped_state_before_package_removal() {
     );
     assert!(matches!(
         error,
-        PluginLifecycleError::PackageRemoval { path, .. } if path == package_root
+        PluginLifecycleError::UninstallStaging { path, .. } if path == package_root
     ));
 
     assert_eq!(
@@ -1215,14 +1219,15 @@ async fn uninstall_records_stopped_state_before_package_removal() {
             lifecycle.list_installed_plugins(),
             repository_probe
                 .find_plugin_state(&PluginId::new("official", "ora.example").expect("plugin id"))
-                .expect("read deleted durable state"),
+                .expect("read durable state")
+                .map(|state| state.enabled),
             package_root.is_file(),
         ),
         (
             ListInstalledPluginsResponse {
                 plugins: vec![expected_plugin(/*enabled*/ true)],
             },
-            None,
+            Some(PluginEnabledState::Enabled),
             true,
         ),
     );
@@ -1326,6 +1331,8 @@ fn expected_skill_plugin(enabled: bool) -> InstalledPlugin {
         contribution: InstalledPluginContribution::Skill,
         enabled,
         logo: Some(PACKAGE_LOGO.to_string()),
+        installation_validity: PluginInstallationValidity::Valid,
+        configuration: PluginConfigurationSummary::NotDeclared,
         runtime: PluginRuntimeStatus::Stopped,
     }
 }
@@ -1348,6 +1355,8 @@ fn expected_plugin_with_runtime(
         },
         enabled: enabled.is_enabled(),
         logo: Some(PACKAGE_LOGO.to_string()),
+        installation_validity: PluginInstallationValidity::Valid,
+        configuration: PluginConfigurationSummary::NotDeclared,
         runtime,
     }
 }
