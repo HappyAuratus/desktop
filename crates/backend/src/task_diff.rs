@@ -52,58 +52,33 @@ impl TaskDiffApi {
         let repository_root = self.load_repository_root(&task)?;
         let cwd = resolve_task_cwd(&self.pool, &task_id, &self.relative_path_base)?;
 
-        if let Some(worktree_id) = task.worktree_id.as_ref() {
-            let worktree = SqliteWorktreeRepository::new(self.pool.clone())
-                .find_worktree(worktree_id)
-                .map_err(task_diff_internal)?
-                .ok_or_else(|| {
-                    BackendError::new(
-                        ErrorClassification::NotFound,
-                        PublicError::WorktreeNotFound(EmptyErrorParams {}),
-                        "worktree not found",
-                    )
-                })?;
-            if worktree.workspace_id != task.workspace_id {
-                return Err(task_diff_internal(std::io::Error::other(
-                    "task worktree ownership does not match persisted task",
-                )));
-            }
-            let base_commit_id = worktree.baseline.commit_id().ok_or_else(|| {
+        let worktree = SqliteWorktreeRepository::new(self.pool.clone())
+            .find_worktree(&task.workspace_id)
+            .map_err(task_diff_internal)?
+            .ok_or_else(|| {
                 BackendError::new(
-                    ErrorClassification::Conflict,
-                    PublicError::TaskDiffBaselineUnavailable(EmptyErrorParams {}),
-                    "task diff baseline is unavailable",
+                    ErrorClassification::NotFound,
+                    PublicError::WorktreeNotFound(EmptyErrorParams {}),
+                    "worktree not found",
                 )
             })?;
-            let snapshot = GitTaskDiffReader::new(repository_root)
-                .read_task_diff(ReadTaskDiffRequest {
-                    worktree_path: cwd,
-                    base_commit_id: base_commit_id.to_string(),
-                    scope: map_diff_scope(request.scope),
-                })
-                .map_err(map_diff_reader_error)?;
-
-            return Ok(GetTaskDiffResponse {
-                base_commit_id: base_commit_id.to_string(),
-                head_commit_id: snapshot.head_commit_id,
-                patch: snapshot.patch,
-            });
-        }
-
+        let base_commit_id = worktree.baseline.commit_id().ok_or_else(|| {
+            BackendError::new(
+                ErrorClassification::Conflict,
+                PublicError::TaskDiffBaselineUnavailable(EmptyErrorParams {}),
+                "task diff baseline is unavailable",
+            )
+        })?;
         let snapshot = GitTaskDiffReader::new(repository_root)
             .read_task_diff(ReadTaskDiffRequest {
                 worktree_path: cwd,
-                base_commit_id: "HEAD".to_string(),
+                base_commit_id: base_commit_id.to_string(),
                 scope: map_diff_scope(request.scope),
             })
             .map_err(map_diff_reader_error)?;
 
-        // Direct-chat tasks intentionally follow the main checkout. HEAD is resolved
-        // per read so their review surface mirrors Codex's current working-tree view.
-        let base_commit_id = snapshot.head_commit_id.clone();
-
         Ok(GetTaskDiffResponse {
-            base_commit_id,
+            base_commit_id: base_commit_id.to_string(),
             head_commit_id: snapshot.head_commit_id,
             patch: snapshot.patch,
         })
@@ -197,13 +172,6 @@ impl TaskDiffApi {
     /// Resolves the repository and parent directory required by worktree-only write operations.
     fn worktree_context(&self, task: Task) -> Result<(Task, PathBuf, PathBuf), BackendError> {
         let task_id = task.id.clone();
-        if task.worktree_id.is_none() {
-            return Err(BackendError::new(
-                ErrorClassification::Conflict,
-                PublicError::TaskWorktreeUnavailable(EmptyErrorParams {}),
-                "this operation requires an isolated task worktree",
-            ));
-        }
         let repository_root = self.load_repository_root(&task)?;
         let cwd = resolve_task_cwd(&self.pool, &task_id, &self.relative_path_base)?;
         Ok((task, repository_root, cwd))

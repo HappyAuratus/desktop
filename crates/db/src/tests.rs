@@ -128,6 +128,28 @@ fn runtime_tables_use_direct_workspace_ownership() {
             "is_deleted",
         ],
     );
+    assert_eq!(
+        load_table_column_names(database.connection(), "worktrees"),
+        vec![
+            "workspace_id",
+            "branch_name",
+            "base_commit_id",
+            "created_at",
+            "updated_at",
+            "is_deleted",
+        ],
+    );
+    assert_eq!(
+        database
+            .connection()
+            .query_row(
+                "SELECT pk FROM pragma_table_info('worktrees') WHERE name = 'workspace_id'",
+                [],
+                |row| row.get::<_, i64>(0),
+            )
+            .expect("load worktree workspace primary-key position"),
+        1,
+    );
 }
 
 /// Verifies a database with a shorter valid prefix receives and snapshots only the missing tail.

@@ -59,7 +59,9 @@ impl SurfaceCapabilities {
 
 #[cfg(test)]
 mod tests {
-    use super::{SurfaceCapabilities, WebDataIsolation};
+    use super::SurfaceCapabilities;
+    #[cfg(target_os = "linux")]
+    use super::WebDataIsolation;
     use pretty_assertions::assert_eq;
 
     /// Verifies a Wayland session without the X11 override never reports embedded support.

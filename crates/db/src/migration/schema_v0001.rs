@@ -70,8 +70,7 @@ CREATE TABLE workspace_provisioning (
 );
 
 CREATE TABLE worktrees (
-    id              TEXT PRIMARY KEY,
-    workspace_id    TEXT NOT NULL UNIQUE REFERENCES workspaces(id),
+    workspace_id    TEXT PRIMARY KEY REFERENCES workspaces(id),
     branch_name     TEXT,
     base_commit_id  TEXT CHECK (base_commit_id IS NULL OR base_commit_id <> ''),
     created_at      INTEGER NOT NULL,

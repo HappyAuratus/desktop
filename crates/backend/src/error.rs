@@ -434,7 +434,7 @@ impl From<ApplicationError> for BackendError {
             | ApplicationError::AgentDefinitionRepository { .. }
             | ApplicationError::ProjectRepository { .. }
             | ApplicationError::TaskRepository { .. }
-            | ApplicationError::TaskWorktreeIdExhausted { .. }
+            | ApplicationError::TaskWorkspaceIdExhausted { .. }
             | ApplicationError::TaskWorktreeRootUnavailable
             | ApplicationError::TaskFilesystem { .. }
             | ApplicationError::TaskWorktreeProvisioner { .. }

@@ -1,5 +1,5 @@
 use ora_application::{RepositoryError, TaskRepository};
-use ora_domain::{AuditFields, ProjectId, Task, TaskId, WorkspaceId, WorktreeId};
+use ora_domain::{AuditFields, ProjectId, Task, TaskId, WorkspaceId};
 use rusqlite::{Row, params};
 
 use crate::repository::{RepositoryPool, connection::bool_to_sqlite};
@@ -45,11 +45,10 @@ impl TaskRepository for SqliteTaskRepository {
         self.pool
             .with_connection(|connection| {
                 let mut statement = connection.prepare(
-                    "SELECT t.id, w.project_id, t.workspace_id, t.title, wt.id AS worktree_id,
+                    "SELECT t.id, w.project_id, t.workspace_id, t.title,
                             t.created_at, t.updated_at, t.is_deleted
                      FROM tasks t
                      JOIN workspaces w ON w.id = t.workspace_id
-                     LEFT JOIN worktrees wt ON wt.workspace_id = t.workspace_id AND wt.is_deleted = 0
                      WHERE t.id = ?1 AND t.is_deleted = 0",
                 )?;
                 let mut rows = statement.query(params![task_id.as_ref()])?;
@@ -67,11 +66,10 @@ impl TaskRepository for SqliteTaskRepository {
         self.pool
             .with_connection(|connection| {
                 let mut statement = connection.prepare(
-                    "SELECT t.id, w.project_id, t.workspace_id, t.title, wt.id AS worktree_id,
+                    "SELECT t.id, w.project_id, t.workspace_id, t.title,
                             t.created_at, t.updated_at, t.is_deleted
                      FROM tasks t
                      JOIN workspaces w ON w.id = t.workspace_id
-                     LEFT JOIN worktrees wt ON wt.workspace_id = t.workspace_id AND wt.is_deleted = 0
                      WHERE t.is_deleted = 0
                      ORDER BY t.created_at, t.id",
                 )?;
@@ -133,9 +131,6 @@ impl TaskRepository for SqliteTaskRepository {
 
 /// Reconstructs a domain task from the selected task columns.
 pub(super) fn map_task_row(row: &Row<'_>) -> Result<Task, crate::DatabaseError> {
-    let worktree_id = row
-        .get::<_, Option<String>>("worktree_id")?
-        .map(WorktreeId::new);
     let is_deleted = row.get::<_, i64>("is_deleted")? != 0;
 
     Ok(Task {
@@ -143,7 +138,6 @@ pub(super) fn map_task_row(row: &Row<'_>) -> Result<Task, crate::DatabaseError> 
         project_id: ProjectId::new(row.get::<_, String>("project_id")?),
         workspace_id: WorkspaceId::new(row.get::<_, String>("workspace_id")?),
         title: row.get::<_, String>("title")?,
-        worktree_id,
         audit_fields: AuditFields::new(row.get("created_at")?, row.get("updated_at")?, is_deleted),
     })
 }

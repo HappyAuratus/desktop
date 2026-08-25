@@ -463,7 +463,15 @@ fn plugin_webview_invoke_command_extracts_the_request_envelope() {
             cmd: "plugin_webview_invoke".into(),
             callback: tauri::ipc::CallbackFn(0),
             error: tauri::ipc::CallbackFn(1),
-            url: "tauri://localhost".parse().expect("url"),
+            // Tauri rewrites its local protocol to an HTTPS localhost origin on Windows and
+            // Android; using the Unix spelling there makes the ACL classify this as remote.
+            url: if cfg!(any(windows, target_os = "android")) {
+                "https://tauri.localhost"
+            } else {
+                "tauri://localhost"
+            }
+            .parse()
+            .expect("url"),
             // The exact body `workbench_api.js` sends: method and params nested under `request`.
             body: tauri::ipc::InvokeBody::Json(json!({
                 "request": { "method": "counter/get", "params": { "city": "SH" } }

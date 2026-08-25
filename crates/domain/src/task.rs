@@ -1,4 +1,4 @@
-use crate::{AuditFields, ProjectId, WorkspaceId, WorktreeId};
+use crate::{AuditFields, ProjectId, WorkspaceId};
 use serde::{Deserialize, Serialize};
 
 /// Represents a logical unit of work inside a project.
@@ -11,7 +11,6 @@ pub struct Task {
     pub project_id: ProjectId,
     pub workspace_id: WorkspaceId,
     pub title: String,
-    pub worktree_id: Option<WorktreeId>,
     pub audit_fields: AuditFields,
 }
 
@@ -22,7 +21,6 @@ impl Task {
         project_id: ProjectId,
         workspace_id: WorkspaceId,
         title: impl Into<String>,
-        worktree_id: Option<WorktreeId>,
         audit_fields: AuditFields,
     ) -> Self {
         Self {
@@ -30,7 +28,6 @@ impl Task {
             project_id,
             workspace_id,
             title: title.into(),
-            worktree_id,
             audit_fields,
         }
     }

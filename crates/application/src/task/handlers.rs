@@ -7,7 +7,6 @@ use crate::task::provisioning::{
     PROVISIONING_LEASE_DURATION_MS, ProvisioningLeaseRenewal, TaskWorkspaceCommit,
     WorkspaceCommitOutcome, WorktreeProvisioningLeaseStore,
 };
-use crate::worktree::WorktreeIdGenerator;
 use crate::{ApplicationError, Clock};
 use ora_contracts::{
     CreateTaskRequest, CreateTaskResponse, GetTaskRequest, GetTaskResponse, ListTasksRequest,
@@ -30,14 +29,12 @@ pub struct CreateTaskHandler<
     WorkspaceCommitPort,
     LeaseStorePort,
     TaskIdGeneratorPort,
-    WorktreeIdGeneratorPort,
     WorktreeProvisioner,
     ClockSource,
 > {
     workspace_commit: WorkspaceCommitPort,
     lease_store: LeaseStorePort,
     task_id_generator: TaskIdGeneratorPort,
-    worktree_id_generator: WorktreeIdGeneratorPort,
     worktree_provisioner: WorktreeProvisioner,
     /// Root of the project's Git repository, persisted into leases and rows.
     repository_root: PathBuf,
@@ -45,19 +42,11 @@ pub struct CreateTaskHandler<
     clock: ClockSource,
 }
 
-impl<
-    WorkspaceCommitPort,
-    LeaseStorePort,
-    TaskIdGeneratorPort,
-    WorktreeIdGeneratorPort,
-    WorktreeProvisioner,
-    ClockSource,
->
+impl<WorkspaceCommitPort, LeaseStorePort, TaskIdGeneratorPort, WorktreeProvisioner, ClockSource>
     CreateTaskHandler<
         WorkspaceCommitPort,
         LeaseStorePort,
         TaskIdGeneratorPort,
-        WorktreeIdGeneratorPort,
         WorktreeProvisioner,
         ClockSource,
     >
@@ -67,7 +56,6 @@ impl<
         workspace_commit: WorkspaceCommitPort,
         lease_store: LeaseStorePort,
         task_id_generator: TaskIdGeneratorPort,
-        worktree_id_generator: WorktreeIdGeneratorPort,
         worktree_provisioner: WorktreeProvisioner,
         repository_root: PathBuf,
         work_dir: PathBuf,
@@ -77,7 +65,6 @@ impl<
             workspace_commit,
             lease_store,
             task_id_generator,
-            worktree_id_generator,
             worktree_provisioner,
             repository_root,
             work_dir,
@@ -86,19 +73,11 @@ impl<
     }
 }
 
-impl<
-    WorkspaceCommitPort,
-    LeaseStorePort,
-    TaskIdGeneratorPort,
-    WorktreeIdGeneratorPort,
-    WorktreeProvisioner,
-    ClockSource,
->
+impl<WorkspaceCommitPort, LeaseStorePort, TaskIdGeneratorPort, WorktreeProvisioner, ClockSource>
     CreateTaskHandler<
         WorkspaceCommitPort,
         LeaseStorePort,
         TaskIdGeneratorPort,
-        WorktreeIdGeneratorPort,
         WorktreeProvisioner,
         ClockSource,
     >
@@ -106,7 +85,6 @@ where
     WorkspaceCommitPort: TaskWorkspaceCommit,
     LeaseStorePort: WorktreeProvisioningLeaseStore,
     TaskIdGeneratorPort: TaskIdGenerator,
-    WorktreeIdGeneratorPort: WorktreeIdGenerator,
     WorktreeProvisioner: TaskWorktreeProvisioner,
     ClockSource: Clock + Clone + Send + 'static,
 {
@@ -134,7 +112,7 @@ where
             .validate_repository()
             .map_err(ApplicationError::from_task_worktree_provisioner_error)?;
         let (task_id, workspace_id, branch_name, worktree_path) =
-            self.select_available_worktree_identity()?;
+            self.select_available_task_workspace_identity()?;
         // Write-ahead lease: from here on the provisioned Git resources are
         // always owned by something durable — the lease, then the committed
         // rows — so no crash or lost race can orphan them.
@@ -178,7 +156,6 @@ where
             };
 
         let now = self.clock.now_timestamp_millis();
-        let worktree_id = self.worktree_id_generator.generate_worktree_id();
         let baseline =
             match ora_domain::WorktreeBaseline::recorded(provisioned_worktree.base_commit_id) {
                 Ok(baseline) => baseline,
@@ -194,7 +171,6 @@ where
                 }
             };
         let worktree = DomainWorktree::new(
-            worktree_id,
             workspace_id.clone(),
             Some(branch_name),
             baseline,
@@ -206,7 +182,6 @@ where
             project_id.clone(),
             workspace_id,
             request.title,
-            Some(worktree.id.clone()),
             AuditFields::new(now, now, false),
         );
 
@@ -244,7 +219,7 @@ where
     }
 
     /// Generates independent Task and Workspace identities without colliding with Git resources.
-    fn select_available_worktree_identity(
+    fn select_available_task_workspace_identity(
         &self,
     ) -> Result<(TaskId, WorkspaceId, String, PathBuf), ApplicationError> {
         for _ in 0..MAX_TASK_ID_GENERATION_ATTEMPTS {
@@ -271,7 +246,7 @@ where
             }
         }
 
-        Err(ApplicationError::TaskWorktreeIdExhausted {
+        Err(ApplicationError::TaskWorkspaceIdExhausted {
             attempts: MAX_TASK_ID_GENERATION_ATTEMPTS,
         })
     }
@@ -388,7 +363,6 @@ where
             project_id: existing_task.project_id,
             title: request.title,
             workspace_id: existing_task.workspace_id,
-            worktree_id: existing_task.worktree_id,
             audit_fields: AuditFields::new(
                 existing_task.audit_fields.created_at,
                 self.clock.now_timestamp_millis(),

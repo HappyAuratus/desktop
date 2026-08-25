@@ -107,10 +107,9 @@ fn insert_worktree(
     worktree: &Worktree,
 ) -> Result<(), rusqlite::Error> {
     transaction.execute(
-        "INSERT INTO worktrees (id, workspace_id, branch_name, base_commit_id, created_at, updated_at, is_deleted)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+        "INSERT INTO worktrees (workspace_id, branch_name, base_commit_id, created_at, updated_at, is_deleted)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
         params![
-            worktree.id.as_ref(),
             worktree.workspace_id.as_ref(),
             worktree.branch_name.as_deref(),
             worktree.baseline.commit_id(),

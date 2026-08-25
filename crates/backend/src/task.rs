@@ -6,7 +6,7 @@ use gitlancer::{CliGitRunner, Git, RepoRoot, Repository};
 use ora_application::{
     ApplicationError, Clock, CreateTaskHandler, GetTaskHandler, GitTaskWorktreeProvisioner,
     ListTasksHandler, ProjectRepository, RepositoryError, TaskRepository, UpdateTaskHandler,
-    UuidTaskIdGenerator, UuidWorktreeIdGenerator, WorktreeRepository,
+    UuidTaskIdGenerator, WorktreeRepository,
 };
 use ora_contracts::{
     CreateTaskRequest, CreateTaskResponse, DeleteTaskRequest, DeleteTaskResponse, GetTaskRequest,
@@ -77,7 +77,6 @@ impl TaskApi {
             SqliteTaskWorkspaceRepository::new(self.pool.clone()),
             SqliteWorktreeProvisioningLeaseRepository::new(self.pool.clone()),
             UuidTaskIdGenerator::new(),
-            UuidWorktreeIdGenerator::new(),
             GatedWorktreeProvisioner::new(
                 GitTaskWorktreeProvisioner::new(repository_root.clone()),
                 Arc::clone(&self.repository_gates),
@@ -238,12 +237,11 @@ pub(crate) fn resolve_task_cwd(
         .find_task(task_id)
         .map_err(task_worktree_unavailable_with)?
         .ok_or_else(task_worktree_unavailable)?;
-    let worktree_id = task.worktree_id.ok_or_else(task_worktree_unavailable)?;
     let worktree = SqliteWorktreeRepository::new(pool.clone())
-        .find_worktree(&worktree_id)
+        .find_worktree(&task.workspace_id)
         .map_err(task_worktree_unavailable_with)?
         .ok_or_else(task_worktree_unavailable)?;
-    if worktree.workspace_id != task.workspace_id || worktree.activity != WorktreeActivity::Active {
+    if worktree.activity != WorktreeActivity::Active {
         return Err(task_worktree_unavailable());
     }
     let branch_name = worktree.branch_name.ok_or_else(task_worktree_unavailable)?;
@@ -305,14 +303,10 @@ pub(crate) fn get_task_workspace(
                 format!("task not found: {task_id}"),
             )
         })?;
-    let worktree_id = task.worktree_id.ok_or_else(task_worktree_unavailable)?;
     let branch_name = SqliteWorktreeRepository::new(pool.clone())
-        .find_worktree(&worktree_id)
+        .find_worktree(&task.workspace_id)
         .map_err(task_worktree_unavailable_with)?
-        .filter(|worktree| {
-            worktree.workspace_id == task.workspace_id
-                && worktree.activity == WorktreeActivity::Active
-        })
+        .filter(|worktree| worktree.activity == WorktreeActivity::Active)
         .and_then(|worktree| worktree.branch_name)
         .ok_or_else(task_worktree_unavailable)?;
     let root = resolve_task_cwd(pool, &task_id, relative_path_base)?;

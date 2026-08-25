@@ -6,7 +6,6 @@ use ora_contracts::{ListProjectBranchesRequest, ListProjectBranchesResponse, Pro
 use ora_domain::{
     AuditFields, Project, ProjectId, Task, TaskId, Workspace, WorkspaceId, WorkspaceKind,
     WorkspaceLifecycle, WorkspaceLocation, Worktree, WorktreeActivity, WorktreeBaseline,
-    WorktreeId,
 };
 use ora_logging::with_trace_logging;
 use pretty_assertions::assert_eq;
@@ -45,9 +44,9 @@ fn maps_managed_branch_names_to_task_titles() {
                 task_fixture("task-2", "project-2", "Another project"),
             ])),
             Rc::new(FakeWorktreeRepository::with_worktrees(vec![
-                worktree_fixture("worktree-1", "task-1", Some("ora/12345678")),
-                worktree_fixture("worktree-2", "task-2", Some("feature/unmanaged")),
-                worktree_fixture("worktree-3", "task-1", None),
+                worktree_fixture("task-1", Some("ora/12345678")),
+                worktree_fixture("task-2", Some("feature/unmanaged")),
+                worktree_fixture("task-3", None),
             ])),
             branch_lister.clone(),
         );
@@ -190,15 +189,13 @@ fn task_fixture(task_id: &str, project_id: &str, title: &str) -> Task {
         ProjectId::new(project_id),
         ora_domain::WorkspaceId::new(format!("workspace-{task_id}")),
         title,
-        None,
         AuditFields::new(1, 1, false),
     )
 }
 
 /// Creates a visible worktree whose optional branch can be mapped to its owning task.
-fn worktree_fixture(worktree_id: &str, task_id: &str, branch_name: Option<&str>) -> Worktree {
+fn worktree_fixture(task_id: &str, branch_name: Option<&str>) -> Worktree {
     Worktree::new(
-        WorktreeId::new(worktree_id),
         ora_domain::WorkspaceId::new(format!("workspace-{task_id}")),
         branch_name.map(str::to_string),
         WorktreeBaseline::unavailable(),
@@ -451,7 +448,7 @@ impl WorktreeRepository for Rc<FakeWorktreeRepository> {
     /// Rejects unsupported worktree lookup in this focused fixture.
     fn find_worktree(
         &self,
-        _worktree_id: &WorktreeId,
+        _workspace_id: &WorkspaceId,
     ) -> Result<Option<Worktree>, RepositoryError> {
         Err(RepositoryError::from_message(
             "lookup is unsupported in branch-list tests",
@@ -473,7 +470,7 @@ impl WorktreeRepository for Rc<FakeWorktreeRepository> {
     /// Rejects unsupported worktree deletion in this read-only fixture.
     fn soft_delete_worktree(
         &self,
-        _worktree_id: &WorktreeId,
+        _workspace_id: &WorkspaceId,
         _deleted_at: i64,
     ) -> Result<bool, RepositoryError> {
         Err(RepositoryError::from_message(

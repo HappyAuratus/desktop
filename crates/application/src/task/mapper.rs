@@ -14,7 +14,7 @@ pub(crate) fn map_task(task: DomainTask) -> ContractTask {
 #[cfg(test)]
 mod tests {
     use super::map_task;
-    use ora_domain::{AuditFields, ProjectId, Task, TaskId, WorkspaceId, WorktreeId};
+    use ora_domain::{AuditFields, ProjectId, Task, TaskId, WorkspaceId};
     use pretty_assertions::assert_eq;
 
     /// Verifies a worktree label preserves its direct workspace identity.
@@ -25,7 +25,6 @@ mod tests {
             ProjectId::new("project-1"),
             WorkspaceId::new("workspace-1"),
             "Workflow run",
-            Some(WorktreeId::new("worktree-1")),
             AuditFields::new(10, 10, /*is_deleted*/ false),
         ));
 

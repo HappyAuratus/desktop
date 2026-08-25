@@ -1,5 +1,5 @@
 use super::mapper::map_task;
-use ora_domain::{AuditFields, ProjectId, Task, TaskId, WorkspaceId, WorktreeId};
+use ora_domain::{AuditFields, ProjectId, Task, TaskId, WorkspaceId};
 use pretty_assertions::assert_eq;
 
 /// Verifies the task projection exposes its workspace without any workflow association.
@@ -10,7 +10,6 @@ fn task_projection_maps_direct_workspace_identity() {
         ProjectId::new("project-1"),
         WorkspaceId::new("workspace-1"),
         "Implement",
-        Some(WorktreeId::new("worktree-1")),
         AuditFields::new(1, 1, false),
     );
     let mapped = map_task(task);

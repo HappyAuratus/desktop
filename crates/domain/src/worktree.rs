@@ -76,7 +76,6 @@ impl TryFrom<i64> for WorktreeActivity {
 /// Represents the Git metadata for a local worktree-backed Workspace.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Worktree {
-    pub id: crate::WorktreeId,
     pub workspace_id: WorkspaceId,
     pub branch_name: Option<String>,
     pub baseline: WorktreeBaseline,
@@ -87,7 +86,6 @@ pub struct Worktree {
 impl Worktree {
     /// Creates a worktree snapshot together with its persistence-managed audit metadata.
     pub fn new(
-        id: crate::WorktreeId,
         workspace_id: WorkspaceId,
         branch_name: Option<String>,
         baseline: WorktreeBaseline,
@@ -95,7 +93,6 @@ impl Worktree {
         audit_fields: AuditFields,
     ) -> Self {
         Self {
-            id,
             workspace_id,
             branch_name,
             baseline,

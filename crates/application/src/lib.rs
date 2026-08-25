@@ -84,4 +84,4 @@ pub use workflow_run::{
     WorkflowRunEngineRepository, WorkflowRunIdGenerator, WorkflowRunPayload, WorkflowRunRepository,
     WorkflowRunWorkspaceInitializer, WorkflowValidationError, WorkspaceRepository,
 };
-pub use worktree::{UuidWorktreeIdGenerator, WorktreeIdGenerator, WorktreeRepository};
+pub use worktree::WorktreeRepository;
