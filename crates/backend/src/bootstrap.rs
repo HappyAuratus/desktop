@@ -1714,7 +1714,7 @@ mod tests {
         let package_root = temporary
             .path()
             .join("plugins/installed/official/review-pack/1.0.0");
-        let skill_root = package_root.join("assets/skills/review");
+        let skill_root = package_root.join("assets/review");
         fs::create_dir_all(&skill_root).expect("create installed Skill tree");
         fs::write(
             package_root.join("orax.toml"),
