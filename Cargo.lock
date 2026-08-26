@@ -3159,12 +3159,14 @@ dependencies = [
 name = "ora-plugin-config"
 version = "0.0.0"
 dependencies = [
+ "ora-domain",
  "ora-utils",
  "pretty_assertions",
  "serde",
  "serde_json",
  "tempfile",
  "thiserror 2.0.20",
+ "url",
  "windows-sys 0.61.2",
 ]
 
@@ -3325,6 +3327,7 @@ version = "0.0.0"
 dependencies = [
  "ora-domain",
  "ora-logging",
+ "ora-plugin-config",
  "ora-plugin-manager",
  "ora-plugin-manifest",
  "ora-utils",
