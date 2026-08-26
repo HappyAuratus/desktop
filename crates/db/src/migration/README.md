@@ -1,6 +1,6 @@
 # Database Migration Module
 
-This module owns Ora's linear, reversible SQLite schema history and reconciles a database to an explicit target prefix. Its public interface is the validated catalog plus `reconcile_database`; SQL snapshot comparison and suffix rebuilding remain internal.
+This module owns Ora's linear, reversible SQLite schema history and reconciles a database to an explicit target prefix. Its public interface is the validated catalog plus `reconcile_database`; SQL snapshot comparison and suffix rebuilding remain internal. Concrete schema definitions live in the private [`schema`](schema/) module, which is the single migration registry consumed by the catalog.
 
 ## Catalog invariants
 
