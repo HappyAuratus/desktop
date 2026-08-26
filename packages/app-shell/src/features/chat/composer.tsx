@@ -160,7 +160,6 @@ export function Composer({
   const installedPluginIds = usePluginInstallStore(
     (state) => state.installedIds,
   );
-  const disabledPluginIds = usePluginInstallStore((state) => state.disabledIds);
   // Keyed by conversation, not by task: sibling sessions under one task each keep their own
   // applied plugins, and the composer instance is reused across session switches rather than
   // remounted, so this cannot live in component state. `dispatchSend` rekeys a pre-session
@@ -191,17 +190,16 @@ export function Composer({
         .filter((plugin): plugin is PluginEntry => plugin !== undefined),
     [selectedPluginIds],
   );
-  // Only plugins the user actually installed, hasn't disabled, and hasn't already applied
+  // Only plugins the user actually installed and hasn't already applied
   // show up in "+" — picking one removes it from the menu until it is removed below.
   const composerPlugins = useMemo(
     () =>
       CANDIDATE_PLUGINS.filter(
         (plugin) =>
           installedPluginIds.includes(plugin.id) &&
-          !disabledPluginIds.includes(plugin.id) &&
           !selectedPluginIds.includes(plugin.id),
       ),
-    [disabledPluginIds, installedPluginIds, selectedPluginIds],
+    [installedPluginIds, selectedPluginIds],
   );
   const [previewedAttachment, setPreviewedAttachment] =
     useState<ImageAttachment | null>(null);

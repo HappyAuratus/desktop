@@ -62,8 +62,6 @@ desktop_command_registry! {
     commands::add_marketplace_source,
     commands::delete_marketplace_source,
     commands::scan_plugins,
-    commands::enable_plugin,
-    commands::disable_plugin,
     commands::activate_plugin,
     commands::stop_plugin,
     commands::uninstall_plugin,

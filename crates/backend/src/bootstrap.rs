@@ -25,7 +25,6 @@ use ora_contracts::*;
 use ora_contracts::{EmptyErrorParams, PublicError};
 use ora_db::SqliteWorkflowRunEngineRepository;
 use ora_db::{DatabaseBootstrapper, DatabaseLocation, RepositoryPool, default_migration_catalog};
-use ora_domain::AgentRef;
 use ora_logging::{ora_error, ora_warn};
 use ora_scheduler::Scheduler;
 use std::fs;
@@ -330,7 +329,7 @@ impl Backend {
             .map_err(|error| BackendError::internal("failed to sync plugin registry index", error))
     }
 
-    /// Explicitly rescans packages and reconciles durable and runtime state.
+    /// Explicitly rescans packages and reconciles process-local runtime state.
     pub async fn scan_plugins(
         &self,
         request: ScanPluginsRequest,
@@ -344,38 +343,7 @@ impl Backend {
         Ok(response)
     }
 
-    /// Persists plugin eligibility, starts its process, and retries the agent it supplies.
-    ///
-    /// Waking the agent here is what makes an enabled plugin usable immediately: its supervisor
-    /// has been refusing to attach a disabled plugin and is otherwise part of a backoff interval
-    /// away from discovering that the user just turned it on.
-    pub async fn enable_plugin(
-        &self,
-        request: EnablePluginRequest,
-    ) -> Result<EnablePluginResponse, BackendError> {
-        let response = self
-            .plugin
-            .enable(request)
-            .await
-            .map_err(BackendError::from)?;
-        if let Ok(agent_ref) = AgentRef::parse(&response.plugin.name) {
-            self.agent_runtime.wake_agent(&agent_ref);
-        }
-        Ok(response)
-    }
-
-    /// Stops a plugin when necessary before persisting ineligibility.
-    pub async fn disable_plugin(
-        &self,
-        request: DisablePluginRequest,
-    ) -> Result<DisablePluginResponse, BackendError> {
-        self.plugin
-            .disable(request)
-            .await
-            .map_err(BackendError::from)
-    }
-
-    /// Starts one enabled plugin and returns its immediate starting state.
+    /// Starts one installed plugin and returns its immediate starting state.
     pub async fn activate_plugin(
         &self,
         request: ActivatePluginRequest,
@@ -386,7 +354,7 @@ impl Backend {
             .map_err(BackendError::from)
     }
 
-    /// Stops one plugin process without changing durable eligibility.
+    /// Stops one plugin process while leaving the installed plugin available.
     pub async fn stop_plugin(
         &self,
         request: StopPluginRequest,
@@ -394,7 +362,7 @@ impl Backend {
         self.plugin.stop(request).await.map_err(BackendError::from)
     }
 
-    /// Stops and removes one plugin package plus its durable state.
+    /// Stops and removes one plugin package plus its process-local state.
     pub async fn uninstall_plugin(
         &self,
         request: UninstallPluginRequest,

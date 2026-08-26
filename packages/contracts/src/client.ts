@@ -206,10 +206,6 @@ export function createContractsClient(
         ),
       scan: (request, options) =>
         executeOperation("scanPlugins", request, transport, options),
-      enable: (request, options) =>
-        executeOperation("enablePlugin", request, transport, options),
-      disable: (request, options) =>
-        executeOperation("disablePlugin", request, transport, options),
       activate: (request, options) =>
         executeOperation("activatePlugin", request, transport, options),
       stop: (request, options) =>

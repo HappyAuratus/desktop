@@ -36,7 +36,7 @@ interface AgentSelection {
  * A binding or preference is reported as written even when that agent can no
  * longer be reached. Agent availability is allowed to change while a surface is
  * open, and using the first available agent as a fallback would silently change
- * the user's selection when a plugin is enabled or disabled. A surface that has
+ * the user's selection when a plugin is installed or removed. A surface that has
  * never chosen an agent therefore resolves to `null` instead of inventing one.
  */
 export function useTargetAgentCli(

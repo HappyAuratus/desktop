@@ -37,15 +37,6 @@ fn plugin_skill_projection_round_trips_and_is_removed_with_its_plugin() {
     let (temp_dir, pool) = bootstrapped_pool();
     let repository = SqliteSkillRepository::new(pool.clone());
     let plugin_id = PluginId::new("official", "review-pack").unwrap();
-    pool.with_connection(|connection| {
-        connection.execute(
-            "INSERT INTO plugin_state (plugin_id, enabled, created_at, updated_at)
-             VALUES (?1, 0, 1, 1)",
-            [plugin_id.canonical()],
-        )?;
-        Ok(())
-    })
-    .unwrap();
     let package_root = temp_dir.path().join("plugins/review-pack/review");
     repository
         .replace_plugin_skills(

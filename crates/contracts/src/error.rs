@@ -108,7 +108,6 @@ pub enum PublicError {
     AgentNameConflict(EmptyErrorParams),
     AgentNotFound(EmptyErrorParams),
     PluginNotFound(EmptyErrorParams),
-    PluginDisabled(EmptyErrorParams),
     PluginConfigurationDeclarationInvalid(EmptyErrorParams),
     PluginConfigurationNotDeclared(EmptyErrorParams),
     ConfigurationRevisionConflict(EmptyErrorParams),
@@ -216,7 +215,6 @@ impl PublicError {
             Self::AgentNameConflict(_) => "agent_name_conflict",
             Self::AgentNotFound(_) => "agent_not_found",
             Self::PluginNotFound(_) => "plugin_not_found",
-            Self::PluginDisabled(_) => "plugin_disabled",
             Self::PluginConfigurationDeclarationInvalid(_) => {
                 "plugin_configuration_declaration_invalid"
             }
@@ -389,7 +387,6 @@ mod tests {
             PublicError::AgentNameConflict(empty),
             PublicError::AgentNotFound(empty),
             PublicError::PluginNotFound(empty),
-            PublicError::PluginDisabled(empty),
             PublicError::PluginConfigurationDeclarationInvalid(empty),
             PublicError::PluginConfigurationNotDeclared(empty),
             PublicError::ConfigurationRevisionConflict(empty),
@@ -496,7 +493,6 @@ mod tests {
                 | PublicError::AgentNameConflict(_)
                 | PublicError::AgentNotFound(_)
                 | PublicError::PluginNotFound(_)
-                | PublicError::PluginDisabled(_)
                 | PublicError::PluginConfigurationDeclarationInvalid(_)
                 | PublicError::PluginConfigurationNotDeclared(_)
                 | PublicError::ConfigurationRevisionConflict(_)
@@ -595,7 +591,7 @@ mod tests {
     #[test]
     fn public_error_codes_match_serde_tags_for_every_variant() {
         let samples = public_error_samples();
-        assert_eq!(samples.len(), 95);
+        assert_eq!(samples.len(), 94);
 
         for error in samples {
             let serialized = serde_json::to_value(&error).unwrap();

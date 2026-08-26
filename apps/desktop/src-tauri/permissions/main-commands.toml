@@ -64,8 +64,6 @@ commands.allow = [
     "add_marketplace_source",
     "delete_marketplace_source",
     "scan_plugins",
-    "enable_plugin",
-    "disable_plugin",
     "activate_plugin",
     "stop_plugin",
     "uninstall_plugin",

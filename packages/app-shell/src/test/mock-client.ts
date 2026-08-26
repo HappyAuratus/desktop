@@ -85,8 +85,7 @@ export interface MockClientState {
   /**
    * The package a local `.orax` import should materialize; `null` rejects that import.
    * Undefined means imports are not configured and always fail in tests. A concrete target is
-   * committed with `enabled: true`, mirroring the backend finalize step that auto-enables the
-   * imported package.
+   * committed as an installed package that is immediately available.
    */
   importTarget?: InstalledPlugin | null;
   developerMode: { enabled: boolean };
@@ -463,28 +462,6 @@ export function createMockClient(state: MockClientState): ContractsClient {
         plugins: [...state.availablePlugins],
       }),
       scan: async () => ({ plugins: [...state.installedPlugins] }),
-      enable: async (req) => {
-        const plugin = state.installedPlugins.find(
-          (p) => p.id === req.pluginId,
-        );
-        if (!plugin)
-          throw new Error(`installed plugin ${req.pluginId} not found`);
-        plugin.enabled = true;
-        // Enabling a plugin is also what starts it, so the backend answers with the
-        // starting runtime and reports running once the process is up.
-        plugin.runtime = "starting";
-        return { plugin };
-      },
-      disable: async (req) => {
-        const plugin = state.installedPlugins.find(
-          (p) => p.id === req.pluginId,
-        );
-        if (!plugin)
-          throw new Error(`installed plugin ${req.pluginId} not found`);
-        plugin.enabled = false;
-        plugin.runtime = "stopped";
-        return { plugin };
-      },
       activate: async (req) => {
         const plugin = state.installedPlugins.find(
           (p) => p.id === req.pluginId,
@@ -519,7 +496,7 @@ export function createMockClient(state: MockClientState): ContractsClient {
         if (target === undefined)
           throw new Error(`import not configured for ${req.path}`);
         if (target === null) throw new Error(`import failed for ${req.path}`);
-        state.installedPlugins.push({ ...target, enabled: true });
+        state.installedPlugins.push({ ...target });
         return { pluginId: target.id };
       },
       install: async (req) => {
@@ -539,7 +516,6 @@ export function createMockClient(state: MockClientState): ContractsClient {
           license: null,
           kind: "agent",
           agentDisplayName: available.name,
-          enabled: true,
           logo: available.logo,
           installationValidity: { validity: "valid" },
           configuration: { state: "not_declared" },

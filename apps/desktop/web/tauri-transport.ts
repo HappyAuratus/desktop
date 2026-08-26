@@ -126,8 +126,6 @@ const tauriCommands = {
   savePluginConfiguration: "save_plugin_configuration",
   resetPluginConfiguration: "reset_plugin_configuration",
   scanPlugins: "scan_plugins",
-  enablePlugin: "enable_plugin",
-  disablePlugin: "disable_plugin",
   activatePlugin: "activate_plugin",
   stopPlugin: "stop_plugin",
   uninstallPlugin: "uninstall_plugin",

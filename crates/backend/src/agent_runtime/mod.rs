@@ -297,14 +297,6 @@ impl AgentRuntimeManager {
         self.inner.connections.sync_plugin_agents();
     }
 
-    /// Retries one agent's connection at once because something just made it usable.
-    ///
-    /// Enabling a plugin is the case this exists for: its supervisor has been failing to attach a
-    /// disabled plugin and would otherwise sit out the rest of its backoff before noticing.
-    pub(crate) fn wake_agent(&self, agent_ref: &AgentRef) {
-        self.inner.connections.wake_agent(agent_ref);
-    }
-
     /// Reports the models one agent advertises before any session exists.
     ///
     /// The list is whatever the agent published when its current connection came up. An agent

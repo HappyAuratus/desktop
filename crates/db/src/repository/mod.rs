@@ -3,7 +3,6 @@ mod cascade;
 mod connection;
 mod effect;
 mod git_cleanup_job;
-mod plugin;
 mod project;
 mod session;
 mod skill;
@@ -25,7 +24,6 @@ pub use effect::{
     SourcePublication, SqliteEffectRepository,
 };
 pub use git_cleanup_job::SqliteGitCleanupJobRepository;
-pub use plugin::SqlitePluginStateRepository;
 pub use project::SqliteProjectRepository;
 pub use session::SqliteSessionRepository;
 pub use skill::{PluginSkillProjection, SqliteSkillRepository};

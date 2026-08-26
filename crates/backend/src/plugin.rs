@@ -8,8 +8,7 @@ use ora_application::Clock;
 use ora_contracts::{
     ActivatePluginRequest, ActivatePluginResponse, AddMarketplaceSourceRequest,
     AddMarketplaceSourceResponse, DeleteMarketplaceSourceRequest, DeleteMarketplaceSourceResponse,
-    DisablePluginRequest, DisablePluginResponse, EmptyErrorParams, EnablePluginRequest,
-    EnablePluginResponse, ImportPluginRequest, ImportPluginResponse, InstallPluginRequest,
+    EmptyErrorParams, ImportPluginRequest, ImportPluginResponse, InstallPluginRequest,
     InstallPluginResponse, ListAvailablePluginsRequest, ListAvailablePluginsResponse,
     ListInstalledPluginsRequest, ListInstalledPluginsResponse, ListMarketplaceSourcesRequest,
     ListMarketplaceSourcesResponse, PublicError, ScanPluginsRequest, ScanPluginsResponse,
@@ -17,8 +16,8 @@ use ora_contracts::{
     SyncAvailablePluginsResponse, UninstallPluginRequest, UninstallPluginResponse,
 };
 use ora_db::{
-    PluginSkillProjection, RepositoryPool, SqliteEffectRepository, SqlitePluginStateRepository,
-    SqliteSkillRepository, SqliteWorkspaceRepository,
+    PluginSkillProjection, RepositoryPool, SqliteEffectRepository, SqliteSkillRepository,
+    SqliteWorkspaceRepository,
 };
 use ora_domain::{PluginId, WorkspaceLocation};
 use ora_effect::{Digest, FilesystemSkillSurface, SurfaceDescriptorSet};
@@ -39,13 +38,8 @@ use std::time::Duration;
 use tokio::sync::{broadcast, mpsc};
 
 /// The concrete lifecycle composition the backend runs.
-pub(crate) type BackendPluginLifecycle = PluginLifecycle<
-    SqlitePluginStateRepository,
-    SystemClock,
-    DenoPluginRuntimeLauncher,
-    AppEventPublisher,
-    BroadcastNotificationSink,
->;
+pub(crate) type BackendPluginLifecycle =
+    PluginLifecycle<DenoPluginRuntimeLauncher, AppEventPublisher, BroadcastNotificationSink>;
 
 /// Bounded fan-out buffer between the lifecycle's per-process pumps and their consumers.
 ///
@@ -202,8 +196,6 @@ impl PluginApi {
                 data_directory: data_directory.clone(),
                 deno_path,
             },
-            SqlitePluginStateRepository::new(pool.clone()),
-            clock,
             DenoPluginRuntimeLauncher::new(PluginRuntimeTimeouts::default()),
             publisher,
             notifications.clone(),
@@ -353,7 +345,7 @@ impl PluginApi {
         self.lifecycle.list_installed_plugins()
     }
 
-    /// Rescans packages and reconciles durable and runtime state.
+    /// Rescans packages and reconciles process-local runtime state.
     pub(crate) async fn scan(
         &self,
         request: ScanPluginsRequest,
@@ -361,23 +353,7 @@ impl PluginApi {
         self.lifecycle.scan_plugins(request).await
     }
 
-    /// Persists plugin eligibility and starts the runtime it implies.
-    pub(crate) async fn enable(
-        &self,
-        request: EnablePluginRequest,
-    ) -> Result<EnablePluginResponse, PluginLifecycleError> {
-        self.lifecycle.enable_plugin(request).await
-    }
-
-    /// Stops a plugin when necessary before persisting ineligibility.
-    pub(crate) async fn disable(
-        &self,
-        request: DisablePluginRequest,
-    ) -> Result<DisablePluginResponse, PluginLifecycleError> {
-        self.lifecycle.disable_plugin(request).await
-    }
-
-    /// Starts one enabled plugin and returns its immediate starting state.
+    /// Starts one installed plugin and returns its immediate starting state.
     pub(crate) async fn activate(
         &self,
         request: ActivatePluginRequest,
@@ -386,7 +362,7 @@ impl PluginApi {
     }
 
     /// Returns a connection to a running plugin plus a lossless stream of its notifications,
-    /// starting the plugin when it is enabled but stopped.
+    /// starting the installed plugin when it is stopped.
     ///
     /// This is the single seam through which the agent runtime reaches a plugin process. The
     /// process stays owned by the lifecycle, so an agent connection can never leave one running
@@ -457,7 +433,7 @@ impl PluginApi {
         Ok(())
     }
 
-    /// Stops one plugin process without changing durable eligibility.
+    /// Stops one plugin process while leaving the installed plugin available.
     pub(crate) async fn stop(
         &self,
         request: StopPluginRequest,
@@ -465,7 +441,7 @@ impl PluginApi {
         self.lifecycle.stop_plugin(request).await
     }
 
-    /// Stops and removes one plugin package plus its durable state.
+    /// Stops and removes one plugin package plus its process-local state.
     pub(crate) async fn uninstall(
         &self,
         request: UninstallPluginRequest,
@@ -542,7 +518,7 @@ impl PluginApi {
     }
 
     /// Imports a local `.orax` release archive: verifies and extracts it, refreshes the installed
-    /// snapshot, and enables the plugin so it is immediately usable without a restart.
+    /// snapshot so the plugin is immediately usable without a restart.
     pub(crate) async fn import(
         &self,
         request: ImportPluginRequest,
@@ -567,26 +543,14 @@ impl PluginApi {
         })
     }
 
-    /// Refreshes the installed-plugin snapshot after a new package lands, then enables it by
-    /// default so the frontend surface reports it as immediately usable.
+    /// Refreshes the installed-plugin snapshot after a new package lands.
     ///
     /// The installed snapshot is built once at startup, so a fresh install must re-scan for the
-    /// new package to appear in the installed list without restarting the backend. Enabling is a
-    /// best-effort follow-up: a package that fails to launch still reports its failure through the
-    /// lifecycle runtime instead of failing the install.
+    /// new package to appear in the installed list without restarting the backend.
     async fn finalize_new_install(&self, plugin_id: &str) -> Result<(), BackendError> {
         self.sync_plugin_skills(plugin_id)?;
         if let Err(error) = self.lifecycle.scan_plugins(ScanPluginsRequest {}).await {
             ora_warn!(plugin_id = %plugin_id, %error, "installed the package but failed to refresh the installed-plugin snapshot");
-        }
-        if let Err(error) = self
-            .lifecycle
-            .enable_plugin(EnablePluginRequest {
-                plugin_id: plugin_id.to_string(),
-            })
-            .await
-        {
-            ora_warn!(plugin_id = %plugin_id, %error, "installed plugin could not be enabled by default");
         }
         Ok(())
     }

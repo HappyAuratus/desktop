@@ -3175,9 +3175,7 @@ name = "ora-plugin-lifecycle"
 version = "0.0.0"
 dependencies = [
  "base64 0.22.1",
- "ora-application",
  "ora-contracts",
- "ora-db",
  "ora-domain",
  "ora-logging",
  "ora-plugin-config",

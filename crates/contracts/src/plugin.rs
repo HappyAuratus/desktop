@@ -180,7 +180,6 @@ pub struct InstalledPlugin {
     #[serde(flatten)]
     #[ts(flatten)]
     pub contribution: InstalledPluginContribution,
-    pub enabled: bool,
     /// Security-validated SVG source for the package icon, absent when the package ships none.
     ///
     /// The icon travels as inline source instead of a filesystem path because the webview cannot
@@ -315,38 +314,6 @@ pub struct ListInstalledPluginsResponse {
     pub plugins: Vec<InstalledPlugin>,
 }
 
-/// Requests durable eligibility for one installed plugin without starting its process.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
-#[serde(rename_all = "camelCase")]
-#[ts(export_to = "plugin.ts")]
-pub struct EnablePluginRequest {
-    pub plugin_id: String,
-}
-
-/// Returns the enabled plugin snapshot observed after persistence succeeds.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
-#[serde(rename_all = "camelCase")]
-#[ts(export_to = "plugin.ts")]
-pub struct EnablePluginResponse {
-    pub plugin: InstalledPlugin,
-}
-
-/// Requests persistent ineligibility for one installed plugin.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
-#[serde(rename_all = "camelCase")]
-#[ts(export_to = "plugin.ts")]
-pub struct DisablePluginRequest {
-    pub plugin_id: String,
-}
-
-/// Returns the stopped and disabled plugin snapshot after persistence succeeds.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
-#[serde(rename_all = "camelCase")]
-#[ts(export_to = "plugin.ts")]
-pub struct DisablePluginResponse {
-    pub plugin: InstalledPlugin,
-}
-
 /// Requests explicit filesystem discovery and state reconciliation.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
@@ -361,7 +328,7 @@ pub struct ScanPluginsResponse {
     pub plugins: Vec<InstalledPlugin>,
 }
 
-/// Requests process activation for one enabled plugin.
+/// Requests process activation for one installed plugin.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export_to = "plugin.ts")]
@@ -377,7 +344,7 @@ pub struct ActivatePluginResponse {
     pub plugin: InstalledPlugin,
 }
 
-/// Requests process shutdown for one plugin without changing durable eligibility.
+/// Requests process shutdown while leaving the installed plugin available.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export_to = "plugin.ts")]
@@ -444,7 +411,7 @@ pub struct ImportPluginRequest {
     pub path: String,
 }
 
-/// Confirms the identifier imported after the archive is verified, extracted, and enabled.
+/// Confirms the identifier imported after the archive is verified and extracted.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export_to = "plugin.ts")]
@@ -548,10 +515,6 @@ pub(crate) fn export(config: &ts_rs::Config) -> Result<(), ts_rs::ExportError> {
     DeleteMarketplaceSourceResponse::export(config)?;
     ListInstalledPluginsRequest::export(config)?;
     ListInstalledPluginsResponse::export(config)?;
-    EnablePluginRequest::export(config)?;
-    EnablePluginResponse::export(config)?;
-    DisablePluginRequest::export(config)?;
-    DisablePluginResponse::export(config)?;
     ScanPluginsRequest::export(config)?;
     ScanPluginsResponse::export(config)?;
     ActivatePluginRequest::export(config)?;
@@ -605,7 +568,6 @@ mod tests {
             contribution: InstalledPluginContribution::Agent {
                 agent_display_name: "Claude Code".to_string(),
             },
-            enabled: false,
             logo: Some("<svg/>".to_string()),
             installation_validity: PluginInstallationValidity::Valid,
             configuration: PluginConfigurationSummary::NotDeclared,
@@ -633,7 +595,6 @@ mod tests {
                     "license": "Apache-2.0",
                     "kind": "agent",
                     "agentDisplayName": "Claude Code",
-                    "enabled": false,
                     "logo": "<svg/>",
                     "installationValidity": { "validity": "valid" },
                     "configuration": { "state": "not_declared" },
@@ -657,7 +618,6 @@ mod tests {
             homepage: None,
             license: None,
             contribution,
-            enabled: true,
             logo: None,
             installation_validity: PluginInstallationValidity::Valid,
             configuration: PluginConfigurationSummary::NotDeclared,
@@ -722,7 +682,6 @@ mod tests {
             homepage: None,
             license: None,
             contribution: InstalledPluginContribution::Skill,
-            enabled: true,
             logo: None,
             installation_validity: PluginInstallationValidity::Valid,
             configuration: PluginConfigurationSummary::NotDeclared,
@@ -731,7 +690,7 @@ mod tests {
 
         let value = serde_json::to_value(&plugin).expect("Skill plugin serializes");
         assert_eq!(value.get("kind"), Some(&json!("skill")));
-        assert_eq!(value.as_object().map(serde_json::Map::len), Some(14));
+        assert_eq!(value.as_object().map(serde_json::Map::len), Some(13));
         assert_eq!(
             serde_json::from_value::<InstalledPlugin>(value).expect("Skill plugin round-trips"),
             plugin
@@ -751,7 +710,6 @@ mod tests {
             homepage: None,
             license: None,
             contribution: InstalledPluginContribution::Mcp,
-            enabled: true,
             logo: None,
             installation_validity: PluginInstallationValidity::Valid,
             configuration: PluginConfigurationSummary::NotDeclared,
@@ -760,7 +718,7 @@ mod tests {
 
         let value = serde_json::to_value(&plugin).expect("MCP plugin serializes");
         assert_eq!(value.get("kind"), Some(&json!("mcp")));
-        assert_eq!(value.as_object().map(serde_json::Map::len), Some(14));
+        assert_eq!(value.as_object().map(serde_json::Map::len), Some(13));
         assert_eq!(
             serde_json::from_value::<InstalledPlugin>(value).expect("MCP plugin round-trips"),
             plugin
@@ -952,7 +910,6 @@ mod tests {
             contribution: InstalledPluginContribution::Agent {
                 agent_display_name: "Example".to_string(),
             },
-            enabled: true,
             logo: None,
             installation_validity: PluginInstallationValidity::Valid,
             configuration: PluginConfigurationSummary::NotDeclared,
@@ -972,7 +929,6 @@ mod tests {
                 "license": null,
                 "kind": "agent",
                 "agentDisplayName": "Example",
-                "enabled": true,
                 "logo": null,
                 "installationValidity": { "validity": "valid" },
                 "configuration": { "state": "not_declared" },
@@ -996,7 +952,6 @@ mod tests {
             contribution: InstalledPluginContribution::Agent {
                 agent_display_name: "Example".to_string(),
             },
-            enabled: true,
             logo: None,
             installation_validity: PluginInstallationValidity::Valid,
             configuration: PluginConfigurationSummary::NotDeclared,
@@ -1018,7 +973,6 @@ mod tests {
                 "license": null,
                 "kind": "agent",
                 "agentDisplayName": "Example",
-                "enabled": true,
                 "logo": null,
                 "installationValidity": { "validity": "valid" },
                 "configuration": { "state": "not_declared" },

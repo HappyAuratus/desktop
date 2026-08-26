@@ -71,7 +71,6 @@ function weatherInstalled(): InstalledPlugin {
     license: null,
     kind: "agent",
     agentDisplayName: "weather",
-    enabled: false,
     logo: null,
     installationValidity: { validity: "valid" },
     configuration: { state: "not_declared" },
@@ -219,7 +218,6 @@ it("imports a local archive through the backend", async () => {
   await waitFor(() => expect(state.installedPlugins).toHaveLength(1));
   expect(state.installedPlugins[0]).toMatchObject({
     id: "official/weather",
-    enabled: true,
   });
   expect(successToast).toHaveBeenCalledWith(
     expect.stringMatching(/插件已导入|Plugin imported/),

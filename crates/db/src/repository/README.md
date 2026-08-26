@@ -5,12 +5,11 @@ This module implements `ora-application` persistence ports on SQLite and exposes
 ## Responsibilities
 
 - Concrete repositories map projects, workspaces, worktree-task labels, sessions, workflow runs,
-  skills, configurable agents, plugin state, worktrees, and typed user preferences between SQL rows
+  skills, configurable agents, worktrees, and typed user preferences between SQL rows
   and application values.
 - `SqliteEffectRepository` stores normalized Desired selections, source state, surface descriptors,
   ownership ledgers, status, and durable operations. Desired replacement uses generation CAS;
   operation finalization changes its ledger and journal phase in one immediate transaction.
-- Plugin state stores only durable eligibility and audit timestamps; installed identity and package metadata remain filesystem-derived.
 - Normal reads exclude soft-deleted rows. Soft deletion records timestamps rather than removing individual domain records physically.
 - `RepositoryPool` serializes access to its connection and gives repository operations a consistent error boundary.
 

@@ -76,20 +76,6 @@ pub(super) const ENDPOINTS: &[FrontendEndpoint] = &[
         response_type: "ScanPluginsResponse",
     },
     FrontendEndpoint {
-        operation_name: "enablePlugin",
-        namespace: NAMESPACE,
-        member_name: "enable",
-        request_type: "EnablePluginRequest",
-        response_type: "EnablePluginResponse",
-    },
-    FrontendEndpoint {
-        operation_name: "disablePlugin",
-        namespace: NAMESPACE,
-        member_name: "disable",
-        request_type: "DisablePluginRequest",
-        response_type: "DisablePluginResponse",
-    },
-    FrontendEndpoint {
         operation_name: "activatePlugin",
         namespace: NAMESPACE,
         member_name: "activate",

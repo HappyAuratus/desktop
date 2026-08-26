@@ -20,7 +20,6 @@ export const translationResources = {
     "errors.agent_name_conflict": "已存在同名 Role。",
     "errors.agent_not_found": "未找到该 Agent。",
     "errors.plugin_not_found": "未找到该插件。",
-    "errors.plugin_disabled": "请先启用该插件，再进行激活。",
     "errors.plugin_configuration_declaration_invalid": "插件的配置声明无效。",
     "errors.plugin_configuration_not_declared": "该插件没有声明配置。",
     "errors.configuration_revision_conflict":
@@ -666,7 +665,6 @@ export const translationResources = {
     "settings.skills.deleteDescription":
       "该技能将从可用命令中移除，此操作无法撤销。",
     "settings.skills.unavailable": "不可用",
-    "settings.skills.pluginDisabled": "已禁用",
     "settings.skills.unavailableTitle": "“{{name}}”的技能包已丢失",
     "settings.skills.unavailableDescription":
       "这个技能还在列表里，但本地文件找不到了。请删除，或重新上传同名技能包。",
@@ -734,7 +732,7 @@ export const translationResources = {
     "settings.plugins.installed": "已安装",
     "settings.plugins.noneInstalled": "尚未安装任何插件。",
     "settings.plugins.manageInstalled": "管理插件",
-    "settings.plugins.manageDescription": "启用、停用或卸载已安装的插件。",
+    "settings.plugins.manageDescription": "配置或卸载已安装的插件。",
     "settings.plugins.configuration.configure": "配置",
     "settings.plugins.configuration.back": "返回插件管理",
     "settings.plugins.configuration.description":
@@ -817,10 +815,6 @@ export const translationResources = {
     "settings.plugins.runtimeFailing": "运行失败",
     "settings.plugins.viewDetails": "查看详情",
     "settings.plugins.openMenu": "打开 {{name}} 的菜单",
-    "settings.plugins.enable": "启用",
-    "settings.plugins.disable": "禁用",
-    "settings.plugins.enabling": "启用中",
-    "settings.plugins.disabling": "禁用中",
     "settings.plugins.prompt.opencode.1": "在终端里用 {{name}} 跑一段代码",
     "settings.plugins.prompt.opencode.2": "让 {{name}} 审查这次代码改动",
     "settings.plugins.prompt.opencode.3": "把这个编码任务交给 {{name}}",
@@ -893,7 +887,6 @@ export const translationResources = {
       "{{summary}}。{{name}} 由 {{publisher}} 维护，安装后可在任意 Agent 会话中直接调用，无需离开工作区。",
     "settings.plugins.skills": "技能",
     "settings.plugins.skillSummary": "由 {{name}} 提供的工具集。",
-    "settings.plugins.toggleSkill": "启用或停用 {{name}}",
     "settings.plugins.details": "详情",
     "settings.plugins.feature1":
       "在 Agent 会话中直接调用 {{name}} 提供的工具与命令。",
@@ -1226,12 +1219,9 @@ export const translationResources = {
     "chat.modelSelector.updating": "更新中…",
     "chat.modelSelector.empty": "该 Agent 未提供可选模型",
     "chat.agentUnavailable.title": "当前 Agent 不可用",
-    "chat.agentUnavailable.disabled":
-      "{{plugin}} 插件已被禁用，启用后即可继续这段对话。",
     "chat.agentUnavailable.uninstalled":
       "提供该 Agent 的插件已被卸载，重新安装后才能继续这段对话。",
     "chat.agentUnavailable.failed": "{{plugin}} 插件启动失败：{{reason}}",
-    "chat.agentUnavailable.enable": "启用插件",
     "chat.historyDegraded.title": "会话记录已中断",
     "chat.historyDegraded.resume": "恢复记录",
     "chat.historyNotice.title": "会话历史不完整",
@@ -1457,7 +1447,6 @@ export const translationResources = {
     "errors.agent_name_conflict": "A role with this name already exists.",
     "errors.agent_not_found": "The agent was not found.",
     "errors.plugin_not_found": "The plugin was not found.",
-    "errors.plugin_disabled": "Enable the plugin before activating it.",
     "errors.plugin_configuration_declaration_invalid":
       "The plugin configuration declaration is invalid.",
     "errors.plugin_configuration_not_declared":
@@ -2171,7 +2160,6 @@ export const translationResources = {
     "settings.skills.deleteDescription":
       "This skill will be removed from available commands. This cannot be undone.",
     "settings.skills.unavailable": "Unavailable",
-    "settings.skills.pluginDisabled": "Disabled",
     "settings.skills.unavailableTitle":
       "The “{{name}}” skill package is missing",
     "settings.skills.unavailableDescription":
@@ -2248,7 +2236,7 @@ export const translationResources = {
     "settings.plugins.noneInstalled": "No plugins installed yet.",
     "settings.plugins.manageInstalled": "Manage plugins",
     "settings.plugins.manageDescription":
-      "Enable, disable, or uninstall the plugins you have installed.",
+      "Configure or uninstall the plugins you have installed.",
     "settings.plugins.configuration.configure": "Configure",
     "settings.plugins.configuration.back": "Back to plugin manager",
     "settings.plugins.configuration.description":
@@ -2336,10 +2324,6 @@ export const translationResources = {
     "settings.plugins.runtimeFailing": "Runtime failed",
     "settings.plugins.viewDetails": "View details",
     "settings.plugins.openMenu": "Open the {{name}} menu",
-    "settings.plugins.enable": "Enable",
-    "settings.plugins.disable": "Disable",
-    "settings.plugins.enabling": "Enabling",
-    "settings.plugins.disabling": "Disabling",
     "settings.plugins.prompt.opencode.1":
       "Run a coding task with {{name}} in the terminal",
     "settings.plugins.prompt.opencode.2":
@@ -2446,7 +2430,6 @@ export const translationResources = {
       "{{summary}}. {{name}} is maintained by {{publisher}} and, once installed, can be called from any agent session without leaving the workspace.",
     "settings.plugins.skills": "Skills",
     "settings.plugins.skillSummary": "The toolset contributed by {{name}}.",
-    "settings.plugins.toggleSkill": "Enable or disable {{name}}",
     "settings.plugins.details": "Details",
     "settings.plugins.feature1":
       "Call the tools and commands {{name}} contributes directly from an agent session.",
@@ -2802,13 +2785,10 @@ export const translationResources = {
     "chat.modelSelector.updating": "Updating…",
     "chat.modelSelector.empty": "This agent offers no model choice",
     "chat.agentUnavailable.title": "This session's agent is unavailable",
-    "chat.agentUnavailable.disabled":
-      "The {{plugin}} plugin is disabled. Enable it to continue this conversation.",
     "chat.agentUnavailable.uninstalled":
       "The plugin that provided this agent was uninstalled. Reinstall it to continue this conversation.",
     "chat.agentUnavailable.failed":
       "The {{plugin}} plugin failed to start: {{reason}}",
-    "chat.agentUnavailable.enable": "Enable plugin",
     "chat.historyDegraded.title": "This session's history stopped recording",
     "chat.historyDegraded.resume": "Resume history",
     "chat.historyNotice.title": "This session's history is incomplete",

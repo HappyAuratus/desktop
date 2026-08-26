@@ -6,7 +6,6 @@ mod error;
 mod git_cleanup;
 mod ids;
 mod namespace;
-mod plugin;
 mod plugin_id;
 mod project;
 mod session;
@@ -35,7 +34,6 @@ pub use ids::{
     WorkflowNodeRunId, WorkflowRunId, WorkflowSnapshotId, WorkspaceId, WorktreeProvisioningLeaseId,
 };
 pub use namespace::Namespace;
-pub use plugin::{PluginEnabledState, PluginState};
 pub use plugin_id::{PluginId, PluginIdError, PluginIdSegment};
 pub use project::Project;
 pub use session::{HistoryState, Session, SessionStatus};

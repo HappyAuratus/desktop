@@ -144,7 +144,6 @@ struct SupervisorContext {
     active_generation: Arc<AtomicU64>,
     routes: Arc<RouteRegistry>,
     shutdown: mpsc::UnboundedReceiver<()>,
-    wake: mpsc::UnboundedReceiver<()>,
 }
 
 /// Gives session actors access to the current connection and central event router.
@@ -155,8 +154,6 @@ pub(super) struct ConnectionSupervisor {
     active_generation: Arc<AtomicU64>,
     routes: Arc<RouteRegistry>,
     shutdown: mpsc::UnboundedSender<()>,
-    /// Cuts the current retry backoff short when something made this agent usable.
-    wake: mpsc::UnboundedSender<()>,
 }
 
 /// Owns one independently supervised connection for every agent Ora can reach.
@@ -183,9 +180,7 @@ impl ConnectionSupervisors {
     /// Availability stays independent per agent: one provider that is missing or crash-looping
     /// never delays or degrades the others, which is why each gets its own supervisor.
     ///
-    /// Every installed plugin is supervised regardless of whether it is enabled: eligibility is
-    /// the lifecycle's answer to give, and a disabled plugin simply keeps failing to attach until
-    /// the user enables it.
+    /// Every installed agent plugin is supervised; the lifecycle starts its process on demand.
     pub fn start(
         plugin_host: Arc<PluginApi>,
         pool: RepositoryPool,
@@ -268,22 +263,6 @@ impl ConnectionSupervisors {
         }
     }
 
-    /// Retries one agent at once rather than at the end of its current backoff.
-    ///
-    /// Enabling a plugin is the moment its agent becomes usable, and the supervisor that has been
-    /// refusing to attach may be most of a backoff interval away from noticing. An identity this
-    /// host does not supervise is ignored: nothing is waiting on it.
-    pub fn wake_agent(&self, agent_ref: &AgentRef) {
-        if let Some(supervisor) = self
-            .supervisors
-            .read()
-            .unwrap_or_else(PoisonError::into_inner)
-            .get(agent_ref)
-        {
-            supervisor.wake();
-        }
-    }
-
     /// Selects the sole application-scoped connection for one persisted agent identity.
     ///
     /// A miss is a normal runtime state rather than data corruption: a session can outlive the
@@ -333,7 +312,6 @@ impl ConnectionSupervisor {
     ) -> Self {
         let (state_sender, state) = watch::channel(ConnectionState::Unavailable);
         let (shutdown, shutdown_receiver) = mpsc::unbounded_channel();
-        let (wake, wake_receiver) = mpsc::unbounded_channel();
         let active_generation = Arc::new(AtomicU64::new(0));
         let routes = Arc::new(RouteRegistry::default());
         let label: Arc<str> = Arc::from(source.label());
@@ -351,7 +329,6 @@ impl ConnectionSupervisor {
                 active_generation: active_generation.clone(),
                 routes: routes.clone(),
                 shutdown: shutdown_receiver,
-                wake: wake_receiver,
             }),
         ) {
             ora_warn!(
@@ -366,16 +343,7 @@ impl ConnectionSupervisor {
             active_generation,
             routes,
             shutdown,
-            wake,
         }
-    }
-
-    /// Asks the retry loop to attempt this agent now instead of waiting out its backoff.
-    ///
-    /// A supervisor that has already given up — a crash loop, or a provider that cannot serve this
-    /// host's contract — has ended its loop, so this is deliberately best effort.
-    pub(super) fn wake(&self) {
-        let _ = self.wake.send(());
     }
 
     /// Reports the live tri-state detection status without exposing the connection itself.
@@ -622,7 +590,6 @@ async fn run_supervisor(context: SupervisorContext) {
         active_generation,
         routes,
         mut shutdown,
-        mut wake,
     } = context;
     let identifier = agent_ref.as_str();
     let mut retry_delay = INITIAL_RETRY_DELAY;
@@ -711,9 +678,6 @@ async fn run_supervisor(context: SupervisorContext) {
             _ = tokio::time::sleep(retry_delay) => {
                 retry_delay = (retry_delay * 2).min(MAX_RETRY_DELAY);
             }
-            // Something outside this loop made the provider usable, so the backoff earned by the
-            // previous failures no longer describes how likely the next attempt is to succeed.
-            _ = wake.recv() => retry_delay = INITIAL_RETRY_DELAY,
             _ = shutdown.recv() => return,
         }
     }
@@ -940,12 +904,11 @@ async fn spawn_plugin_connection(
 
 /// Maps a lifecycle refusal to start a plugin onto the supervisor's retry classification.
 ///
-/// A plugin the user has not enabled, or has uninstalled, is an expected local configuration and
-/// is reported exactly like a missing CLI so the supervisor retries it without logging: the
-/// settings surface already tells the user why that agent is unavailable.
+/// An uninstalled plugin is reported like a missing CLI so the supervisor retries without noisy
+/// logging while package discovery catches up.
 fn plugin_attach_error(error: ConnectionError) -> StartFailure {
     match error {
-        ConnectionError::Disabled | ConnectionError::NotFound | ConnectionError::NoProcess => {
+        ConnectionError::NotFound | ConnectionError::NoProcess => {
             StartFailure::Retryable(runtime_internal(
                 "agent_cli_not_found",
                 "the plugin behind this agent is not available",
@@ -1157,23 +1120,6 @@ mod tests {
         let failure = plugin_start_error(PluginAgentError::Failed("spawn refused".to_string()));
 
         assert!(matches!(failure, StartFailure::Retryable(_)));
-    }
-
-    /// Verifies a disabled plugin is reported exactly like a CLI the user has not installed.
-    ///
-    /// This is what keeps the retry loop silent for a plugin the user simply turned off: the
-    /// supervisor logs only genuine startup failures.
-    #[test]
-    fn treats_a_disabled_plugin_like_a_missing_cli() {
-        let failure = plugin_attach_error(ConnectionError::Disabled);
-
-        let StartFailure::Retryable(error) = failure else {
-            panic!("a disabled plugin must stay retryable");
-        };
-        assert!(matches!(
-            error.public_error(),
-            PublicError::AgentCliNotFound(_)
-        ));
     }
 
     /// Writes one minimal agent package into the plugin root a lifecycle discovers.

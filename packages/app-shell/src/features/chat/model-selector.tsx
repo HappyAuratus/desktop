@@ -92,7 +92,7 @@ export function ModelSelector({
   // warm-session query key, and the CLI is part of that key.
   const agentCli = useTargetAgentCli(modelSelection);
   // Which agents the runtime actually reports reaching here. An agent whose CLI
-  // is absent, or whose plugin package was disabled or uninstalled, drops out of
+  // is absent, or whose plugin package was uninstalled, drops out of
   // the list rather than being offered and then failing on the first message.
   const availableAgentClis = useAvailableAgentClis();
   const agentIsAvailable =

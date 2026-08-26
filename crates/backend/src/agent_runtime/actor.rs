@@ -974,7 +974,7 @@ mod tests {
     use tokio::sync::{mpsc, oneshot};
     use tokio::time::timeout;
 
-    /// Opens one migrated pool so the plugin host can read its durable eligibility table.
+    /// Opens one migrated pool for the plugin host's database-backed collaborators.
     fn test_repository_pool(root: &Path) -> RepositoryPool {
         DatabaseBootstrapper::system()
             .bootstrap_repository_pool(

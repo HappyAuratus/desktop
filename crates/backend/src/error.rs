@@ -123,11 +123,6 @@ impl From<PluginLifecycleError> for BackendError {
                 PublicError::PluginNotFound(EmptyErrorParams {}),
                 "installed plugin was not found",
             ),
-            PluginLifecycleError::PluginDisabled { .. } => (
-                ErrorClassification::Conflict,
-                PublicError::PluginDisabled(EmptyErrorParams {}),
-                "plugin must be enabled before activation",
-            ),
             PluginLifecycleError::InvalidConfigurationDeclaration { .. } => (
                 ErrorClassification::InvalidRequest,
                 PublicError::PluginConfigurationDeclarationInvalid(EmptyErrorParams {}),
@@ -138,8 +133,7 @@ impl From<PluginLifecycleError> for BackendError {
                 PublicError::InvalidRequest(EmptyErrorParams {}),
                 "plugin kind has no process to activate",
             ),
-            PluginLifecycleError::Repository(_)
-            | PluginLifecycleError::RuntimeStop { .. }
+            PluginLifecycleError::RuntimeStop { .. }
             | PluginLifecycleError::PackageRemoval { .. }
             | PluginLifecycleError::UninstallStaging { .. } => (
                 ErrorClassification::Internal,

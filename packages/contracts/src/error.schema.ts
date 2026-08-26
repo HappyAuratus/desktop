@@ -70,9 +70,6 @@ export const contractErrorSchema = z.object({
         "code": z.literal("plugin_not_found"),
         "params": emptyErrorParamsSchema
     }), z.object({
-        "code": z.literal("plugin_disabled"),
-        "params": emptyErrorParamsSchema
-    }), z.object({
         "code": z.literal("plugin_configuration_declaration_invalid"),
         "params": emptyErrorParamsSchema
     }), z.object({
@@ -376,9 +373,6 @@ export const publicErrorSchema = z.union([z.object({
         "params": emptyErrorParamsSchema
     }), z.object({
         "code": z.literal("plugin_not_found"),
-        "params": emptyErrorParamsSchema
-    }), z.object({
-        "code": z.literal("plugin_disabled"),
         "params": emptyErrorParamsSchema
     }), z.object({
         "code": z.literal("plugin_configuration_declaration_invalid"),

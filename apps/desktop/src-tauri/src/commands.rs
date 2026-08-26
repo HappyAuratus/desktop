@@ -1091,32 +1091,18 @@ async_backend_command!(
     "Explicitly scans and reconciles installed plugins."
 );
 async_backend_command!(
-    enable_plugin,
-    EnablePluginRequest,
-    EnablePluginResponse,
-    enable_plugin,
-    "Persists plugin eligibility without activating it."
-);
-async_backend_command!(
-    disable_plugin,
-    DisablePluginRequest,
-    DisablePluginResponse,
-    disable_plugin,
-    "Stops and disables one installed plugin."
-);
-async_backend_command!(
     activate_plugin,
     ActivatePluginRequest,
     ActivatePluginResponse,
     activate_plugin,
-    "Activates one enabled plugin."
+    "Activates one installed plugin."
 );
 async_backend_command!(
     stop_plugin,
     StopPluginRequest,
     StopPluginResponse,
     stop_plugin,
-    "Stops one plugin without changing eligibility."
+    "Stops one plugin process."
 );
 async_backend_command!(
     uninstall_plugin,
@@ -1137,7 +1123,7 @@ async_backend_command!(
     ImportPluginRequest,
     ImportPluginResponse,
     import_plugin,
-    "Imports one local .orax release archive, then enables the imported plugin."
+    "Imports one local .orax release archive; the installed plugin is immediately available."
 );
 
 // =============================================================================
