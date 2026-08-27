@@ -1,5 +1,4 @@
 mod actor;
-mod cli_path;
 mod connection;
 mod events;
 mod handoff;
@@ -22,7 +21,6 @@ mod history_tests;
 mod replaced_sessions_tests;
 
 use crate::app_event::AppEventPublisher;
-use cli_path::resolve_agent_cli_path;
 use history::{LocalHistoryClock, RecordOutcome, SessionRecorder};
 pub use stream::SessionEventStream;
 use support::*;
