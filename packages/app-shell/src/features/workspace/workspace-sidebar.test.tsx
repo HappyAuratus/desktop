@@ -1641,6 +1641,7 @@ describe("WorkspaceSidebar", () => {
         actions: {
           select: async () => undefined,
           create: async () => true,
+          copy: async () => true,
           rename: async () => true,
           delete: async () => undefined,
           importFile: async () => true,

@@ -268,6 +268,13 @@ function flowViewport(): HTMLElement | null {
   return document.querySelector(".react-flow__viewport");
 }
 
+/** Opens one workflow action menu. */
+function openWorkflowActions(name: string): void {
+  fireEvent.click(
+    screen.getByRole("button", { name: `打开${name}的操作菜单` }),
+  );
+}
+
 describe("WorkflowEditor", () => {
   beforeEach(() => {
     useWorkflowEditorStore.setState({
@@ -324,8 +331,7 @@ describe("WorkflowEditor", () => {
       screen.getByRole("button", { name: "导出工作流" }),
     ).toBeInTheDocument();
     expect(
-      screen.getByRole("button", { name: "重命名代码审查工作流" })
-        .parentElement,
+      screen.getByRole("button", { name: "打开代码审查工作流的操作菜单" }),
     ).toHaveClass("opacity-100");
     expect(
       screen.queryByRole("button", { name: "测试运行" }),
@@ -523,6 +529,41 @@ describe("WorkflowEditor", () => {
     await waitFor(() => {
       expect(
         screen.queryByRole("button", { name: "收起节点配置" }),
+      ).not.toBeInTheDocument();
+    });
+  });
+
+  it("reserves a visible trailing action column while the workflow library narrows", async () => {
+    renderEditor();
+    const actionButton = await screen.findByRole("button", {
+      name: "打开代码审查工作流的操作菜单",
+    });
+    const workflowItem = actionButton.parentElement;
+    const workflowManager = actionButton.closest("div.flex-col");
+    const selectionButton = screen
+      .getByText("代码审查工作流")
+      .closest("button");
+
+    expect(workflowManager).toHaveClass("min-w-0", "overflow-hidden");
+    expect(workflowItem).toHaveClass("flex");
+    expect(selectionButton).toHaveClass("min-w-0", "flex-1");
+    expect(actionButton).toHaveClass("shrink-0");
+    expect(actionButton).not.toHaveClass("absolute");
+  });
+
+  it("closes an open workflow action menu when its trigger is clicked again", async () => {
+    renderEditor();
+    const actionButton = await screen.findByRole("button", {
+      name: "打开代码审查工作流的操作菜单",
+    });
+
+    fireEvent.click(actionButton);
+    expect(screen.getByRole("menuitem", { name: "复制" })).toBeInTheDocument();
+
+    fireEvent.click(actionButton);
+    await waitFor(() => {
+      expect(
+        screen.queryByRole("menuitem", { name: "复制" }),
       ).not.toBeInTheDocument();
     });
   });
@@ -1090,7 +1131,8 @@ describe("WorkflowEditor", () => {
     ).not.toBeInTheDocument();
     expect(screen.getByText("暂未发布")).toBeInTheDocument();
 
-    await user.click(screen.getByRole("button", { name: "重命名发布复盘" }));
+    openWorkflowActions("发布复盘");
+    await user.click(screen.getByRole("menuitem", { name: "重命名" }));
     const renameDialog = await screen.findByRole("alertdialog", {
       name: "重命名“发布复盘”",
     });
@@ -1188,14 +1230,50 @@ describe("WorkflowEditor", () => {
     const user = userEvent.setup();
     renderEditor();
     await screen.findByText("代码审查工作流");
-    await user.click(
-      screen.getByRole("button", { name: "删除代码审查工作流" }),
-    );
+    openWorkflowActions("代码审查工作流");
+    await user.click(screen.getByRole("menuitem", { name: "删除" }));
     const deleteDialog = await screen.findByRole("alertdialog", {
       name: "删除“代码审查工作流”？",
     });
     expect(deleteDialog).toHaveTextContent("永久删除");
     expect(deleteDialog).not.toHaveTextContent("mock");
+  });
+
+  it("copies the current draft, opens the copy, and chains the localized suffix", async () => {
+    const user = userEvent.setup();
+    const state = createMockClientState();
+    renderEditor(undefined, state);
+
+    await screen.findByDisplayValue("代码审查工作流");
+    const source = state.workflows.find(
+      (record) => record.workflow.id === "code-review",
+    );
+    expect(source).toBeDefined();
+
+    openWorkflowActions("代码审查工作流");
+    await user.click(screen.getByRole("menuitem", { name: "复制" }));
+
+    await waitFor(() => {
+      expect(
+        screen.getByDisplayValue("代码审查工作流 - 副本"),
+      ).toBeInTheDocument();
+    });
+    const firstCopy = state.workflows.find(
+      (record) => record.workflow.name === "代码审查工作流 - 副本",
+    );
+    expect(firstCopy).toBeDefined();
+    expect(firstCopy?.workflow.id).not.toBe(source?.workflow.id);
+    expect(firstCopy?.draft.graph).toBe(source?.draft.graph);
+    expect(firstCopy?.published).toEqual([]);
+
+    openWorkflowActions("代码审查工作流 - 副本");
+    await user.click(screen.getByRole("menuitem", { name: "复制" }));
+
+    await waitFor(() => {
+      expect(
+        screen.getByDisplayValue("代码审查工作流 - 副本 - 副本"),
+      ).toBeInTheDocument();
+    });
   });
 
   it("auto-saves draft edits after the debounce window", async () => {
@@ -1272,6 +1350,26 @@ describe("WorkflowEditor", () => {
     ).not.toBeInTheDocument();
   });
 
+  it("uses the English copy suffix when copying in English", async () => {
+    const user = userEvent.setup();
+    await appI18n.changeLanguage("en-US");
+    renderEditor();
+
+    await screen.findByDisplayValue("Code review workflow");
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: "Open actions for Code review workflow",
+      }),
+    );
+    await user.click(screen.getByRole("menuitem", { name: "Copy" }));
+
+    await waitFor(() => {
+      expect(
+        screen.getByDisplayValue("Code review workflow - copy"),
+      ).toBeInTheDocument();
+    });
+  });
+
   it("deleting the selected workflow auto-selects the next one and loads its canvas", async () => {
     const user = userEvent.setup();
     renderEditor();
@@ -1282,9 +1380,8 @@ describe("WorkflowEditor", () => {
     expect(screen.getByDisplayValue("代码审查工作流")).toBeInTheDocument();
 
     // Delete the currently selected workflow.
-    await user.click(
-      screen.getByRole("button", { name: "删除代码审查工作流" }),
-    );
+    openWorkflowActions("代码审查工作流");
+    await user.click(screen.getByRole("menuitem", { name: "删除" }));
     const deleteDialog = await screen.findByRole("alertdialog", {
       name: "删除“代码审查工作流”？",
     });
@@ -1296,7 +1393,7 @@ describe("WorkflowEditor", () => {
     // without a "workflow not found" error or a stale canvas from the deleted workflow.
     await waitFor(() => {
       expect(
-        screen.queryByRole("button", { name: "删除代码审查工作流" }),
+        screen.queryByRole("button", { name: "打开代码审查工作流的操作菜单" }),
       ).not.toBeInTheDocument();
     });
     expect(screen.getByText("错开并行演示")).toBeInTheDocument();

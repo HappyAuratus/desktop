@@ -7,6 +7,7 @@ import { create } from "zustand";
 export interface WorkflowEditorLibraryActions {
   select: (workflowId: string) => Promise<void>;
   create: (name: string) => Promise<boolean>;
+  copy: (workflowId: string) => Promise<boolean>;
   rename: (workflowId: string, name: string) => Promise<boolean>;
   delete: (workflowId: string) => Promise<void>;
   importFile: (file: File) => Promise<boolean>;

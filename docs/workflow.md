@@ -15,6 +15,8 @@
 
 Every workflow has exactly one `draft` snapshot created atomically with the workflow itself. The draft is an editable workspace: `UpdateDraft` mutates its graph in-place without creating a new snapshot row.
 
+The settings library can duplicate a workflow by creating a new identity and draft from the source's current draft graph. A duplicate never carries published snapshots, the active published pointer, or workflow runs; it starts as an editable, unpublished workflow.
+
 Publishing copies the draft's graph into a new, immutable snapshot. `updated_at` on published snapshots is `NULL`, including after soft deletion — only draft editing changes that field. Publish always activates the new snapshot (sets `workflows.published_snapshot_id`), making it the version used by any future workflow execution.
 
 Additional operations keep the version model flexible without data loss:

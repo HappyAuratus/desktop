@@ -79,6 +79,7 @@ import {
 } from "./workflow-editor-store";
 import {
   useActivateWorkflow,
+  useCopyWorkflow,
   useCreateWorkflow,
   useDeleteWorkflow,
   useDeleteWorkflowSnapshot,
@@ -299,6 +300,7 @@ function WorkflowEditorContent({
   const draftQuery = useWorkflowDraft(resolvedWorkflowId);
   const versionsQuery = useWorkflowVersions(resolvedWorkflowId);
   const createWorkflowMutation = useCreateWorkflow();
+  const copyWorkflowMutation = useCopyWorkflow();
   const renameWorkflowMutation = useRenameWorkflow();
   const deleteWorkflowMutation = useDeleteWorkflow();
   const updateDraftMutation = useUpdateWorkflowDraft();
@@ -666,6 +668,31 @@ function WorkflowEditorContent({
       setHydratedWorkflowId(null);
       setWorkflow(null);
       setSelectedWorkflowId(result.workflow.id);
+      return true;
+    } catch (cause) {
+      setManagerError(localizeContractError(cause, t));
+      return false;
+    }
+  }
+
+  /** Saves pending edits, then duplicates the source workflow's current persisted draft. */
+  async function copyWorkflow(workflowId: string): Promise<boolean> {
+    setManagerError(null);
+    try {
+      const saved = await autosave.flush({ force: true });
+      if (!saved) {
+        return false;
+      }
+      const result = await copyWorkflowMutation.mutateAsync({
+        workflowId,
+        copyName: (name) => t("settings.workflow.copyName", { name }),
+      });
+      autosave.cancel();
+      setPreviewedVersion(null);
+      setSelectedWorkflowId(result.workflow.id);
+      toast.success(
+        t("settings.workflow.copySuccess", { name: result.workflow.name }),
+      );
       return true;
     } catch (cause) {
       setManagerError(localizeContractError(cause, t));
@@ -1058,6 +1085,7 @@ function WorkflowEditorContent({
     libraryActionsRef.current = {
       select: selectWorkflow,
       create: createWorkflow,
+      copy: copyWorkflow,
       rename: renameWorkflow,
       delete: deleteWorkflow,
       importFile: importWorkflow,
@@ -1071,6 +1099,8 @@ function WorkflowEditorContent({
         libraryActionsRef.current?.select(workflowId) ?? Promise.resolve(),
       create: (name) =>
         libraryActionsRef.current?.create(name) ?? Promise.resolve(false),
+      copy: (workflowId) =>
+        libraryActionsRef.current?.copy(workflowId) ?? Promise.resolve(false),
       rename: (workflowId, name) =>
         libraryActionsRef.current?.rename(workflowId, name) ??
         Promise.resolve(false),

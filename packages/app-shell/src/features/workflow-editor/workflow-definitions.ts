@@ -88,6 +88,84 @@ export function useCreateWorkflow() {
   });
 }
 
+/**
+ * Creates an unused copy name by repeatedly applying the localized copy-name template.
+ *
+ * Workflow names must stay unique, so repeated copies retain the requested suffix chain
+ * instead of introducing a numbering scheme with different semantics. Throws when a
+ * malformed template cycles through names that are already in use.
+ */
+export function nextWorkflowCopyName(
+  sourceName: string,
+  copyName: (name: string) => string,
+  existingNames: Iterable<string>,
+): string {
+  const existing = new Set(
+    Array.from(existingNames, (name) => name.toLocaleLowerCase()),
+  );
+  const attempted = new Set<string>();
+  let candidate = copyName(sourceName);
+  while (existing.has(candidate.toLocaleLowerCase())) {
+    const normalizedCandidate = candidate.toLocaleLowerCase();
+    if (attempted.has(normalizedCandidate)) {
+      throw new Error(
+        "Copy name generator did not produce a unique workflow name.",
+      );
+    }
+    attempted.add(normalizedCandidate);
+    candidate = copyName(candidate);
+  }
+  return candidate;
+}
+
+/** Copies a workflow's current draft into a new workflow with an unused localized name. */
+export function useCopyWorkflow() {
+  const client = useContractsClient();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (input: {
+      workflowId: string;
+      copyName: (name: string) => string;
+    }) => {
+      const [source, library] = await Promise.all([
+        client.workflow.get({ workflowId: input.workflowId }),
+        client.workflow.list({}),
+      ]);
+      const name = nextWorkflowCopyName(
+        source.workflow.name,
+        input.copyName,
+        library.workflows.map((workflow) => workflow.name),
+      );
+      return client.workflow.create({ name, graph: source.draft.graph });
+    },
+    onSuccess: (result) => {
+      queryClient.setQueryData<WorkflowSummary[]>(
+        workflowLibraryKey,
+        (current) =>
+          current === undefined
+            ? current
+            : [
+                ...current,
+                {
+                  id: result.workflow.id,
+                  namespace: result.workflow.namespace,
+                  name: result.workflow.name,
+                  publishedVersion: null,
+                  createdAt: result.workflow.createdAt,
+                  updatedAt: result.workflow.updatedAt,
+                },
+              ],
+      );
+      queryClient.setQueryData(workflowDraftKey(result.workflow.id), {
+        workflow: result.workflow,
+        draft: result.draft,
+        published: null,
+      });
+      void queryClient.invalidateQueries({ queryKey: workflowLibraryKey });
+    },
+  });
+}
+
 /** Renames one workflow while preserving its identity. */
 export function useRenameWorkflow() {
   const client = useContractsClient();

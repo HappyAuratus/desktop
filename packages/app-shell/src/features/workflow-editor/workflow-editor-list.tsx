@@ -47,6 +47,9 @@ export function WorkflowEditorList() {
       onCreate={(name) =>
         actions === null ? Promise.resolve(false) : actions.create(name)
       }
+      onCopy={(workflowId) =>
+        actions === null ? Promise.resolve(false) : actions.copy(workflowId)
+      }
       onRename={(workflowId, name) =>
         actions === null
           ? Promise.resolve(false)
