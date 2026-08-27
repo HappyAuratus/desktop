@@ -38,6 +38,7 @@ import {
   IconMoon,
   IconPuzzle,
   IconRobot,
+  IconRoute,
   IconShieldCheck,
   IconSparkles,
   IconSun,
@@ -49,6 +50,7 @@ import { PluginsSettings } from "./plugins-settings";
 import type { PluginConfigurationNavigationGuard } from "./plugin-configuration-editor";
 import { SettingsHeading } from "./settings-heading";
 import { RuntimeLogLevelSettings } from "./runtime-log-level-settings";
+import { ProxySettings } from "./proxy-settings";
 import { DeveloperModeSettings } from "./developer-mode-settings";
 import { useDeveloperMode } from "../../state/hooks/use-developer-mode";
 import { useUiStore } from "../../state/stores/ui-store";
@@ -70,6 +72,7 @@ type SettingsCategory =
   | "roles"
   | "skills"
   | "plugins"
+  | "proxy"
   | "permissions"
   | "privacy"
   | "developer";
@@ -130,6 +133,7 @@ export function SettingsDialog() {
     { id: "roles", icon: IconRobot, label: t("settings.nav.roles") },
     { id: "skills", icon: IconSparkles, label: t("settings.nav.skills") },
     { id: "plugins", icon: IconPuzzle, label: t("settings.nav.plugins") },
+    { id: "proxy", icon: IconRoute, label: t("settings.nav.proxy") },
     {
       id: "permissions",
       icon: IconShieldCheck,
@@ -222,6 +226,7 @@ export function SettingsDialog() {
                     onNavigationGuardChange={registerPluginConfigurationGuard}
                   />
                 )}
+                {category === "proxy" && <ProxySettings />}
                 {category === "permissions" && (
                   <PermissionSettings
                     settings={settings}
