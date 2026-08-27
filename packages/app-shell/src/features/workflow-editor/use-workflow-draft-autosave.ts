@@ -191,7 +191,7 @@ export function useWorkflowDraftAutosave({
     }
   }, [clearTimer, enabled, schedule]);
 
-  // Best-effort persist on unmount so leaving the settings page does not drop
+  // Best-effort persist on unmount so leaving the editor does not drop
   // edits still inside the debounce window. Hard tab closes remain best-effort.
   useEffect(
     () => () => {

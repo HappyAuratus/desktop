@@ -1,7 +1,6 @@
 /**
  * Static MCP catalog for workflow Agent node attachments.
- * Settings-only for now: authors pick zero or more entries; runtime session
- * wiring stays out of scope.
+ * Authors pick zero or more entries; runtime session wiring stays out of scope.
  */
 export interface McpCatalogEntry {
   id: string;

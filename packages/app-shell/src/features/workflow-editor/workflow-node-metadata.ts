@@ -1,4 +1,4 @@
-/** Re-export shared chrome metadata so existing settings imports keep working. */
+/** Re-export shared node chrome metadata for the definition editor. */
 export {
   getNodeMetadata,
   type WorkflowNodeMetadata,

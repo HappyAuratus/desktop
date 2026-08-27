@@ -1,4 +1,11 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { useTranslation } from "react-i18next";
 import {
   addEdge,
@@ -14,7 +21,13 @@ import {
   type NodeChange,
   type XYPosition,
 } from "@xyflow/react";
-import { IconDownload, IconRoute, IconVersions } from "@tabler/icons-react";
+import {
+  IconArrowLeft,
+  IconDownload,
+  IconLayoutSidebarLeftExpand,
+  IconRoute,
+  IconVersions,
+} from "@tabler/icons-react";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -32,6 +45,9 @@ import {
   toast,
   type ResizablePanelHandle,
 } from "@ora/ui";
+import { DragRegion } from "../../components/drag-region";
+import { WindowControls } from "../../components/window-controls";
+import { useUiStore } from "../../state/stores/ui-store";
 import {
   createMockWorkflowCapabilities,
   createMockWorkflowNode,
@@ -56,8 +72,11 @@ import { useWorkflowAgentModels } from "../../state/hooks/use-workflow-agent-mod
 import { localizeContractError } from "../../i18n/contract-error";
 import { WorkflowCanvas } from "./workflow-canvas";
 import { WorkflowInspector } from "./workflow-inspector";
-import { WorkflowManager } from "./workflow-manager";
 import { MCP_CATALOG } from "./mcp-catalog";
+import {
+  useWorkflowEditorStore,
+  type WorkflowEditorLibraryActions,
+} from "./workflow-editor-store";
 import {
   useActivateWorkflow,
   useCreateWorkflow,
@@ -77,11 +96,6 @@ import {
   cancelPanelWidthAnimation as cancelWorkflowPanelAnimation,
 } from "../../lib/panel-motion";
 
-const DEFAULT_WORKFLOW_LIBRARY_WIDTH = 220;
-const MIN_WORKFLOW_LIBRARY_WIDTH = 180;
-const MAX_WORKFLOW_LIBRARY_WIDTH = 320;
-const WORKFLOW_LIBRARY_COLLAPSE_THRESHOLD = 130;
-const WORKFLOW_LIBRARY_FADE_START = 90;
 const DEFAULT_WORKFLOW_INSPECTOR_WIDTH = 320;
 const MIN_WORKFLOW_INSPECTOR_WIDTH = 240;
 const MAX_WORKFLOW_INSPECTOR_WIDTH = 480;
@@ -89,9 +103,8 @@ const WORKFLOW_INSPECTOR_COLLAPSE_THRESHOLD = 180;
 const WORKFLOW_INSPECTOR_FADE_START = 120;
 const WORKFLOW_PANEL_SETTLE_DURATION = 180;
 const MIN_WORKFLOW_CANVAS_WIDTH = 360;
-const NARROW_WORKFLOW_EDITOR_WIDTH = 1_000;
 
-export interface WorkflowSettingsProps {
+export interface WorkflowEditorProps {
   capabilities?: WorkflowCapabilities;
 }
 
@@ -109,6 +122,31 @@ function uniqueGraphId(
     sequence += 1;
   }
   return { id: `${prefix}-${sequence}`, sequence };
+}
+
+/**
+ * Keeps a still-valid selection, otherwise the first remaining library row.
+ * Derived during render so a cached library can start the draft query on the
+ * first paint instead of flashing the loading pane until an effect writes the id.
+ *
+ * Create prepends the new summary to the library cache before writing this id,
+ * so a just-created workflow is already "in the library" here. A missing id is
+ * treated as deleted so the first remaining row can take over.
+ */
+function resolveSelectedWorkflowId(
+  selectedWorkflowId: string | null,
+  library: readonly { id: string }[] | undefined,
+): string | null {
+  if (library === undefined) {
+    return selectedWorkflowId;
+  }
+  if (
+    selectedWorkflowId !== null &&
+    library.some((item) => item.id === selectedWorkflowId)
+  ) {
+    return selectedWorkflowId;
+  }
+  return library[0]?.id ?? null;
 }
 
 /** Produces a portable filename while retaining the workflow name for the save dialog. */
@@ -149,18 +187,18 @@ function importPublishVersion(
 }
 
 /** Provides one React Flow store to the canvas and its sibling inspector. */
-export function WorkflowSettings(props: WorkflowSettingsProps = {}) {
+export function WorkflowEditor(props: WorkflowEditorProps = {}) {
   return (
     <ReactFlowProvider>
-      <WorkflowSettingsContent {...props} />
+      <WorkflowEditorContent {...props} />
     </ReactFlowProvider>
   );
 }
 
-/** Owns the persisted workflow library and the editor bound to the selected draft. */
-function WorkflowSettingsContent({
+/** Owns the selected draft graph and publishes library actions to the sidebar list. */
+function WorkflowEditorContent({
   capabilities: capabilitiesOverride,
-}: WorkflowSettingsProps) {
+}: WorkflowEditorProps) {
   const { i18n, t } = useTranslation();
   const platform = usePlatform();
   const client = useContractsClient();
@@ -236,11 +274,30 @@ function WorkflowSettingsContent({
     agentsQuery.error !== null || skillsQuery.error !== null;
 
   const library = useWorkflowLibrary();
-  const [selectedWorkflowId, setSelectedWorkflowId] = useState<string | null>(
-    null,
+  const selectedWorkflowId = useWorkflowEditorStore(
+    (state) => state.selectedWorkflowId,
   );
-  const draftQuery = useWorkflowDraft(selectedWorkflowId);
-  const versionsQuery = useWorkflowVersions(selectedWorkflowId);
+  const setSelectedWorkflowId = useWorkflowEditorStore(
+    (state) => state.setSelectedWorkflowId,
+  );
+  const managerError = useWorkflowEditorStore((state) => state.managerError);
+  const setManagerError = useWorkflowEditorStore(
+    (state) => state.setManagerError,
+  );
+  const registerActions = useWorkflowEditorStore(
+    (state) => state.registerActions,
+  );
+  const sidebarCollapsed = useUiStore((state) => state.sidebarCollapsed);
+  const setSidebarCollapsed = useUiStore((state) => state.setSidebarCollapsed);
+  const setWorkflowEditorOpen = useUiStore(
+    (state) => state.setWorkflowEditorOpen,
+  );
+  const resolvedWorkflowId = resolveSelectedWorkflowId(
+    selectedWorkflowId,
+    library.data,
+  );
+  const draftQuery = useWorkflowDraft(resolvedWorkflowId);
+  const versionsQuery = useWorkflowVersions(resolvedWorkflowId);
   const createWorkflowMutation = useCreateWorkflow();
   const renameWorkflowMutation = useRenameWorkflow();
   const deleteWorkflowMutation = useDeleteWorkflow();
@@ -256,13 +313,9 @@ function WorkflowSettingsContent({
   );
   const [previewedVersion, setPreviewedVersion] =
     useState<MockWorkflowVersion | null>(null);
-  const [managerError, setManagerError] = useState<string | null>(null);
   const [publishDialogOpen, setPublishDialogOpen] = useState(false);
   const [publishVersionName, setPublishVersionName] = useState("");
-  const editorLayoutRef = useRef<HTMLDivElement>(null);
-  const libraryPanelRef = useRef<ResizablePanelHandle | null>(null);
   const inspectorPanelRef = useRef<ResizablePanelHandle | null>(null);
-  const libraryAnimationRef = useRef<number | null>(null);
   const inspectorAnimationRef = useRef<number | null>(null);
   /** Bumps on every persistable edit so in-flight writes can detect they are stale. */
   const editGenerationRef = useRef(0);
@@ -270,16 +323,11 @@ function WorkflowSettingsContent({
   const previewedVersionRef = useRef<MockWorkflowVersion | null>(null);
   /** Last name known to be persisted, so autosave skips no-op renames. */
   const persistedNameRef = useRef<string | null>(null);
-  const initialLibraryWidth = DEFAULT_WORKFLOW_LIBRARY_WIDTH;
+  const libraryActionsRef = useRef<WorkflowEditorLibraryActions | null>(null);
   const initialInspectorWidth = DEFAULT_WORKFLOW_INSPECTOR_WIDTH;
-  const libraryWidthRef = useRef(initialLibraryWidth);
   const inspectorWidthRef = useRef(initialInspectorWidth);
-  const libraryCurrentWidthRef = useRef(initialLibraryWidth);
   const inspectorCurrentWidthRef = useRef(0);
-  const [libraryCollapsed, setLibraryCollapsed] = useState(false);
   const [inspectorCollapsed, setInspectorCollapsed] = useState(true);
-  const [libraryVisualWidth, setLibraryVisualWidth] =
-    useState(initialLibraryWidth);
   const [inspectorVisualWidth, setInspectorVisualWidth] = useState(0);
 
   // Autosave flush reads these after render; keep them current without render-time writes.
@@ -288,29 +336,14 @@ function WorkflowSettingsContent({
     previewedVersionRef.current = previewedVersion;
   });
 
-  /** Library rows for the manager, derived from persisted workflow summaries. */
-  const libraryWorkflows: DemoWorkflow[] = useMemo(
-    () =>
-      (library.data ?? []).map((summary) => ({
-        id: summary.id,
-        name: summary.name,
-        description: "",
-        updatedAt: workflowTimestampToIso(summary.updatedAt),
-        viewport: { x: 0, y: 0, zoom: 1 },
-        nodes: [],
-        edges: [],
-      })),
-    [library.data],
-  );
-
   // Render-phase adjustments (the documented "adjust state when props change"
   // pattern): hydrate when the selected workflow identity changes. Autosave must
   // not remount the canvas, so timestamp-only draft updates are ignored here;
   // activate clears hydratedWorkflowId to force a same-id reload.
   if (
     draftQuery.data !== undefined &&
-    draftQuery.data.workflow.id === selectedWorkflowId &&
-    hydratedWorkflowId !== selectedWorkflowId
+    draftQuery.data.workflow.id === resolvedWorkflowId &&
+    hydratedWorkflowId !== resolvedWorkflowId
   ) {
     const envelope = parseWorkflowGraph(draftQuery.data.draft.graph);
     // Persisted drafts may reference a model that is no longer available. Keep the
@@ -389,13 +422,13 @@ function WorkflowSettingsContent({
     persistedNameRef.current = draftQuery.data.workflow.name;
   }
 
-  if (
-    selectedWorkflowId === null &&
-    library.data !== undefined &&
-    library.data.length > 0
-  ) {
-    setSelectedWorkflowId(library.data[0].id);
-  }
+  // Write the derived id to the store before paint so the sidebar highlight
+  // matches the draft that the first render already started loading.
+  useLayoutEffect(() => {
+    if (resolvedWorkflowId !== selectedWorkflowId) {
+      setSelectedWorkflowId(resolvedWorkflowId);
+    }
+  }, [resolvedWorkflowId, selectedWorkflowId, setSelectedWorkflowId]);
 
   /** Maps persisted version summaries into the editor's version-history shape. */
   const versionHistory: MockWorkflowVersion[] = useMemo(
@@ -437,6 +470,8 @@ function WorkflowSettingsContent({
         : { ...workflow, ...previewedVersion.graph },
     [previewedVersion, workflow],
   );
+  const loadCause =
+    library.error ?? (resolvedWorkflowId !== null ? draftQuery.error : null);
   const selectedNode = useMemo(
     () =>
       previewedVersion === null
@@ -448,45 +483,7 @@ function WorkflowSettingsContent({
 
   useEffect(
     () => () => {
-      cancelWorkflowPanelAnimation(libraryAnimationRef);
       cancelWorkflowPanelAnimation(inspectorAnimationRef);
-    },
-    [],
-  );
-
-  /** Collapses the workflow library while keeping its last expanded width available. */
-  function collapseLibrary(): void {
-    animateLibraryTo(0);
-  }
-
-  /** Restores the workflow library to the last width chosen by the user. */
-  function expandLibrary(): void {
-    if (
-      inspectorAvailable &&
-      (editorLayoutRef.current?.getBoundingClientRect().width ??
-        Number.POSITIVE_INFINITY) < NARROW_WORKFLOW_EDITOR_WIDTH
-    ) {
-      animateInspectorTo(0, () => {
-        setLibraryCollapsed(false);
-        animateLibraryTo(libraryWidthRef.current);
-      });
-      return;
-    }
-    setLibraryCollapsed(false);
-    animateLibraryTo(libraryWidthRef.current);
-  }
-
-  /** Moves the library to a stable width with the shared panel motion behavior. */
-  const animateLibraryTo = useCallback(
-    (targetWidth: number, onComplete?: () => void): void => {
-      animateWorkflowPanel({
-        animationRef: libraryAnimationRef,
-        duration: WORKFLOW_PANEL_SETTLE_DURATION,
-        onCollapsed: () => setLibraryCollapsed(true),
-        onComplete,
-        panel: libraryPanelRef.current,
-        targetWidth,
-      });
     },
     [],
   );
@@ -506,26 +503,18 @@ function WorkflowSettingsContent({
     [],
   );
 
-  /** Opens the contextual inspector and yields library space first on narrow editors. */
+  /** Opens the contextual inspector when a node has configuration context. */
   const expandInspector = useCallback((): void => {
-    if (
-      (editorLayoutRef.current?.getBoundingClientRect().width ??
-        Number.POSITIVE_INFINITY) < NARROW_WORKFLOW_EDITOR_WIDTH
-    ) {
-      animateLibraryTo(0, () => {
-        setInspectorCollapsed(false);
-        animateInspectorTo(inspectorWidthRef.current);
-      });
-      return;
-    }
     setInspectorCollapsed(false);
     animateInspectorTo(inspectorWidthRef.current);
-  }, [animateInspectorTo, animateLibraryTo]);
+  }, [animateInspectorTo]);
 
   // Opening the inspector when a node gains context (and collapsing it when it
   // loses context) is an imperative panel animation, keyed on selection only.
   useEffect(() => {
     if (inspectorAvailable) {
+      // Panel width is owned by the resizable host; this is an imperative snap.
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- panel animation
       expandInspector();
     } else {
       animateInspectorTo(0);
@@ -543,19 +532,6 @@ function WorkflowSettingsContent({
           },
     );
     animateInspectorTo(0);
-  }
-
-  /** Snaps an undersized library only after release so direct dragging stays linear. */
-  function settleLibraryAfterUserResize(): void {
-    const width = libraryCurrentWidthRef.current;
-    if (width <= 0 || width >= MIN_WORKFLOW_LIBRARY_WIDTH) {
-      return;
-    }
-    animateLibraryTo(
-      width < WORKFLOW_LIBRARY_COLLAPSE_THRESHOLD
-        ? 0
-        : MIN_WORKFLOW_LIBRARY_WIDTH,
-    );
   }
 
   /** Snaps an undersized inspector only after release, never while it tracks the pointer. */
@@ -646,7 +622,13 @@ function WorkflowSettingsContent({
       setManagerError(localizeContractError(cause, t));
       return "failed";
     }
-  }, [renameWorkflowMutation, t, toObject, updateDraftMutation]);
+  }, [
+    renameWorkflowMutation,
+    setManagerError,
+    t,
+    toObject,
+    updateDraftMutation,
+  ]);
 
   const autosave = useWorkflowDraftAutosave({
     enabled: workflow !== null && previewedVersion === null,
@@ -655,7 +637,7 @@ function WorkflowSettingsContent({
 
   /** Switches the active workflow after flushing any pending draft write. */
   async function selectWorkflow(workflowId: string): Promise<void> {
-    if (workflowId === selectedWorkflowId) {
+    if (workflowId === resolvedWorkflowId) {
       return;
     }
     const saved = await autosave.flush({ force: true });
@@ -669,21 +651,25 @@ function WorkflowSettingsContent({
   }
 
   /** Creates a persisted workflow and immediately opens it for editing. */
-  async function createWorkflow(name: string): Promise<void> {
+  async function createWorkflow(name: string): Promise<boolean> {
     setManagerError(null);
     try {
       const saved = await autosave.flush({ force: true });
       if (!saved) {
-        return;
+        return false;
       }
       const result = await createWorkflowMutation.mutateAsync({ name });
       // Skip selectWorkflow's forced flush — the previous draft was already written
       // above, and flushing again would race the newly created workflow's hydrate.
       autosave.cancel();
       setPreviewedVersion(null);
+      setHydratedWorkflowId(null);
+      setWorkflow(null);
       setSelectedWorkflowId(result.workflow.id);
+      return true;
     } catch (cause) {
       setManagerError(localizeContractError(cause, t));
+      return false;
     }
   }
 
@@ -691,10 +677,10 @@ function WorkflowSettingsContent({
   async function renameWorkflow(
     workflowId: string,
     name: string,
-  ): Promise<void> {
+  ): Promise<boolean> {
     const nextName = name.trim();
     if (nextName === "") {
-      return;
+      return false;
     }
     setManagerError(null);
     try {
@@ -705,8 +691,10 @@ function WorkflowSettingsContent({
           ? current
           : { ...current, name: nextName },
       );
+      return true;
     } catch (cause) {
       setManagerError(localizeContractError(cause, t));
+      return false;
     }
   }
 
@@ -719,11 +707,11 @@ function WorkflowSettingsContent({
         : library.data?.find((item) => item.id === workflowId)?.name) ??
       workflowId;
     try {
-      if (selectedWorkflowId === workflowId) {
+      if (resolvedWorkflowId === workflowId) {
         autosave.cancel();
       }
       await deleteWorkflowMutation.mutateAsync(workflowId);
-      if (selectedWorkflowId === workflowId) {
+      if (resolvedWorkflowId === workflowId) {
         setSelectedWorkflowId(null);
         setHydratedWorkflowId(null);
         setWorkflow(null);
@@ -743,6 +731,13 @@ function WorkflowSettingsContent({
 
   /** Saves the draft then opens the publish dialog so a publish is never stale. */
   async function openPublishDialog(): Promise<void> {
+    // Preview shows a frozen snapshot; flushing now would write that graph over the draft.
+    if (previewedVersionRef.current !== null) {
+      setPreviewedVersion(null);
+      setPublishVersionName("");
+      setPublishDialogOpen(true);
+      return;
+    }
     const saved = await saveWorkflow();
     if (!saved) {
       return;
@@ -775,23 +770,23 @@ function WorkflowSettingsContent({
   }
 
   /** Parses and validates an exported workflow before persisting it as a new workflow. */
-  async function importWorkflow(file: File): Promise<void> {
+  async function importWorkflow(file: File): Promise<boolean> {
     setManagerError(null);
     let imported: DemoWorkflow;
     try {
       imported = JSON.parse(await file.text()) as DemoWorkflow;
     } catch {
       setManagerError(t("settings.workflow.importError"));
-      return;
+      return false;
     }
     const name = imported.name.trim();
     if (name === "") {
       setManagerError(t("settings.workflow.importError"));
-      return;
+      return false;
     }
     const saved = await autosave.flush({ force: true });
     if (!saved) {
-      return;
+      return false;
     }
     try {
       const definition = normalizeWorkflowDefinition({
@@ -814,6 +809,8 @@ function WorkflowSettingsContent({
       });
       autosave.cancel();
       setPreviewedVersion(null);
+      setHydratedWorkflowId(null);
+      setWorkflow(null);
       setSelectedWorkflowId(result.workflow.id);
       // Import should leave a runnable published snapshot, not only an editable draft.
       const published = await publishWorkflowMutation.mutateAsync({
@@ -826,8 +823,10 @@ function WorkflowSettingsContent({
           version: published.snapshot.version,
         }),
       );
+      return true;
     } catch (cause) {
       setManagerError(localizeContractError(cause, t));
+      return false;
     }
   }
 
@@ -857,14 +856,14 @@ function WorkflowSettingsContent({
     if (!saved) {
       return;
     }
-    if (version === null || selectedWorkflowId === null) {
+    if (version === null || resolvedWorkflowId === null) {
       setPreviewedVersion(version);
       return;
     }
     setManagerError(null);
     try {
       const { snapshot } = await client.workflow.getVersion({
-        workflowId: selectedWorkflowId,
+        workflowId: resolvedWorkflowId,
         version: version.version,
       });
       const envelope = parseWorkflowGraph(snapshot.graph);
@@ -1041,9 +1040,55 @@ function WorkflowSettingsContent({
     );
   }
 
+  /** Flushes the open draft, then returns to the parked workspace surface. */
+  async function leaveEditor(): Promise<void> {
+    const saved = await autosave.flush({ force: true });
+    if (!saved) {
+      toast.error(
+        useWorkflowEditorStore.getState().managerError ??
+          t("settings.workflow.saveError"),
+      );
+      return;
+    }
+    setManagerError(null);
+    setWorkflowEditorOpen(false);
+  }
+
+  useLayoutEffect(() => {
+    libraryActionsRef.current = {
+      select: selectWorkflow,
+      create: createWorkflow,
+      rename: renameWorkflow,
+      delete: deleteWorkflow,
+      importFile: importWorkflow,
+      leave: leaveEditor,
+    };
+  });
+
+  useLayoutEffect(() => {
+    registerActions({
+      select: (workflowId) =>
+        libraryActionsRef.current?.select(workflowId) ?? Promise.resolve(),
+      create: (name) =>
+        libraryActionsRef.current?.create(name) ?? Promise.resolve(false),
+      rename: (workflowId, name) =>
+        libraryActionsRef.current?.rename(workflowId, name) ??
+        Promise.resolve(false),
+      delete: (workflowId) =>
+        libraryActionsRef.current?.delete(workflowId) ?? Promise.resolve(),
+      importFile: (file) =>
+        libraryActionsRef.current?.importFile(file) ?? Promise.resolve(false),
+      leave: () => libraryActionsRef.current?.leave() ?? Promise.resolve(),
+    });
+    return () => {
+      registerActions(null);
+    };
+  }, [registerActions]);
+
   return (
-    <div
-      className="flex h-full min-h-0 flex-col bg-background"
+    <main
+      id="main-content"
+      className="flex h-full min-h-0 min-w-0 flex-1 flex-col bg-background"
       onKeyDown={(event) => {
         if (
           event.key === "Escape" &&
@@ -1056,38 +1101,61 @@ function WorkflowSettingsContent({
         }
       }}
     >
-      <header className="flex min-h-14 items-center gap-3 border-b border-border py-2 pl-3 pr-12 sm:pl-4">
-        <span className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-foreground text-background">
-          <IconRoute className="size-4" />
-        </span>
-        <div className="min-w-0 flex-1">
-          {workflow === null ? (
-            <h2 className="text-sm font-semibold">
-              {t("settings.workflow.library")}
+      <header className="flex h-14 shrink-0 items-center gap-2 border-b border-border px-3">
+        {sidebarCollapsed && (
+          <>
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={() => setSidebarCollapsed(false)}
+              aria-label={t("sidebar.expand")}
+            >
+              <IconLayoutSidebarLeftExpand />
+            </Button>
+            {/* Chrome (show the rail) vs navigation (leave the editor) are different
+                actions; keep them adjacent for reach, but split the clusters. */}
+            <div className="h-4 w-px shrink-0 bg-border" aria-hidden />
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={() => void leaveEditor()}
+              aria-label={t("sidebar.back")}
+            >
+              <IconArrowLeft />
+            </Button>
+          </>
+        )}
+        {workflow === null ? (
+          <DragRegion>
+            <h2 className="truncate text-sm font-medium tracking-[-0.01em]">
+              {t("sidebar.workflows")}
             </h2>
-          ) : (
-            <>
-              <div className="flex items-center gap-2">
-                <Input
-                  value={workflow.name}
-                  disabled={previewedVersion !== null}
-                  onChange={(event) =>
-                    updateWorkflow((current) => ({
-                      ...current,
-                      name: event.target.value,
-                    }))
-                  }
-                  aria-label={t("settings.workflow.workflowName")}
-                  className="h-7 max-w-72 border-transparent bg-transparent px-1 text-sm font-semibold shadow-none hover:border-border focus-visible:border-border"
-                />
-              </div>
-              <p className="truncate px-1 text-[10px] text-muted-foreground">
-                {workflow.description}
-              </p>
-            </>
-          )}
-        </div>
-        <div className="flex items-center gap-2">
+          </DragRegion>
+        ) : (
+          <>
+            <div className="min-w-0">
+              <Input
+                value={workflow.name}
+                disabled={previewedVersion !== null}
+                onChange={(event) =>
+                  updateWorkflow((current) => ({
+                    ...current,
+                    name: event.target.value,
+                  }))
+                }
+                aria-label={t("settings.workflow.workflowName")}
+                className="h-7 max-w-72 border-transparent bg-transparent px-1 text-sm font-medium shadow-none hover:border-border focus-visible:border-border"
+              />
+              {workflow.description !== "" && (
+                <p className="truncate px-1 text-[11px] text-muted-foreground">
+                  {workflow.description}
+                </p>
+              )}
+            </div>
+            <DragRegion />
+          </>
+        )}
+        <div className="flex shrink-0 items-center gap-2">
           {workflow !== null && previewedVersion === null && (
             <WorkflowDraftSaveStatusLabel
               status={autosave.status}
@@ -1112,96 +1180,32 @@ function WorkflowSettingsContent({
             <IconVersions />
             {t("settings.workflow.publish")}
           </Button>
+          <WindowControls />
         </div>
       </header>
-      <div ref={editorLayoutRef} className="min-h-0 flex-1">
+      {sidebarCollapsed && managerError !== null && (
+        <p
+          role="alert"
+          className="border-b border-destructive/20 bg-destructive/10 px-3 py-2 text-xs text-destructive"
+        >
+          {managerError}
+        </p>
+      )}
+      <div className="min-h-0 flex-1">
         <ResizablePanelGroup
           orientation="horizontal"
           resizeTargetMinimumSize={{ coarse: 28, fine: 12 }}
           onLayoutChanged={(_layout, meta) => {
             if (meta.isUserInteraction) {
-              settleLibraryAfterUserResize();
               settleInspectorAfterUserResize();
             }
           }}
         >
           <ResizablePanel
-            id="workflow-library"
-            panelRef={libraryPanelRef}
-            defaultSize={initialLibraryWidth}
-            minSize={1}
-            maxSize={MAX_WORKFLOW_LIBRARY_WIDTH}
-            collapsedSize={0}
-            collapsible
-            groupResizeBehavior="preserve-pixel-size"
-            onResize={(size) => {
-              const collapsed = size.inPixels < 1;
-              libraryCurrentWidthRef.current = size.inPixels;
-              setLibraryVisualWidth(size.inPixels);
-              setLibraryCollapsed(collapsed);
-              if (size.inPixels >= MIN_WORKFLOW_LIBRARY_WIDTH) {
-                libraryWidthRef.current = size.inPixels;
-              }
-            }}
-          >
-            <div
-              aria-hidden={libraryCollapsed}
-              className="flex min-h-0 flex-1"
-              style={{
-                opacity: Math.max(
-                  0,
-                  Math.min(
-                    1,
-                    (libraryVisualWidth - WORKFLOW_LIBRARY_FADE_START) /
-                      (MIN_WORKFLOW_LIBRARY_WIDTH -
-                        WORKFLOW_LIBRARY_FADE_START),
-                  ),
-                ),
-              }}
-            >
-              <WorkflowManager
-                workflows={libraryWorkflows}
-                selectedWorkflowId={selectedWorkflowId}
-                error={managerError}
-                onSelect={(workflowId) => void selectWorkflow(workflowId)}
-                onCreate={(name) => void createWorkflow(name)}
-                onRename={(workflowId, name) =>
-                  void renameWorkflow(workflowId, name)
-                }
-                onDelete={(workflowId) => void deleteWorkflow(workflowId)}
-                onImport={(file) => void importWorkflow(file)}
-                onCollapse={collapseLibrary}
-              />
-            </div>
-          </ResizablePanel>
-          <ResizableHandle
-            withHandle
-            aria-label={t("settings.workflow.resizeLibrary")}
-            title={t("settings.workflow.resizeLibrary")}
-            className="z-20 after:w-3 transition-colors hover:bg-ring focus-visible:bg-ring"
-            onPointerDown={() =>
-              cancelWorkflowPanelAnimation(libraryAnimationRef)
-            }
-            onDoubleClick={() => {
-              libraryWidthRef.current = DEFAULT_WORKFLOW_LIBRARY_WIDTH;
-              libraryPanelRef.current?.resize(DEFAULT_WORKFLOW_LIBRARY_WIDTH);
-            }}
-          />
-          <ResizablePanel
             id="workflow-canvas"
             minSize={MIN_WORKFLOW_CANVAS_WIDTH}
           >
-            {displayedWorkflow === null ? (
-              <WorkflowEmpty
-                onCreate={() =>
-                  void createWorkflow(
-                    t("settings.workflow.untitledWorkflow", {
-                      count: libraryWorkflows.length + 1,
-                    }),
-                  )
-                }
-              />
-            ) : (
+            {displayedWorkflow !== null ? (
               <WorkflowCanvas
                 key={displayedWorkflow.id}
                 capabilities={capabilities}
@@ -1213,10 +1217,8 @@ function WorkflowSettingsContent({
                 onAddNode={addNode}
                 onConnect={connectNodes}
                 onReconnect={reconnectEdge}
-                libraryCollapsed={libraryCollapsed}
                 inspectorCollapsed={inspectorCollapsed}
                 inspectorAvailable={inspectorAvailable}
-                onExpandLibrary={expandLibrary}
                 onExpandInspector={expandInspector}
                 versionHistory={versionHistory}
                 previewedVersion={previewedVersion}
@@ -1228,11 +1230,35 @@ function WorkflowSettingsContent({
                 onActivateVersion={(version) =>
                   void activateWorkflowVersion(version)
                 }
+                onPublishDraft={() => void openPublishDialog()}
                 onDeleteVersion={(version) =>
                   void deleteWorkflowVersion(version)
                 }
                 readOnly={previewedVersion !== null}
               />
+            ) : loadCause !== null ? (
+              <WorkflowLoadError
+                message={localizeContractError(loadCause, t)}
+                onRetry={() => {
+                  if (library.error !== null) {
+                    void library.refetch();
+                    return;
+                  }
+                  void draftQuery.refetch();
+                }}
+              />
+            ) : library.data !== undefined && library.data.length === 0 ? (
+              <WorkflowEmpty
+                onCreate={() =>
+                  void createWorkflow(
+                    t("settings.workflow.untitledWorkflow", {
+                      count: 1,
+                    }),
+                  )
+                }
+              />
+            ) : (
+              <WorkflowLoading />
             )}
           </ResizablePanel>
           <ResizableHandle
@@ -1347,7 +1373,7 @@ function WorkflowSettingsContent({
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-    </div>
+    </main>
   );
 }
 
@@ -1368,6 +1394,51 @@ function WorkflowEmpty({ onCreate }: { onCreate: () => void }) {
         </p>
         <Button size="sm" className="mt-4" onClick={onCreate}>
           {t("settings.workflow.newWorkflow")}
+        </Button>
+      </div>
+    </section>
+  );
+}
+
+/** Distinguishes a hydrating library/draft from a truly empty collection. */
+function WorkflowLoading() {
+  const { t } = useTranslation();
+  return (
+    <section
+      className="flex min-h-0 flex-1 items-center justify-center bg-muted/25"
+      aria-busy="true"
+      aria-live="polite"
+    >
+      <p className="text-sm text-muted-foreground">
+        {t("settings.workflow.loading")}
+      </p>
+    </section>
+  );
+}
+
+/** Failed library or draft fetch: a retryable error, not an empty collection or spinner. */
+function WorkflowLoadError({
+  message,
+  onRetry,
+}: {
+  message: string;
+  onRetry: () => void;
+}) {
+  const { t } = useTranslation();
+  return (
+    <section
+      className="flex min-h-0 flex-1 items-center justify-center bg-muted/25"
+      role="alert"
+    >
+      <div className="max-w-64 text-center">
+        <h3 className="text-sm font-semibold">
+          {t("settings.workflow.loadError")}
+        </h3>
+        <p className="mt-1 text-[11px] leading-4 text-muted-foreground">
+          {message}
+        </p>
+        <Button size="sm" className="mt-4" onClick={onRetry}>
+          {t("common.retry")}
         </Button>
       </div>
     </section>

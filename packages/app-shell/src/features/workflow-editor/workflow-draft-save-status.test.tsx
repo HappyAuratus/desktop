@@ -4,7 +4,7 @@ import type { ComponentProps } from "react";
 import { AppI18nProvider } from "../../i18n/i18n";
 import { WorkflowDraftSaveStatusLabel } from "./workflow-draft-save-status";
 
-/** Renders the save-status label under the same i18n provider the settings page uses. */
+/** Renders the save-status label under the same i18n provider the editor uses. */
 function renderLabel(
   props: ComponentProps<typeof WorkflowDraftSaveStatusLabel>,
 ) {

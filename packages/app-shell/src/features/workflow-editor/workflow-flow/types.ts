@@ -26,10 +26,8 @@ export interface WorkflowCanvasProps {
   onAddNode: (kind: WorkflowNodeKind, position: XYPosition) => void;
   onConnect: OnConnect;
   onReconnect: OnReconnect<Edge>;
-  libraryCollapsed: boolean;
   inspectorCollapsed: boolean;
   inspectorAvailable: boolean;
-  onExpandLibrary: () => void;
   onExpandInspector: () => void;
   versionHistory: MockWorkflowVersion[];
   previewedVersion: MockWorkflowVersion | null;
@@ -39,6 +37,8 @@ export interface WorkflowCanvasProps {
   draftUpdatedAt?: string;
   onPreviewVersion: (version: MockWorkflowVersion | null) => void;
   onActivateVersion: (version: MockWorkflowVersion) => void;
+  /** Opens the same publish flow as the header, freezing the current draft. */
+  onPublishDraft: () => void;
   onDeleteVersion: (version: MockWorkflowVersion) => void;
   readOnly: boolean;
 }
