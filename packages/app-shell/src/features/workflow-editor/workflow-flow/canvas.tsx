@@ -39,7 +39,10 @@ import {
 } from "./layout";
 import { WorkflowConnectionStateProvider } from "./connection-state";
 import { WorkflowConnectionLine } from "./connection-line";
-import { WorkflowCanvasControls } from "./controls";
+import {
+  WorkflowCanvasControls,
+  WorkflowCanvasInspectorRestore,
+} from "./controls";
 import { WorkflowFlowEdgeView } from "./edge";
 import { WorkflowFlowNodeView } from "./node";
 import { WorkflowFlowOverview } from "./overview";
@@ -155,10 +158,8 @@ function WorkflowCanvasInner({
   onAddNode,
   onConnect,
   onReconnect,
-  libraryCollapsed,
   inspectorCollapsed,
   inspectorAvailable,
-  onExpandLibrary,
   onExpandInspector,
   versionHistory,
   previewedVersion,
@@ -166,6 +167,7 @@ function WorkflowCanvasInner({
   draftUpdatedAt,
   onPreviewVersion,
   onActivateVersion,
+  onPublishDraft,
   onDeleteVersion,
   readOnly,
 }: WorkflowCanvasProps) {
@@ -509,23 +511,29 @@ function WorkflowCanvasInner({
           </ReactFlow>
         </WorkflowConnectionStateProvider>
 
-        <WorkflowCanvasControls
-          defaultViewport={DEFAULT_VIEWPORT}
-          libraryCollapsed={libraryCollapsed}
-          inspectorCollapsed={inspectorCollapsed}
-          inspectorAvailable={inspectorAvailable}
-          onExpandLibrary={onExpandLibrary}
-          onExpandInspector={onExpandInspector}
-        />
-        <WorkflowVersionHistory
-          versions={versionHistory}
-          previewedVersion={previewedVersion}
-          activeVersion={activeVersion}
-          draftUpdatedAt={draftUpdatedAt}
-          onPreviewVersion={onPreviewVersion}
-          onActivateVersion={onActivateVersion}
-          onDeleteVersion={onDeleteVersion}
-        />
+        {/* History caption sits in the same row as zoom so it cannot overlap the toolbar. */}
+        <div className="pointer-events-none absolute inset-x-2 top-2 z-40 flex items-center gap-2">
+          {inspectorCollapsed && inspectorAvailable && (
+            <div className="pointer-events-auto">
+              <WorkflowCanvasInspectorRestore
+                onExpandInspector={onExpandInspector}
+              />
+            </div>
+          )}
+          <div className="pointer-events-auto ml-auto flex min-w-0 shrink-0 items-center gap-2">
+            <WorkflowVersionHistory
+              versions={versionHistory}
+              previewedVersion={previewedVersion}
+              activeVersion={activeVersion}
+              draftUpdatedAt={draftUpdatedAt}
+              onPreviewVersion={onPreviewVersion}
+              onActivateVersion={onActivateVersion}
+              onPublishDraft={onPublishDraft}
+              onDeleteVersion={onDeleteVersion}
+            />
+            <WorkflowCanvasControls defaultViewport={DEFAULT_VIEWPORT} />
+          </div>
+        </div>
       </div>
 
       {!readOnly && (

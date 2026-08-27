@@ -13,6 +13,7 @@ beforeEach(() => {
   useUiStore.setState({
     sidebarCollapsed: false,
     settingsOpen: false,
+    workflowEditorOpen: false,
     dashboardOpen: false,
     dashboardMode: "trace",
     dashboardWidth: DEFAULT_DASHBOARD_WIDTH,
@@ -39,6 +40,13 @@ describe("useUiStore", () => {
   it("toggles settings dialog open state", () => {
     useUiStore.getState().setSettingsOpen(true);
     expect(useUiStore.getState().settingsOpen).toBe(true);
+  });
+
+  it("toggles the workflow editor without persisting it", () => {
+    useUiStore.getState().setWorkflowEditorOpen(true);
+    expect(useUiStore.getState().workflowEditorOpen).toBe(true);
+    useUiStore.getState().setWorkflowEditorOpen(false);
+    expect(useUiStore.getState().workflowEditorOpen).toBe(false);
   });
 
   it("toggles project expansion and produces a new Set each time", () => {
@@ -140,6 +148,7 @@ describe("useUiStore", () => {
       treeExpansionBootstrapped: true,
     });
     expect(raw!).not.toContain("settingsOpen");
+    expect(raw!).not.toContain("workflowEditorOpen");
     expect(raw!).not.toContain("dialog");
   });
 
@@ -190,6 +199,7 @@ describe("useUiStore", () => {
       expandedTasks: new Set(),
       treeExpansionBootstrapped: true,
       settingsOpen: false,
+      workflowEditorOpen: false,
       dialog: null,
       deleteTarget: null,
     });

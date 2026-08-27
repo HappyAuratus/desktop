@@ -84,7 +84,7 @@ Notable consequences:
 - `worktree` has no handlers or transport contracts at all. Worktree records are internal metadata coordinated by the task module.
 - `task_diff` owns review use cases but not workspace selection. Backend composition resolves the task's live cwd and supplies the isolated worktree's fixed baseline.
 - `workflow` offers a complete CRUD surface including deletion, unlike project and task. Workflow deletion follows the standard handler pattern because it has no running-session constraint; cascade soft-deletion of snapshots is managed entirely within the repository.
-- `workflow_run` deletion carries an active-run guard — a running run, a non-terminal node run, or a running session refuses deletion — and cascades a soft-delete across the run, its node runs, and its task's sessions, worktrees, and task row.
+- `workflow_run` deletion carries an active-run guard — a `Running` run, a non-terminal node run, or a `Running` session bound to one of the run's node runs refuses deletion — and cascades a soft-delete across the run, its node runs, and those node-owned sessions. A not-started `Pending` run is not active. The shared Workspace is never deleted with one run.
 
 `project_id`, `task_id`, and `workspace_id` are treated as pass-through business identifiers. Create and update handlers do not perform extra cross-entity existence checks before delegating to their repositories.
 

@@ -13,7 +13,8 @@ const workflowVersionsKey = (workflowId: string) =>
   ["workflow", "versions", workflowId] as const;
 
 /**
- * Loads the persisted workflow library summaries shown by the settings manager.
+ * Loads the persisted workflow library summaries shown by the editor list
+ * and the workspace create-run menu.
  * The list stays lean (no graphs); drafts hydrate on selection via `useWorkflowDraft`.
  */
 export function useWorkflowLibrary() {
@@ -53,7 +54,35 @@ export function useCreateWorkflow() {
   return useMutation({
     mutationFn: (input: { name: string; graph?: string }) =>
       client.workflow.create({ name: input.name, graph: input.graph ?? null }),
-    onSuccess: () => {
+    onSuccess: (result) => {
+      // Prepend so the new row is visible and selectable before the list refetch
+      // returns. Without this, resolveSelectedWorkflowId would see a missing id
+      // and the layout effect would steal focus back to the previous first row.
+      const created: WorkflowSummary = {
+        id: result.workflow.id,
+        namespace: result.workflow.namespace,
+        name: result.workflow.name,
+        publishedVersion: null,
+        createdAt: result.workflow.createdAt,
+        updatedAt: result.workflow.updatedAt,
+      };
+      queryClient.setQueryData<WorkflowSummary[]>(
+        workflowLibraryKey,
+        (current) => {
+          if (current === undefined) {
+            return [created];
+          }
+          if (current.some((item) => item.id === created.id)) {
+            return current;
+          }
+          return [created, ...current];
+        },
+      );
+      queryClient.setQueryData(workflowDraftKey(result.workflow.id), {
+        workflow: result.workflow,
+        draft: result.draft,
+        published: null,
+      });
       void queryClient.invalidateQueries({ queryKey: workflowLibraryKey });
     },
   });
@@ -79,8 +108,8 @@ export function useDeleteWorkflow() {
   return useMutation({
     mutationFn: (workflowId: string) => client.workflow.delete({ workflowId }),
     onSuccess: (_result, workflowId) => {
-      // Drop the deleted row from the library cache synchronously: the settings page's
-      // render-phase auto-select reads this cache to pick the next selected workflow, and
+      // Drop the deleted row from the library cache synchronously: the editor's
+      // auto-select reads this cache to pick the next selected workflow, and
       // waiting for invalidateQueries' async refetch would briefly keep the deleted id in
       // the list, selecting it and leaving a stale canvas / "workflow not found" error.
       queryClient.setQueryData<WorkflowSummary[]>(

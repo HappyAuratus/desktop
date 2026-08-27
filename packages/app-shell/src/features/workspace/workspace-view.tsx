@@ -60,6 +60,7 @@ import type { ChatTurn } from "@ora/chat";
 import { LocationActionsButton } from "./location-actions-button";
 import { SurfaceLauncher } from "../surface/surface-launcher";
 import { WorkflowRunWorkspace } from "../workflow-run/workflow-run-workspace";
+import { WorkflowEditor } from "../workflow-editor/workflow-editor";
 import {
   WorkspaceReviewLayout,
   type WorkspaceReviewContext,
@@ -160,6 +161,7 @@ export function WorkspaceView({ userName }: WorkspaceViewProps) {
   const selection = useWorkspaceSelectionStore((s) => s.selection);
   const sidebarCollapsed = useUiStore((s) => s.sidebarCollapsed);
   const setSidebarCollapsed = useUiStore((s) => s.setSidebarCollapsed);
+  const workflowEditorOpen = useUiStore((s) => s.workflowEditorOpen);
   // Resolved the same way the picker shows it, so the session warmed here is
   // the one the composer and model picker are actually pointing at — a stale
   // read would warm a different agent than what is on screen.
@@ -578,6 +580,11 @@ export function WorkspaceView({ userName }: WorkspaceViewProps) {
       () => undefined,
     );
   };
+
+  // Graph workflow definition editor owns the main pane while it is open.
+  if (workflowEditorOpen) {
+    return <WorkflowEditor />;
+  }
 
   // Graph workflow runs own a dedicated workspace branch (D2), not the chat layout.
   if (selection.workflowRunId !== null) {

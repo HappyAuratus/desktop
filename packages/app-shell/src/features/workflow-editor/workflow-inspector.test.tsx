@@ -129,7 +129,7 @@ function createStartNode(): Node<WorkflowNodeData, "workflow"> {
   };
 }
 
-/** Mounts the inspector inside a fixed-width clip container that mirrors the settings rail. */
+/** Mounts the inspector inside a fixed-width clip container that mirrors the editor rail. */
 function renderNarrowInspector(): HTMLElement {
   const capabilities = createMockWorkflowCapabilities("zh-CN", [
     {

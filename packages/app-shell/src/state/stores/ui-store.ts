@@ -40,6 +40,8 @@ const MAX_DASHBOARD_WIDTH = 1400;
 interface UiState {
   sidebarCollapsed: boolean;
   settingsOpen: boolean;
+  /** First-class workflow definition editor; session-only, not persisted. */
+  workflowEditorOpen: boolean;
   dashboardOpen: boolean;
   dashboardMode: DashboardPanelMode;
   /** Resizable dashboard panel width in px; clamped to a sane min/max by the panel. */
@@ -55,6 +57,7 @@ interface UiState {
   deleteTarget: DeleteTarget | null;
   setSidebarCollapsed: (collapsed: boolean) => void;
   setSettingsOpen: (open: boolean) => void;
+  setWorkflowEditorOpen: (open: boolean) => void;
   setDashboardOpen: (open: boolean) => void;
   openDashboardPanel: (mode: DashboardPanelMode) => void;
   setDashboardWidth: (width: number) => void;
@@ -175,6 +178,7 @@ export const useUiStore = create<UiState>()(
     (set, get) => ({
       sidebarCollapsed: initialPersist.sidebarCollapsed,
       settingsOpen: false,
+      workflowEditorOpen: false,
       dashboardOpen: false,
       dashboardMode: "trace",
       dashboardWidth: initialPersist.dashboardWidth,
@@ -185,6 +189,8 @@ export const useUiStore = create<UiState>()(
       deleteTarget: null,
       setSidebarCollapsed: (sidebarCollapsed) => set({ sidebarCollapsed }),
       setSettingsOpen: (settingsOpen) => set({ settingsOpen }),
+      setWorkflowEditorOpen: (workflowEditorOpen) =>
+        set({ workflowEditorOpen }),
       setDashboardOpen: (dashboardOpen) => set({ dashboardOpen }),
       openDashboardPanel: (dashboardMode) =>
         set({ dashboardMode, dashboardOpen: true }),

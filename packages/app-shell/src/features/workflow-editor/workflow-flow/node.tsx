@@ -22,7 +22,7 @@ import {
 import { useWorkflowConnectionState } from "./use-connection-state";
 import { WorkflowNodeParameterSummary } from "./node-parameter-summary";
 
-/** Renders one workflow card with left/right handles styled for the settings editor. */
+/** Renders one workflow card with left/right handles styled for the definition editor. */
 export const WorkflowFlowNodeView = memo(function WorkflowFlowNodeView({
   id,
   data,

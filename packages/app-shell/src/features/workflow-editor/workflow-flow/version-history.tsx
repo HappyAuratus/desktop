@@ -5,6 +5,7 @@ import {
   IconHistory,
   IconSearch,
   IconTrash,
+  IconVersions,
 } from "@tabler/icons-react";
 import {
   AlertDialog,
@@ -35,6 +36,8 @@ interface WorkflowVersionHistoryProps {
   onPreviewVersion: (version: MockWorkflowVersion | null) => void;
   /** Makes the previewed published snapshot the active run target and loads it into the draft. */
   onActivateVersion: (version: MockWorkflowVersion) => void;
+  /** Opens the same publish flow as the header, freezing the current draft. */
+  onPublishDraft: () => void;
   onDeleteVersion: (version: MockWorkflowVersion) => void;
 }
 
@@ -46,6 +49,7 @@ export function WorkflowVersionHistory({
   draftUpdatedAt,
   onPreviewVersion,
   onActivateVersion,
+  onPublishDraft,
   onDeleteVersion,
 }: WorkflowVersionHistoryProps) {
   const { t } = useTranslation();
@@ -80,9 +84,36 @@ export function WorkflowVersionHistory({
     previewedVersion !== null &&
     activeVersion !== null &&
     previewedVersion.version === activeVersion;
+  // Same muted caption as the header autosave line: the clock stays an icon
+  // control, and this label only states unpublished / active / preview.
+  const statusLabel =
+    previewedVersion !== null
+      ? t("settings.workflow.previewingVersionBanner", {
+          version: previewedVersion.version,
+        })
+      : activeVersion === null
+        ? t("settings.workflow.unpublished")
+        : t("settings.workflow.activeVersionChip", { version: activeVersion });
 
   return (
-    <div className="absolute right-48 top-3 z-40">
+    <div className="flex min-w-0 shrink-0 items-center gap-2">
+      <p
+        className="max-w-56 shrink-0 truncate text-right text-[10px] leading-4 text-muted-foreground"
+        title={statusLabel}
+      >
+        {statusLabel}
+      </p>
+      {previewedVersion !== null ? (
+        <Button
+          type="button"
+          variant="ghost"
+          size="xs"
+          className="h-auto px-0 text-[10px] leading-4 text-muted-foreground hover:bg-transparent hover:text-foreground"
+          onClick={() => onPreviewVersion(null)}
+        >
+          {t("settings.workflow.returnToDraft")}
+        </Button>
+      ) : null}
       <Popover
         open={open}
         onOpenChange={(next) => {
@@ -124,12 +155,27 @@ export function WorkflowVersionHistory({
           </div>
           <div className="max-h-72 space-y-1 overflow-y-auto p-2">
             {showDraft ? (
-              <VersionItem
-                selected={previewedVersion === null}
-                title={draftTitle}
-                subtitle={draftSubtitle}
-                onClick={() => onPreviewVersion(null)}
-              />
+              <div className="group relative">
+                <VersionItem
+                  selected={previewedVersion === null}
+                  title={draftTitle}
+                  subtitle={draftSubtitle}
+                  trailingAction
+                  onClick={() => onPreviewVersion(null)}
+                />
+                <button
+                  type="button"
+                  aria-label={t("settings.workflow.publishDraft")}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    setOpen(false);
+                    onPublishDraft();
+                  }}
+                  className="absolute right-1.5 top-1/2 flex size-6 -translate-y-1/2 items-center justify-center rounded-md text-muted-foreground opacity-0 outline-none transition-opacity hover:bg-muted hover:text-foreground focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-ring group-hover:opacity-100 group-focus-within:opacity-100"
+                >
+                  <IconVersions className="size-3.5" />
+                </button>
+              </div>
             ) : null}
             {visibleVersions.map((version) => {
               const isActive =

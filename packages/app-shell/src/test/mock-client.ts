@@ -703,7 +703,7 @@ export function createMockClient(state: MockClientState): ContractsClient {
           createdAt: now,
           updatedAt: now,
         };
-        state.workflows.push({ workflow, draft, published: [] });
+        state.workflows.unshift({ workflow, draft, published: [] });
         return { workflow, draft };
       },
       get: async (req) => {

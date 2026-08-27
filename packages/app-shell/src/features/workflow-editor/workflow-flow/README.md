@@ -1,6 +1,6 @@
 # workflow-flow
 
-React Flow–based canvas for the session-only settings workflow demo.
+React Flow–based canvas for the workspace workflow editor.
 
 ## Responsibilities
 
@@ -9,7 +9,7 @@ React Flow–based canvas for the session-only settings workflow demo.
 - Forward React Flow changes directly to the session graph instead of mirroring
   nodes and edges in a second hook-owned store.
 - Provide grid alignment, an interactive minimap, the node catalog overlay, and
-  panel expand controls.
+  inspector restore controls.
 - Render native React Flow `Node<TData>` and `Edge` elements without adapters.
 - Use React Flow's `BaseEdge`, path helpers, selection, deletion, and viewport
   helpers instead of maintaining parallel interaction utilities.
@@ -17,12 +17,12 @@ React Flow–based canvas for the session-only settings workflow demo.
 ## Non-responsibilities
 
 - Does not load, save, version, or otherwise persist workflows.
-- Does not own the left library manager, right inspector, or mock run preview.
+- Does not own the sidebar library list or the right inspector.
 - Does not own OpenSpec composer stepper state (`workflow-store`).
 
 ## Public boundary
 
-- `WorkflowCanvas` is the graph editor used by `WorkflowSettings`.
+- `WorkflowCanvas` is the graph editor used by `WorkflowEditor`.
 - Positions use React Flow's `XYPosition` and remain top-left card coordinates.
 
 ## Key invariants
@@ -34,14 +34,19 @@ React Flow–based canvas for the session-only settings workflow demo.
 - The full card is a forgiving connection drop zone while directional ports and
   candidate feedback remain visible.
 - Selected-edge reconnect hit areas remain centered on visible endpoints.
-- Each session workflow carries a `ReactFlowJsonObject`; graph transitions
+- Each workflow draft carries a `ReactFlowJsonObject`; graph transitions
   capture it with `toObject()` so nodes, edges, selection, and viewport restore
   from the same React Flow snapshot.
 - Workflow export captures that same live `toObject()` snapshot before handing
   the pretty-printed JSON to the host save flow.
 - Catalog drops only commit inside canvas bounds and snap to the visible grid.
-- Published mock versions open in a read-only canvas preview; restoring is the
-  only interaction that copies a selected graph back into the active draft.
+- Published versions open in a read-only canvas preview; activating a version
+  copies that graph into the editable draft.
+- A muted caption beside the history icon shows unpublished vs the active
+  published version, and switches to a read-only preview hint with a return
+  action.
+- The current-draft row in version history can publish that draft through the
+  same dialog as the header Publish action.
 
 ## Interactions
 

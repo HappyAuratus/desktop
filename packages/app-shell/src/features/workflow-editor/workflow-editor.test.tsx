@@ -21,6 +21,7 @@ import {
   type WorkflowDefinitionEdge,
   type WorkflowDefinitionNode,
 } from "@ora/workflow-runtime";
+import { TooltipProvider } from "@ora/ui";
 import { appI18n } from "../../i18n/i18n-instance";
 import { AppI18nProvider } from "../../i18n/i18n";
 import {
@@ -34,8 +35,11 @@ import {
 } from "../../test/mock-client";
 import { renderHookWithClient } from "../../test/hook-harness";
 import { createStubPlatform } from "../../test/stub-platform";
-import { useDeleteWorkflow } from "./workflow-definitions";
-import { WorkflowSettings } from "./workflow-settings";
+import { useUiStore } from "../../state/stores/ui-store";
+import { useCreateWorkflow, useDeleteWorkflow } from "./workflow-definitions";
+import { WorkflowEditor } from "./workflow-editor";
+import { WorkflowEditorList } from "./workflow-editor-list";
+import { useWorkflowEditorStore } from "./workflow-editor-store";
 
 /** Seeds the mock client with the demo workflows and their published versions. */
 function seedDemoWorkflows(state: MockClientState): void {
@@ -105,12 +109,16 @@ function seedDemoWorkflows(state: MockClientState): void {
   });
 }
 
-/** Shell providers required by workflow settings (runtime + react-query). */
-function renderSettings(
-  ui: ReactElement = <WorkflowSettings />,
+/** Shell providers required by the workspace workflow editor (runtime + react-query). */
+function renderEditor(
+  ui?: ReactElement,
   state: MockClientState = createMockClientState(),
+  patchClient?: (client: ReturnType<typeof createMockClient>) => void,
+  seedLibrary = true,
 ): RenderResult {
-  seedDemoWorkflows(state);
+  if (seedLibrary) {
+    seedDemoWorkflows(state);
+  }
   // Model discovery needs a project cwd so warmSession can report real model catalogs.
   state.projects = [{ id: "p1", name: "Demo" }];
   // Live Agent/Skill catalogs consumed by the workflow inspector's selectors.
@@ -222,6 +230,7 @@ function renderSettings(
     },
   ];
   const client = createMockClient(state);
+  patchClient?.(client);
   const Wrapper = createHookWrapper(
     client,
     createTestQueryClient(),
@@ -230,7 +239,16 @@ function renderSettings(
   return render(
     <Wrapper>
       <PlatformProvider adapter={createStubPlatform()}>
-        <AppI18nProvider>{ui}</AppI18nProvider>
+        <AppI18nProvider>
+          <TooltipProvider>
+            {ui ?? (
+              <>
+                <WorkflowEditorList />
+                <WorkflowEditor />
+              </>
+            )}
+          </TooltipProvider>
+        </AppI18nProvider>
       </PlatformProvider>
     </Wrapper>,
   );
@@ -250,8 +268,17 @@ function flowViewport(): HTMLElement | null {
   return document.querySelector(".react-flow__viewport");
 }
 
-describe("WorkflowSettings", () => {
+describe("WorkflowEditor", () => {
   beforeEach(() => {
+    useWorkflowEditorStore.setState({
+      selectedWorkflowId: null,
+      managerError: null,
+      actions: null,
+    });
+    useUiStore.setState({
+      sidebarCollapsed: false,
+      workflowEditorOpen: false,
+    });
     Object.defineProperty(HTMLElement.prototype, "clientWidth", {
       configurable: true,
       get() {
@@ -273,16 +300,18 @@ describe("WorkflowSettings", () => {
     await act(() => appI18n.changeLanguage("zh-CN"));
   });
 
-  it("loads the mock graph without workflow execution controls in settings", async () => {
-    renderSettings();
+  it("loads the mock graph without workflow execution controls in the editor", async () => {
+    renderEditor();
 
+    expect(screen.queryByText("还没有工作流")).not.toBeInTheDocument();
     expect(await screen.findByText("代码审查工作流")).toBeInTheDocument();
     expect(await screen.findByLabelText("工作流画布")).toBeInTheDocument();
+    expect(screen.queryByText("还没有工作流")).not.toBeInTheDocument();
     expect(
-      screen.getByRole("separator", {
+      screen.queryByRole("separator", {
         name: "调整工作流列表宽度；双击恢复默认宽度",
       }),
-    ).toBeInTheDocument();
+    ).not.toBeInTheDocument();
     expect(
       screen.getByRole("separator", {
         name: "调整节点配置宽度；双击恢复默认宽度",
@@ -295,15 +324,20 @@ describe("WorkflowSettings", () => {
       screen.getByRole("button", { name: "导出工作流" }),
     ).toBeInTheDocument();
     expect(
+      screen.getByRole("button", { name: "重命名代码审查工作流" })
+        .parentElement,
+    ).toHaveClass("opacity-100");
+    expect(
       screen.queryByRole("button", { name: "测试运行" }),
     ).not.toBeInTheDocument();
   });
 
   it("previews and activates a mock published workflow version", async () => {
     const user = userEvent.setup();
-    renderSettings();
+    renderEditor();
 
     await screen.findByLabelText("工作流画布");
+    expect(screen.getByText(/生效中 · /)).toBeInTheDocument();
     await user.click(screen.getByLabelText("版本历史"));
     expect(screen.getByText("当前草稿")).toBeInTheDocument();
 
@@ -319,6 +353,9 @@ describe("WorkflowSettings", () => {
     expect(
       await screen.findByRole("button", { name: "设为生效版本" }),
     ).toBeInTheDocument();
+    expect(
+      screen.getByText("预览 2026-08-01T09:30:00.000 · 只读"),
+    ).toBeInTheDocument();
     expect(screen.getByLabelText("工作流名称")).toBeDisabled();
     expect(
       screen.queryByLabelText("输出节点: 输出报告"),
@@ -331,25 +368,50 @@ describe("WorkflowSettings", () => {
       ).not.toBeInTheDocument();
       expect(screen.getByLabelText("工作流名称")).toBeEnabled();
     });
+    expect(screen.queryByText(/预览 .* · 只读/)).not.toBeInTheDocument();
+    expect(
+      screen.getByText("生效中 · 2026-08-01T09:30:00.000"),
+    ).toBeInTheDocument();
 
     await user.click(screen.getByLabelText("版本历史"));
     await waitFor(() => {
       expect(screen.getByText("生效中")).toBeInTheDocument();
     });
     // Active version preview offers a status hint, not a redundant activate action.
-    const activePreview = screen.getAllByRole("button", { name: /生效中/ })[0];
-    expect(activePreview).toBeDefined();
-    await user.click(activePreview!);
+    const activePreview = screen.getByRole("button", {
+      name: /2026-08-01T09:30:00\.000.*生效中/,
+    });
+    await user.click(activePreview);
     expect(
       screen.queryByRole("button", { name: "设为生效版本" }),
     ).not.toBeInTheDocument();
     expect(
       screen.getByText("这是当前生效的版本，运行工作流时会使用它。"),
     ).toBeInTheDocument();
+    expect(
+      screen.getByText("预览 2026-08-01T09:30:00.000 · 只读"),
+    ).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "返回草稿" }));
+    expect(screen.getByLabelText("工作流名称")).toBeEnabled();
+    expect(screen.queryByText(/预览 .* · 只读/)).not.toBeInTheDocument();
   }, 15_000);
 
+  it("opens the publish dialog from the draft row in version history", async () => {
+    const user = userEvent.setup();
+    renderEditor();
+
+    await screen.findByLabelText("工作流画布");
+    await user.click(screen.getByLabelText("版本历史"));
+    await user.click(screen.getByRole("button", { name: "发布当前草稿" }));
+
+    expect(
+      await screen.findByRole("alertdialog", { name: "发布工作流" }),
+    ).toBeInTheDocument();
+  });
+
   it("zooms around the pointer with the mouse wheel", async () => {
-    renderSettings();
+    renderEditor();
     await screen.findByLabelText("工作流画布");
     const pane = document.querySelector(".react-flow__pane");
     expect(pane).not.toBeNull();
@@ -364,7 +426,7 @@ describe("WorkflowSettings", () => {
 
   it("exposes canvas zoom controls and resets the React Flow viewport", async () => {
     const user = userEvent.setup();
-    renderSettings();
+    renderEditor();
     await screen.findByLabelText("工作流画布");
     // React Flow applies the initial viewport transform asynchronously after mount.
     await waitFor(() => {
@@ -391,7 +453,7 @@ describe("WorkflowSettings", () => {
   });
 
   it("does not pan from the panel-resize guard zones at canvas edges", async () => {
-    renderSettings();
+    renderEditor();
     const canvas = await screen.findByLabelText("工作流画布");
     vi.spyOn(canvas, "getBoundingClientRect").mockReturnValue({
       ...canvas.getBoundingClientRect(),
@@ -417,7 +479,7 @@ describe("WorkflowSettings", () => {
   });
 
   it("keeps workflow node positions under parent graph state", async () => {
-    renderSettings();
+    renderEditor();
     await screen.findByLabelText("开始节点: 开始");
 
     expect(nodeGraphPosition("开始节点: 开始")).toEqual({
@@ -431,7 +493,7 @@ describe("WorkflowSettings", () => {
   });
 
   it("keeps each workflow port independently visible without node-wide hover styles", async () => {
-    renderSettings();
+    renderEditor();
     const input = await screen.findByLabelText("连接到理解改动");
     const output = screen.getByLabelText("从理解改动开始连接");
 
@@ -445,7 +507,7 @@ describe("WorkflowSettings", () => {
 
   it("collapses node configuration after a stationary blank-canvas click", async () => {
     const user = userEvent.setup();
-    renderSettings();
+    renderEditor();
     const startNode = await screen.findByLabelText("开始节点: 开始");
     const flowNode = startNode.closest(".react-flow__node") ?? startNode;
 
@@ -465,65 +527,9 @@ describe("WorkflowSettings", () => {
     });
   });
 
-  it("collapses and restores the workflow library from visible controls", async () => {
-    const user = userEvent.setup();
-    renderSettings();
-    await screen.findByText("代码审查工作流");
-
-    await user.click(screen.getByRole("button", { name: "收起工作流列表" }));
-    const expandButton = await screen.findByRole("button", {
-      name: "展开工作流列表",
-    });
-    await user.click(expandButton);
-
-    expect(
-      screen.getByRole("button", { name: "收起工作流列表" }),
-    ).toBeInTheDocument();
-  });
-
-  it("keeps only one auxiliary panel expanded in a narrow editor", async () => {
-    const user = userEvent.setup();
-    renderSettings();
-    const startNode = await screen.findByLabelText("开始节点: 开始");
-    const flowNode = startNode.closest(".react-flow__node") ?? startNode;
-
-    await user.click(flowNode);
-    await user.click(screen.getByRole("button", { name: "展开工作流列表" }));
-
-    await waitFor(() => {
-      expect(
-        screen.getByRole("button", { name: "展开节点配置" }),
-      ).toBeInTheDocument();
-    });
-  });
-
-  it("reopens node configuration when clicking the still-selected node after collapse", async () => {
-    const user = userEvent.setup();
-    renderSettings();
-    const startNode = await screen.findByLabelText("开始节点: 开始");
-    const flowNode = startNode.closest(".react-flow__node") ?? startNode;
-
-    await user.click(flowNode);
-    await user.click(screen.getByRole("button", { name: "展开工作流列表" }));
-
-    await waitFor(() => {
-      expect(
-        screen.getByRole("button", { name: "展开节点配置" }),
-      ).toBeInTheDocument();
-    });
-
-    await user.click(flowNode);
-
-    await waitFor(() => {
-      expect(
-        screen.getByRole("button", { name: "收起节点配置" }),
-      ).toBeInTheDocument();
-    });
-  });
-
   it("closes node configuration with its button or Escape", async () => {
     const user = userEvent.setup();
-    renderSettings();
+    renderEditor();
     const startNode = await screen.findByLabelText("开始节点: 开始");
     const flowNode = startNode.closest(".react-flow__node") ?? startNode;
 
@@ -545,7 +551,7 @@ describe("WorkflowSettings", () => {
 
   it("switches workflows from the manager and adds nodes from the bottom dock", async () => {
     const user = userEvent.setup();
-    renderSettings();
+    renderEditor();
 
     const releaseWorkflow = await screen.findByText("发布准备检查");
     await user.click(releaseWorkflow.closest("button")!);
@@ -579,7 +585,7 @@ describe("WorkflowSettings", () => {
   });
 
   it("drags a node type from the dock to the chosen canvas position", async () => {
-    renderSettings();
+    renderEditor();
     const canvas = await screen.findByLabelText("工作流画布");
     vi.spyOn(canvas, "getBoundingClientRect").mockReturnValue({
       ...canvas.getBoundingClientRect(),
@@ -634,7 +640,7 @@ describe("WorkflowSettings", () => {
 
   it("deletes workflow connections by double-click or keyboard", async () => {
     const user = userEvent.setup();
-    renderSettings();
+    renderEditor();
 
     const connection = await screen.findByRole("button", {
       name: "Edge from start to understand",
@@ -666,7 +672,7 @@ describe("WorkflowSettings", () => {
 
   it("restores each workflow from its React Flow viewport snapshot", async () => {
     const user = userEvent.setup();
-    renderSettings();
+    renderEditor();
     await screen.findByLabelText("工作流画布");
 
     await user.click(screen.getByRole("button", { name: "放大画布" }));
@@ -689,7 +695,7 @@ describe("WorkflowSettings", () => {
 
   it("uses React Flow deletion to remove a node and its incident edges", async () => {
     const user = userEvent.setup();
-    renderSettings();
+    renderEditor();
 
     const node = await screen.findByLabelText("Agent节点: 理解改动");
     expect(
@@ -725,7 +731,7 @@ describe("WorkflowSettings", () => {
 
   it("box-selects multiple nodes with a left drag and deletes them together", async () => {
     const user = userEvent.setup();
-    renderSettings();
+    renderEditor();
     const canvas = await screen.findByLabelText("工作流画布");
     vi.spyOn(canvas, "getBoundingClientRect").mockReturnValue({
       ...canvas.getBoundingClientRect(),
@@ -783,7 +789,7 @@ describe("WorkflowSettings", () => {
 
   it("uses React Flow deletable state to protect the required start node", async () => {
     const user = userEvent.setup();
-    renderSettings();
+    renderEditor();
 
     const startNode = await screen.findByLabelText("开始节点: 开始");
     await user.click(startNode.closest(".react-flow__node") ?? startNode);
@@ -797,7 +803,7 @@ describe("WorkflowSettings", () => {
 
   it("edits the existing Agent node through its structured execution contract", async () => {
     const user = userEvent.setup();
-    renderSettings();
+    renderEditor();
 
     const reviewNode = await screen.findByLabelText("Agent节点: 审查 Agent");
     await user.click(reviewNode.closest(".react-flow__node") ?? reviewNode);
@@ -831,7 +837,7 @@ describe("WorkflowSettings", () => {
 
   it("limits node descriptions to 30 characters and shows their count", async () => {
     const user = userEvent.setup();
-    renderSettings();
+    renderEditor();
 
     const reviewNode = await screen.findByLabelText("Agent节点: 审查 Agent");
     await user.click(reviewNode.closest(".react-flow__node") ?? reviewNode);
@@ -851,7 +857,7 @@ describe("WorkflowSettings", () => {
 
   it("searches Agent models and roles before updating their selections", async () => {
     const user = userEvent.setup();
-    renderSettings();
+    renderEditor();
 
     const reviewNode = await screen.findByLabelText("Agent节点: 审查 Agent");
     await user.click(reviewNode.closest(".react-flow__node") ?? reviewNode);
@@ -935,7 +941,7 @@ describe("WorkflowSettings", () => {
     // picking it must keep the node on NGA instead of snapping back to the
     // first CLI with discovered models.
     state.warmModelsByCli = { "ora-space.nga": null };
-    renderSettings(<WorkflowSettings />, state);
+    renderEditor(<WorkflowEditor />, state);
 
     const reviewNode = await screen.findByLabelText("Agent节点: 审查 Agent");
     await user.click(reviewNode.closest(".react-flow__node") ?? reviewNode);
@@ -956,7 +962,7 @@ describe("WorkflowSettings", () => {
 
   it("uses the backend catalog for a newly added Agent model", async () => {
     const user = userEvent.setup();
-    renderSettings();
+    renderEditor();
 
     const reviewNode = await screen.findByLabelText("Agent节点: 审查 Agent");
     await user.click(reviewNode.closest(".react-flow__node") ?? reviewNode);
@@ -974,7 +980,7 @@ describe("WorkflowSettings", () => {
 
   it("adds, disables, and removes configured Agent Skills", async () => {
     const user = userEvent.setup();
-    renderSettings();
+    renderEditor();
 
     const reviewNode = await screen.findByLabelText("Agent节点: 审查 Agent");
     await user.click(reviewNode.closest(".react-flow__node") ?? reviewNode);
@@ -1009,7 +1015,7 @@ describe("WorkflowSettings", () => {
 
   it("routes inspector deletion through the shared React Flow store", async () => {
     const user = userEvent.setup();
-    renderSettings();
+    renderEditor();
 
     const reviewNode = await screen.findByLabelText("Agent节点: 审查 Agent");
     await user.click(reviewNode.closest(".react-flow__node") ?? reviewNode);
@@ -1034,7 +1040,7 @@ describe("WorkflowSettings", () => {
 
   it("shows React Flow reconnect controls after selecting an edge", async () => {
     const user = userEvent.setup();
-    renderSettings();
+    renderEditor();
 
     const connection = await screen.findByRole("button", {
       name: "Edge from start to understand",
@@ -1053,7 +1059,7 @@ describe("WorkflowSettings", () => {
 
   it("creates a workflow from the left manager and allows renaming it", async () => {
     const user = userEvent.setup();
-    renderSettings();
+    renderEditor();
 
     await screen.findByText("代码审查工作流");
     await screen.findByLabelText("工作流画布");
@@ -1069,8 +1075,20 @@ describe("WorkflowSettings", () => {
 
     await waitFor(() => {
       expect(screen.getByDisplayValue("发布复盘")).toBeInTheDocument();
-      expect(screen.getByText("7 个工作流")).toBeInTheDocument();
+      expect(
+        screen.getByRole("button", { name: "发布复盘" }),
+      ).toBeInTheDocument();
     });
+    const created = screen.getByRole("button", { name: "发布复盘" });
+    const previous = screen.getByRole("button", { name: "代码审查工作流" });
+    expect(
+      created.compareDocumentPosition(previous) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+    expect(
+      screen.queryByDisplayValue("代码审查工作流"),
+    ).not.toBeInTheDocument();
+    expect(screen.getByText("暂未发布")).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "重命名发布复盘" }));
     const renameDialog = await screen.findByRole("alertdialog", {
@@ -1088,9 +1106,101 @@ describe("WorkflowSettings", () => {
     });
   });
 
+  it("clears the library search so a created workflow stays visible and selected", async () => {
+    const user = userEvent.setup();
+    renderEditor();
+
+    await screen.findByText("代码审查工作流");
+    fireEvent.change(screen.getByPlaceholderText("搜索工作流"), {
+      target: { value: "代码审查工作流" },
+    });
+    expect(
+      screen.queryByRole("button", { name: "错开并行演示" }),
+    ).not.toBeInTheDocument();
+
+    await user.click(screen.getByLabelText("新建工作流"));
+    const createDialog = await screen.findByRole("alertdialog", {
+      name: "新建工作流",
+    });
+    await user.type(
+      within(createDialog).getByLabelText("工作流名称"),
+      "发布复盘",
+    );
+    await user.click(
+      within(createDialog).getByRole("button", { name: "新建工作流" }),
+    );
+
+    await waitFor(() => {
+      expect(screen.getByDisplayValue("发布复盘")).toBeInTheDocument();
+      expect(
+        screen.getByRole("button", { name: "发布复盘" }),
+      ).toBeInTheDocument();
+    });
+    expect(screen.getByPlaceholderText("搜索工作流")).toHaveValue("");
+    expect(screen.getByText("错开并行演示")).toBeInTheDocument();
+  });
+
+  it("keeps the create dialog open when creating a workflow fails", async () => {
+    const user = userEvent.setup();
+    renderEditor(undefined, createMockClientState(), (client) => {
+      client.workflow.create = async () => {
+        throw new Error("disk full");
+      };
+    });
+
+    await screen.findByText("代码审查工作流");
+    await user.click(screen.getByLabelText("新建工作流"));
+    const createDialog = await screen.findByRole("alertdialog", {
+      name: "新建工作流",
+    });
+    await user.type(
+      within(createDialog).getByLabelText("工作流名称"),
+      "发布复盘",
+    );
+    await user.click(
+      within(createDialog).getByRole("button", { name: "新建工作流" }),
+    );
+
+    expect(
+      await screen.findByRole("alertdialog", { name: "新建工作流" }),
+    ).toBeInTheDocument();
+    expect(await within(createDialog).findByRole("alert")).toBeInTheDocument();
+    expect(within(createDialog).getByLabelText("工作流名称")).toHaveValue(
+      "发布复盘",
+    );
+  });
+
+  it("opens the new-workflow dialog from Ctrl+N instead of starting a chat", async () => {
+    renderEditor();
+    await screen.findByLabelText("工作流画布");
+
+    await waitFor(() => {
+      expect(useWorkflowEditorStore.getState().actions).not.toBeNull();
+    });
+    fireEvent.keyDown(window, { key: "n", ctrlKey: true });
+
+    expect(
+      await screen.findByRole("alertdialog", { name: "新建工作流" }),
+    ).toBeInTheDocument();
+  });
+
+  it("describes delete as a permanent workflow deletion", async () => {
+    const user = userEvent.setup();
+    renderEditor();
+    await screen.findByText("代码审查工作流");
+    await user.click(
+      screen.getByRole("button", { name: "删除代码审查工作流" }),
+    );
+    const deleteDialog = await screen.findByRole("alertdialog", {
+      name: "删除“代码审查工作流”？",
+    });
+    expect(deleteDialog).toHaveTextContent("永久删除");
+    expect(deleteDialog).not.toHaveTextContent("mock");
+  });
+
   it("auto-saves draft edits after the debounce window", async () => {
     const state = createMockClientState();
-    renderSettings(<WorkflowSettings />, state);
+    renderEditor(<WorkflowEditor />, state);
     const nameInput = await screen.findByLabelText("工作流名称");
     const openId = state.workflows[0]?.workflow.id;
     expect(openId).toBeDefined();
@@ -1116,7 +1226,7 @@ describe("WorkflowSettings", () => {
   });
 
   it("keeps edits only for the mounted demo session", async () => {
-    const view = renderSettings();
+    const view = renderEditor();
     const nameInput = await screen.findByLabelText("工作流名称");
 
     fireEvent.change(nameInput, { target: { value: "当前会话草稿" } });
@@ -1126,14 +1236,14 @@ describe("WorkflowSettings", () => {
     ).not.toBeInTheDocument();
 
     view.unmount();
-    renderSettings();
+    renderEditor();
     expect(
       await screen.findByDisplayValue("代码审查工作流"),
     ).toBeInTheDocument();
   });
 
   it("preserves the current draft when the display language changes", async () => {
-    renderSettings();
+    renderEditor();
     const nameInput = await screen.findByLabelText("工作流名称");
 
     fireEvent.change(nameInput, { target: { value: "保留这个草稿" } });
@@ -1145,7 +1255,7 @@ describe("WorkflowSettings", () => {
 
   it("localizes workflow chrome and mock content in English", async () => {
     await appI18n.changeLanguage("en-US");
-    renderSettings();
+    renderEditor();
 
     expect(await screen.findByText("Code review workflow")).toBeInTheDocument();
     expect(await screen.findByLabelText("Workflow canvas")).toBeInTheDocument();
@@ -1164,7 +1274,7 @@ describe("WorkflowSettings", () => {
 
   it("deleting the selected workflow auto-selects the next one and loads its canvas", async () => {
     const user = userEvent.setup();
-    renderSettings();
+    renderEditor();
 
     // The mock library is seeded with code-review first and auto-selected.
     await screen.findByText("代码审查工作流");
@@ -1193,6 +1303,118 @@ describe("WorkflowSettings", () => {
     expect(screen.getByDisplayValue("错开并行演示")).toBeInTheDocument();
     expect(screen.queryByText("未找到该工作流。")).not.toBeInTheDocument();
   });
+
+  it("clears a leftover manager error when Back leaves the editor", async () => {
+    const user = userEvent.setup();
+    useUiStore.setState({ sidebarCollapsed: true, workflowEditorOpen: true });
+    useWorkflowEditorStore.setState({ managerError: "stale import error" });
+    renderEditor();
+
+    await screen.findByLabelText("工作流名称");
+    await user.click(screen.getByRole("button", { name: /返回|Back/ }));
+
+    await waitFor(() => {
+      expect(useUiStore.getState().workflowEditorOpen).toBe(false);
+    });
+    expect(useWorkflowEditorStore.getState().managerError).toBeNull();
+  });
+
+  it("keeps the editor open and reports when leaving cannot flush the draft", async () => {
+    const user = userEvent.setup();
+    useUiStore.setState({ sidebarCollapsed: true, workflowEditorOpen: true });
+    renderEditor(undefined, createMockClientState(), (client) => {
+      client.workflow.updateDraft = async () => {
+        throw new Error("disk full");
+      };
+    });
+
+    await screen.findByLabelText("工作流名称");
+    await user.click(screen.getByRole("button", { name: /返回|Back/ }));
+
+    expect(await screen.findByRole("alert")).toBeInTheDocument();
+    expect(useUiStore.getState().workflowEditorOpen).toBe(true);
+  });
+
+  it("shows the empty-library action only after the library loads with no workflows", async () => {
+    renderEditor(undefined, createMockClientState(), undefined, false);
+
+    expect(screen.queryByText("还没有工作流")).not.toBeInTheDocument();
+    expect(await screen.findByText("还没有工作流")).toBeInTheDocument();
+    expect(screen.queryByLabelText("工作流画布")).not.toBeInTheDocument();
+  });
+
+  it("shows a retryable error when the workflow library fails to load", async () => {
+    const user = userEvent.setup();
+    renderEditor(undefined, createMockClientState(), (client) => {
+      const list = client.workflow.list;
+      let failed = false;
+      client.workflow.list = async (request) => {
+        if (!failed) {
+          failed = true;
+          throw new Error("unavailable");
+        }
+        return list(request);
+      };
+    });
+
+    expect(await screen.findByText("无法加载工作流。")).toBeInTheDocument();
+    expect(screen.queryByLabelText("工作流画布")).not.toBeInTheDocument();
+    expect(screen.queryByText("还没有工作流")).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "重试" }));
+
+    expect(await screen.findByLabelText("工作流画布")).toBeInTheDocument();
+  });
+
+  it("shows a retryable error when the selected draft fails to load", async () => {
+    renderEditor(undefined, createMockClientState(), (client) => {
+      client.workflow.get = async () => {
+        throw new Error("unavailable");
+      };
+    });
+
+    expect(await screen.findByText("无法加载工作流。")).toBeInTheDocument();
+    expect(screen.queryByLabelText("工作流画布")).not.toBeInTheDocument();
+  });
+
+  it("surfaces manager errors in the editor chrome when the sidebar is collapsed", async () => {
+    useUiStore.setState({ sidebarCollapsed: true, workflowEditorOpen: true });
+    useWorkflowEditorStore.setState({ managerError: "disk full" });
+    renderEditor();
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("disk full");
+  });
+});
+
+describe("useCreateWorkflow", () => {
+  it("prepends the created workflow onto the library cache synchronously", async () => {
+    const state = createMockClientState();
+    seedDemoWorkflows(state);
+    const client = createMockClient(state);
+    const { result, queryClient } = renderHookWithClient(
+      () => useCreateWorkflow(),
+      client,
+    );
+    await queryClient.fetchQuery({
+      queryKey: ["workflow", "library"],
+      queryFn: async () => (await client.workflow.list({})).workflows,
+    });
+    const before = queryClient.getQueryData(["workflow", "library"]) as Array<{
+      id: string;
+    }>;
+    expect(before[0]?.id).toBe("code-review");
+
+    await act(async () => {
+      await result.current.mutateAsync({ name: "发布复盘" });
+    });
+
+    const after = queryClient.getQueryData(["workflow", "library"]) as Array<{
+      id: string;
+      name: string;
+    }>;
+    expect(after[0]?.name).toBe("发布复盘");
+    expect(after[0]?.id).not.toBe("code-review");
+  });
 });
 
 describe("useDeleteWorkflow", () => {
@@ -1204,7 +1426,7 @@ describe("useDeleteWorkflow", () => {
       () => useDeleteWorkflow(),
       client,
     );
-    // Pre-warm the library query like the settings page does.
+    // Pre-warm the library query like the editor does.
     await queryClient.fetchQuery({
       queryKey: ["workflow", "library"],
       queryFn: async () => (await client.workflow.list({})).workflows,
@@ -1219,7 +1441,7 @@ describe("useDeleteWorkflow", () => {
     });
 
     // The cache must drop the row immediately, before any invalidateQueries refetch lands,
-    // so the settings auto-select reads a list that no longer contains the deleted id.
+    // so the editor auto-select reads a list that no longer contains the deleted id.
     const after = queryClient.getQueryData(["workflow", "library"]) as Array<{
       id: string;
     }>;
