@@ -72,6 +72,7 @@ function seedDemoWorkflows(state: MockClientState): void {
           nodes: workflow.nodes as unknown as WorkflowDefinitionNode[],
           edges: workflow.edges as unknown as WorkflowDefinitionEdge[],
           viewport: workflow.viewport,
+          annotations: workflow.annotations ?? [],
           description: workflow.description,
         }),
         createdAt: now,
@@ -95,6 +96,7 @@ function seedDemoWorkflows(state: MockClientState): void {
           nodes: version.graph.nodes as unknown as WorkflowDefinitionNode[],
           edges: version.graph.edges as unknown as WorkflowDefinitionEdge[],
           viewport: version.graph.viewport ?? workflow.viewport,
+          annotations: version.graph.annotations ?? [],
           description: workflow.description,
         }),
         createdAt: BigInt(Date.parse(version.createdAt)),
@@ -455,6 +457,64 @@ describe("WorkflowEditor", () => {
     await waitFor(() => {
       expect(screen.getByText("100%")).toBeInTheDocument();
       expect(flowViewport()?.style.transform).toContain("translate(32px,32px)");
+    });
+  });
+
+  it("adds and edits annotations and switches between pointer and hand modes", async () => {
+    const user = userEvent.setup();
+    renderEditor();
+    const canvas = await screen.findByLabelText("工作流画布");
+    vi.spyOn(canvas, "getBoundingClientRect").mockReturnValue({
+      ...canvas.getBoundingClientRect(),
+      left: 0,
+      top: 0,
+      width: 800,
+      height: 600,
+      right: 800,
+      bottom: 600,
+    });
+
+    const pointer = screen.getByRole("button", { name: "指针模式" });
+    const hand = screen.getByRole("button", { name: "手型模式" });
+    expect(pointer).toHaveAttribute("aria-pressed", "true");
+    await user.click(hand);
+    expect(hand).toHaveAttribute("aria-pressed", "true");
+    expect(canvas.querySelector(".workflow-flow")).toHaveAttribute(
+      "data-interaction-mode",
+      "hand",
+    );
+    expect(
+      screen.getByLabelText("Agent节点: 理解改动").closest(".react-flow__node"),
+    ).toHaveClass("draggable");
+    await user.click(pointer);
+
+    const addAnnotation = screen.getByRole("button", { name: "添加注释" });
+    const annotationIcon = addAnnotation.querySelector("svg");
+    expect(annotationIcon).toHaveClass("size-5");
+    await user.click(addAnnotation);
+    const annotation = await screen.findByLabelText("注释内容");
+    expect(annotation.closest(".nodrag")).toBeNull();
+    expect(annotation.closest("[data-workflow-annotation-id]")).toHaveClass(
+      "cursor-grab",
+      "active:cursor-grabbing",
+    );
+    expect(annotation.closest(".react-flow__node")).toHaveStyle({ zIndex: 0 });
+    expect(
+      screen.getByLabelText("Agent节点: 理解改动").closest(".react-flow__node"),
+    ).toHaveStyle({ zIndex: 1 });
+    await user.click(annotation);
+    const note = await screen.findByRole("textbox", { name: "注释内容" });
+    fireEvent.change(note, { target: { value: "检查并行分支" } });
+    await waitFor(() => {
+      expect(screen.getByRole("textbox", { name: "注释内容" })).toHaveValue(
+        "检查并行分支",
+      );
+    });
+    await user.click(screen.getByRole("button", { name: "删除注释" }));
+    await waitFor(() => {
+      expect(
+        screen.queryByRole("textbox", { name: "注释内容" }),
+      ).not.toBeInTheDocument();
     });
   });
 
@@ -1339,7 +1399,7 @@ describe("WorkflowEditor", () => {
     expect(await screen.findByLabelText("Workflow canvas")).toBeInTheDocument();
     expect(
       screen.getByText(
-        "Left-drag to box-select nodes · Middle-drag to pan · Scroll to zoom · Nodes snap to grid",
+        "Pointer mode: left-drag to box-select · Hand mode: left-drag to pan · Middle-drag to pan · Scroll to zoom · Nodes snap to grid",
       ),
     ).toBeInTheDocument();
     expect(

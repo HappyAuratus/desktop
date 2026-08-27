@@ -182,6 +182,14 @@
   cursor: grab;
 }
 
+.workflow-flow[data-interaction-mode="pointer"] .react-flow__pane {
+  cursor: default;
+}
+
+.workflow-flow[data-interaction-mode="hand"] .react-flow__pane {
+  cursor: grab;
+}
+
 .workflow-flow .react-flow__pane.dragging {
   cursor: grabbing;
 }

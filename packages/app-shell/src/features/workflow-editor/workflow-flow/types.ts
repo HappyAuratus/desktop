@@ -11,19 +11,31 @@ import type {
 import type {
   MockWorkflowVersion,
   WorkflowCapabilities,
+  WorkflowAnnotationData,
+  WorkflowAnnotationNode,
   WorkflowNodeData,
   WorkflowNodeKind,
 } from "@ora/workflow-mock";
+
+export type WorkflowCanvasNode =
+  Node<WorkflowNodeData, "workflow"> | WorkflowAnnotationNode;
 
 /** Defines the React Flow element boundary consumed by the workflow canvas. */
 export interface WorkflowCanvasProps {
   capabilities: WorkflowCapabilities;
   nodes: Node<WorkflowNodeData, "workflow">[];
+  annotations: WorkflowAnnotationNode[];
   edges: Edge[];
   initialViewport: Viewport;
-  onNodesChange: OnNodesChange<Node<WorkflowNodeData, "workflow">>;
+  onNodesChange: OnNodesChange<WorkflowCanvasNode>;
   onEdgesChange: OnEdgesChange<Edge>;
   onAddNode: (kind: WorkflowNodeKind, position: XYPosition) => void;
+  onAddAnnotation: (position: XYPosition) => void;
+  onUpdateAnnotation: (
+    id: string,
+    data: Partial<WorkflowAnnotationData>,
+  ) => void;
+  onOrganize: () => void;
   onConnect: OnConnect;
   onReconnect: OnReconnect<Edge>;
   inspectorCollapsed: boolean;

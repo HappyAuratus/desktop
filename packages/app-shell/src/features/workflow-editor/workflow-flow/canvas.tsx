@@ -46,13 +46,19 @@ import {
 import { WorkflowFlowEdgeView } from "./edge";
 import { WorkflowFlowNodeView } from "./node";
 import { WorkflowFlowOverview } from "./overview";
-import type { WorkflowCanvasProps } from "./types";
+import {
+  WorkflowAnnotationActionsProvider,
+  WorkflowAnnotationView,
+} from "./annotation";
+import { WorkflowCanvasTools, type CanvasInteractionMode } from "./tools";
+import type { WorkflowCanvasNode, WorkflowCanvasProps } from "./types";
 import { WorkflowVersionHistory } from "./version-history";
 import "@xyflow/react/dist/style.css";
 import "./workflow-flow.css";
 
 const nodeTypes = {
   [WORKFLOW_FLOW_NODE_TYPE]: WorkflowFlowNodeView,
+  annotation: WorkflowAnnotationView,
 };
 
 const edgeTypes = {
@@ -81,6 +87,11 @@ const CONNECTION_LINE_STYLE = {
   strokeWidth: 2,
   strokeDasharray: "5 4",
 } satisfies CSSProperties;
+const WORKFLOW_ANNOTATION_WIDTH = 240;
+const WORKFLOW_ANNOTATION_HEIGHT = 140;
+const WORKFLOW_ANNOTATION_Z_INDEX = 0;
+const WORKFLOW_NODE_Z_INDEX = 1;
+const WORKFLOW_SELECTED_NODE_Z_INDEX = 1_000;
 
 type ConnectionDraft =
   | {
@@ -144,18 +155,31 @@ function connectionForCandidate(
 
 /** Wraps the flow in a provider so catalog drop can convert screen coordinates. */
 export function WorkflowCanvas(props: WorkflowCanvasProps) {
-  return <WorkflowCanvasInner {...props} />;
+  return (
+    <WorkflowAnnotationActionsProvider
+      value={{
+        readOnly: props.readOnly,
+        update: props.onUpdateAnnotation,
+        remove: (id) => props.onNodesChange([{ id, type: "remove" }]),
+      }}
+    >
+      <WorkflowCanvasInner {...props} />
+    </WorkflowAnnotationActionsProvider>
+  );
 }
 
 /** Renders and manipulates the node graph without coupling it to persistence or preview behavior. */
 function WorkflowCanvasInner({
   capabilities,
   nodes,
+  annotations,
   edges,
   initialViewport,
   onNodesChange,
   onEdgesChange,
   onAddNode,
+  onAddAnnotation,
+  onOrganize,
   onConnect,
   onReconnect,
   inspectorCollapsed,
@@ -173,6 +197,8 @@ function WorkflowCanvasInner({
 }: WorkflowCanvasProps) {
   const { t } = useTranslation();
   const canvasRef = useRef<HTMLDivElement>(null);
+  const [interactionMode, setInteractionMode] =
+    useState<CanvasInteractionMode>("pointer");
   const [connectionDraft, setConnectionDraft] =
     useState<ConnectionDraft | null>(null);
   const connectionCandidateFrameRef = useRef<number | null>(null);
@@ -181,7 +207,25 @@ function WorkflowCanvasInner({
   const [connectionCandidateNodeId, setConnectionCandidateNodeId] = useState<
     string | null
   >(null);
-  const { deleteElements, screenToFlowPosition, setViewport } = useReactFlow();
+  const { deleteElements, fitView, screenToFlowPosition, setViewport } =
+    useReactFlow<WorkflowCanvasNode, Edge>();
+  const canvasNodes = useMemo<WorkflowCanvasNode[]>(
+    () => [
+      ...annotations.map((annotation) => ({
+        ...annotation,
+        zIndex: WORKFLOW_ANNOTATION_Z_INDEX,
+      })),
+      ...nodes.map((node) => ({
+        ...node,
+        // Notes reserve the bottom layer, while selected executable nodes keep
+        // React Flow's usual elevation over their executable peers.
+        zIndex: node.selected
+          ? WORKFLOW_SELECTED_NODE_Z_INDEX
+          : WORKFLOW_NODE_Z_INDEX,
+      })),
+    ],
+    [annotations, nodes],
+  );
   const reconnectingEdgeIdRef = useRef<string | null>(null);
   const edgeIdByDirectedPair = useMemo(() => {
     const pairs = new Map<string, string>();
@@ -235,6 +279,38 @@ function WorkflowCanvasInner({
     // history popover, so the viewport follows the selected graph directly.
     void setViewport(initialViewport);
   }, [initialViewport, setViewport]);
+
+  /** Adds a note centered in the visible canvas rather than at the graph origin. */
+  function addAnnotationAtViewportCenter(): void {
+    const bounds = canvasRef.current?.getBoundingClientRect();
+    if (bounds === undefined) {
+      return;
+    }
+    const center = screenToFlowPosition({
+      x: bounds.left + bounds.width / 2,
+      y: bounds.top + bounds.height / 2,
+    });
+    onAddAnnotation(
+      snapNodePosition({
+        x: center.x - WORKFLOW_ANNOTATION_WIDTH / 2,
+        y: center.y - WORKFLOW_ANNOTATION_HEIGHT / 2,
+      }),
+    );
+  }
+
+  /** Applies layout, then frames executable nodes after React Flow receives their positions. */
+  function organizeAndFrameNodes(): void {
+    onOrganize();
+    requestAnimationFrame(() => {
+      void fitView({
+        nodes: nodes.map((node) => ({ id: node.id })),
+        duration: 240,
+        maxZoom: 1,
+        minZoom: MIN_WORKFLOW_ZOOM,
+        padding: 0.16,
+      });
+    });
+  }
 
   /** Updates candidate state only when the actual card changes. */
   function commitConnectionCandidate(candidateNodeId: string | null): void {
@@ -436,7 +512,8 @@ function WorkflowCanvasInner({
         <WorkflowConnectionStateProvider value={connectionState}>
           <ReactFlow
             className="workflow-flow bg-muted/25"
-            nodes={nodes}
+            data-interaction-mode={interactionMode}
+            nodes={canvasNodes}
             edges={edges}
             nodeTypes={nodeTypes}
             edgeTypes={edgeTypes}
@@ -449,6 +526,7 @@ function WorkflowCanvasInner({
             nodesDraggable={!readOnly}
             nodesConnectable={!readOnly}
             elementsSelectable={!readOnly}
+            elevateNodesOnSelect={false}
             edgesReconnectable={!readOnly}
             reconnectRadius={28}
             connectionRadius={24}
@@ -460,16 +538,20 @@ function WorkflowCanvasInner({
             zoomOnScroll
             zoomOnPinch
             // Left-drag box-selects multiple nodes; middle-drag keeps panning.
-            panOnDrag={[1]}
-            selectionOnDrag={!readOnly}
+            panOnDrag={interactionMode === "hand" ? [0, 1] : [1]}
+            selectionOnDrag={!readOnly && interactionMode === "pointer"}
             selectNodesOnDrag={false}
             isValidConnection={isValidConnection}
             onNodesChange={onNodesChange}
             onEdgesChange={onEdgesChange}
-            onNodeClick={() => {
+            onNodeClick={(_event, node) => {
               // Selection alone cannot reopen the rail: drag-collapse keeps the
               // node selected, so a same-node click is a no-op for React Flow.
-              if (inspectorCollapsed && inspectorAvailable) {
+              if (
+                node.type === WORKFLOW_FLOW_NODE_TYPE &&
+                inspectorCollapsed &&
+                inspectorAvailable
+              ) {
                 onExpandInspector();
               }
             }}
@@ -534,6 +616,13 @@ function WorkflowCanvasInner({
             <WorkflowCanvasControls defaultViewport={DEFAULT_VIEWPORT} />
           </div>
         </div>
+        <WorkflowCanvasTools
+          mode={interactionMode}
+          readOnly={readOnly}
+          onModeChange={setInteractionMode}
+          onAddAnnotation={addAnnotationAtViewportCenter}
+          onOrganize={organizeAndFrameNodes}
+        />
       </div>
 
       {!readOnly && (

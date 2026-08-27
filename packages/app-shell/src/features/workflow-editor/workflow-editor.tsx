@@ -19,6 +19,7 @@ import {
   type EdgeChange,
   type Node,
   type NodeChange,
+  type ReactFlowJsonObject,
   type XYPosition,
 } from "@xyflow/react";
 import {
@@ -55,6 +56,8 @@ import {
   type DemoWorkflow,
   type MockWorkflowVersion,
   type WorkflowCapabilities,
+  type WorkflowAnnotationData,
+  type WorkflowAnnotationNode,
   type WorkflowNodeData,
   type WorkflowNodeKind,
 } from "@ora/workflow-mock";
@@ -71,6 +74,8 @@ import { availableSkills, useSkills } from "../../state/hooks/use-skills";
 import { useWorkflowAgentModels } from "../../state/hooks/use-workflow-agent-models";
 import { localizeContractError } from "../../i18n/contract-error";
 import { WorkflowCanvas } from "./workflow-canvas";
+import { organizeWorkflowNodes } from "./workflow-flow/layout";
+import type { WorkflowCanvasNode } from "./workflow-flow/types";
 import { WorkflowInspector } from "./workflow-inspector";
 import { MCP_CATALOG } from "./mcp-catalog";
 import {
@@ -150,6 +155,43 @@ function resolveSelectedWorkflowId(
   return library[0]?.id ?? null;
 }
 
+/** Narrows editor notes so they can be split from executable React Flow nodes. */
+function isWorkflowAnnotationNode(
+  node: WorkflowCanvasNode,
+): node is WorkflowAnnotationNode {
+  return node.type === "annotation";
+}
+
+/** Rebuilds the persisted workflow from React Flow's mixed editor-node snapshot. */
+function workflowFromCanvasSnapshot(
+  workflow: DemoWorkflow,
+  graph: ReactFlowJsonObject<WorkflowCanvasNode, Edge>,
+): DemoWorkflow {
+  const annotationDataById = new Map(
+    (workflow.annotations ?? []).map((annotation) => [
+      annotation.id,
+      annotation.data,
+    ]),
+  );
+  return {
+    ...workflow,
+    nodes: graph.nodes.filter(
+      (node): node is Node<WorkflowNodeData, "workflow"> =>
+        !isWorkflowAnnotationNode(node),
+    ),
+    annotations: graph.nodes
+      .filter(isWorkflowAnnotationNode)
+      .map((annotation) => ({
+        ...annotation,
+        // React Flow owns live geometry, while React state owns note content and
+        // may be one render ahead when an autosave timer fires after typing.
+        data: annotationDataById.get(annotation.id) ?? annotation.data,
+      })),
+    edges: graph.edges,
+    viewport: graph.viewport,
+  };
+}
+
 /** Produces a portable filename while retaining the workflow name for the save dialog. */
 function workflowExportFileName(name: string): string {
   // `\p{Cc}` is the Unicode Control category; property escapes keep control
@@ -206,10 +248,7 @@ function WorkflowEditorContent({
   const agentsQuery = useAgents();
   const skillsQuery = useSkills();
   const agentModelsCatalog = useWorkflowAgentModels();
-  const { deleteElements, toObject } = useReactFlow<
-    Node<WorkflowNodeData, "workflow">,
-    Edge
-  >();
+  const { deleteElements, toObject } = useReactFlow<WorkflowCanvasNode, Edge>();
   const locale =
     i18n.resolvedLanguage === "en-US" ? ("en-US" as const) : ("zh-CN" as const);
   /**
@@ -417,6 +456,7 @@ function WorkflowEditorContent({
       viewport: envelope.viewport,
       nodes,
       edges: envelope.edges,
+      annotations: envelope.annotations,
     });
     setHydratedWorkflowId(draftQuery.data.workflow.id);
     // Capture the server name in the same hydrate turn so autosave can skip no-op renames.
@@ -566,7 +606,7 @@ function WorkflowEditorContent({
     if (workflow === null || previewedVersion !== null) {
       return null;
     }
-    const snapshot = { ...workflow, ...toObject() };
+    const snapshot = workflowFromCanvasSnapshot(workflow, toObject());
     setWorkflow(snapshot);
     return snapshot;
   }
@@ -584,7 +624,7 @@ function WorkflowEditorContent({
     if (current === null || previewedVersionRef.current !== null) {
       return "skipped";
     }
-    const snapshot = { ...current, ...toObject() };
+    const snapshot = workflowFromCanvasSnapshot(current, toObject());
     setWorkflow(snapshot);
     const startedGeneration = editGenerationRef.current;
     setManagerError(null);
@@ -604,6 +644,7 @@ function WorkflowEditorContent({
           nodes: definition.nodes,
           edges: definition.edges,
           viewport: definition.viewport,
+          annotations: snapshot.annotations ?? [],
           description: definition.description,
         }),
       });
@@ -831,6 +872,7 @@ function WorkflowEditorContent({
           nodes: definition.nodes,
           edges: definition.edges,
           viewport: definition.viewport,
+          annotations: imported.annotations ?? [],
           description: definition.description,
         }),
       });
@@ -902,6 +944,7 @@ function WorkflowEditorContent({
           nodes: envelope.nodes,
           edges: envelope.edges,
           viewport: envelope.viewport,
+          annotations: envelope.annotations,
         },
       });
     } catch (cause) {
@@ -988,6 +1031,7 @@ function WorkflowEditorContent({
     }
     const { sequence } = uniqueGraphId(kind, [
       ...workflow.nodes.map((node) => node.id),
+      ...(workflow.annotations ?? []).map((node) => node.id),
       ...workflow.edges.map((edge) => edge.id),
     ]);
     const node = createMockWorkflowNode({
@@ -1009,6 +1053,81 @@ function WorkflowEditorContent({
       ],
     }));
     expandInspector();
+  }
+
+  /** Creates a selected editor note at the canvas-provided position. */
+  function addAnnotation(position: XYPosition): void {
+    if (workflow === null) {
+      return;
+    }
+    const { id } = uniqueGraphId("annotation", [
+      ...workflow.nodes.map((node) => node.id),
+      ...(workflow.annotations ?? []).map((node) => node.id),
+      ...workflow.edges.map((edge) => edge.id),
+    ]);
+    updateWorkflow((current) => ({
+      ...current,
+      nodes: current.nodes.map((node) => ({ ...node, selected: false })),
+      annotations: [
+        ...(current.annotations ?? []).map((annotation) => ({
+          ...annotation,
+          selected: false,
+        })),
+        {
+          id,
+          type: "annotation",
+          position,
+          width: 240,
+          height: 140,
+          selected: true,
+          data: { text: "", theme: "yellow" },
+        },
+      ],
+    }));
+    animateInspectorTo(0);
+  }
+
+  /** Applies note text or theme changes without coupling callbacks to node.data. */
+  function updateAnnotation(
+    id: string,
+    data: Partial<WorkflowAnnotationData>,
+  ): void {
+    updateWorkflow((current) => ({
+      ...current,
+      annotations: (current.annotations ?? []).map((annotation) =>
+        annotation.id === id
+          ? { ...annotation, data: { ...annotation.data, ...data } }
+          : annotation,
+      ),
+    }));
+  }
+
+  /** Organizes executable nodes and exposes a position-only undo action. */
+  function organizeNodes(): void {
+    if (workflow === null) {
+      return;
+    }
+    const previousPositions = new Map(
+      workflow.nodes.map((node) => [node.id, node.position]),
+    );
+    updateWorkflow((current) => ({
+      ...current,
+      nodes: organizeWorkflowNodes(current.nodes, current.edges),
+    }));
+    toast.message(t("settings.workflow.organizeComplete"), {
+      action: {
+        label: t("settings.workflow.undoOrganize"),
+        onClick: () => {
+          updateWorkflow((current) => ({
+            ...current,
+            nodes: current.nodes.map((node) => ({
+              ...node,
+              position: previousPositions.get(node.id) ?? node.position,
+            })),
+          }));
+        },
+      },
+    });
   }
 
   /** Creates a native React Flow edge after canvas validation succeeds. */
@@ -1037,20 +1156,25 @@ function WorkflowEditorContent({
   }
 
   /** Applies React Flow node changes directly to the active graph. */
-  function changeNodes(
-    changes: NodeChange<Node<WorkflowNodeData, "workflow">>[],
-  ): void {
+  function changeNodes(changes: NodeChange<WorkflowCanvasNode>[]): void {
     const persistable = changes.some(
       (change) => change.type !== "select" && change.type !== "dimensions",
     );
     updateWorkflow(
-      (current) => ({
-        ...current,
-        nodes: applyNodeChanges<Node<WorkflowNodeData, "workflow">>(
-          changes,
-          current.nodes,
-        ),
-      }),
+      (current) => {
+        const nextNodes = applyNodeChanges<WorkflowCanvasNode>(changes, [
+          ...current.nodes,
+          ...(current.annotations ?? []),
+        ]);
+        return {
+          ...current,
+          nodes: nextNodes.filter(
+            (node): node is Node<WorkflowNodeData, "workflow"> =>
+              !isWorkflowAnnotationNode(node),
+          ),
+          annotations: nextNodes.filter(isWorkflowAnnotationNode),
+        };
+      },
       { persist: persistable },
     );
   }
@@ -1240,11 +1364,15 @@ function WorkflowEditorContent({
                 key={displayedWorkflow.id}
                 capabilities={capabilities}
                 nodes={displayedWorkflow.nodes}
+                annotations={displayedWorkflow.annotations ?? []}
                 edges={displayedWorkflow.edges}
                 initialViewport={displayedWorkflow.viewport}
                 onNodesChange={changeNodes}
                 onEdgesChange={changeEdges}
                 onAddNode={addNode}
+                onAddAnnotation={addAnnotation}
+                onUpdateAnnotation={updateAnnotation}
+                onOrganize={organizeNodes}
                 onConnect={connectNodes}
                 onReconnect={reconnectEdge}
                 inspectorCollapsed={inspectorCollapsed}
