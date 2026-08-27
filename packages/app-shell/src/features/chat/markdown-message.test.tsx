@@ -759,7 +759,7 @@ describe("MarkdownMessage chat links", () => {
 });
 
 describe("sent file-quote chip navigation", () => {
-  it("opens the quoted file in Files, at its start line, when clicked", async () => {
+  it("opens the quoted file in Files, at its cited range, when clicked", async () => {
     const user = userEvent.setup();
     const openWorkspaceFile = vi.fn();
     const content = composerFilePlainText({
@@ -782,10 +782,13 @@ describe("sent file-quote chip navigation", () => {
     const chip = screen.getByRole("button", { name: /main\.py/ });
     expect(chip).toHaveClass("composer-file-ref");
     await user.click(chip);
-    expect(openWorkspaceFile).toHaveBeenCalledWith("src/main.py", 9);
+    expect(openWorkspaceFile).toHaveBeenCalledWith("src/main.py", {
+      line: 9,
+      endLine: 14,
+    });
   });
 
-  it("opens a diff-origin quote in Changes at its start line when clicked", async () => {
+  it("opens a diff-origin quote in Changes at its cited range when clicked", async () => {
     const user = userEvent.setup();
     const openDiff = vi.fn();
     const content = composerFilePlainText({
@@ -808,6 +811,10 @@ describe("sent file-quote chip navigation", () => {
     );
 
     await user.click(screen.getByRole("button", { name: /example\.ts/ }));
-    expect(openDiff).toHaveBeenCalledWith("src/example.ts", 2);
+    expect(openDiff).toHaveBeenCalledWith("src/example.ts", {
+      line: 2,
+      endLine: 40,
+      side: "new",
+    });
   });
 });

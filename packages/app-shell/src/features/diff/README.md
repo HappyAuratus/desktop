@@ -6,17 +6,24 @@ Task Changes panel: parsed worktree patches, file tree, and git commit/push acti
 
 - Render unified/split diffs for a task scope (`branch` / staged / unstaged / commit).
 - Collapse distant unchanged context and restore it on demand.
-- Jump from chat file links to a new-side line inside the active patch.
+- Jump from chat file links to a new-side line inside the active patch, or
+  highlight an inclusive start–end range from a user-authored quote chip.
+  Diff quotes pass `{ line, endLine, side }` so a delete range is looked up
+  on the old side. A later click outside the highlighted rows dismisses the
+  wash until the next jump; collapse/expand buttons do not dismiss.
 - Own `TaskChangesNavigationContext` (`task-changes-navigation-context.ts` /
   `task-changes-navigation.tsx`): `openDiff`, `openWorkspaceFile`,
   `openWorkspaceDirectory`, and `openWorkspaceArtifact`, implemented by
-  `WorkspaceReviewLayout`. Both assistant chat links (`chat-link/`) and
-  user-authored reference chips (`file-ref-chip-navigation.ts`) route through
-  these calls, so the Files/Changes highlight visuals stay in one place
-  regardless of who authored the reference. User-authored chips only ever use
-  `openDiff` / `openWorkspaceFile` / `openWorkspaceDirectory` — they always
-  know their own kind, so they never need `openWorkspaceArtifact`'s
-  parent-listing resolution.
+  `WorkspaceReviewLayout`. File and diff jumps take an optional
+  `FileNavigationLocation` (`{ line, endLine, column, side }`) so callers
+  never pass positional `undefined` holes. Both assistant chat links
+  (`chat-link/`) and user-authored reference chips
+  (`file-ref-chip-navigation.ts`) route through these calls, so the
+  Files/Changes highlight visuals stay in one place regardless of who
+  authored the reference. User-authored chips only ever use `openDiff` /
+  `openWorkspaceFile` / `openWorkspaceDirectory` — they always know their
+  own kind, so they never need `openWorkspaceArtifact`'s parent-listing
+  resolution.
 - Quote visible diff lines into the chat composer via gutter `+` (click) or
   gutter/`+` drag-release. Clicking a line number pins a highlight on that
   side only (shift-click extends within the same side); Ctrl/Cmd+Enter on a

@@ -55,7 +55,7 @@ describe("ComposerFileChipView navigation", () => {
 
     await user.click(chip);
 
-    expect(openWorkspaceFile).toHaveBeenCalledWith("src/app.ts", 4);
+    expect(openWorkspaceFile).toHaveBeenCalledWith("src/app.ts", { line: 4 });
   });
 
   it("does not navigate when the composer has no navigation context", async () => {
@@ -99,9 +99,9 @@ describe("ComposerFileChipView navigation", () => {
     fireEvent.click(chip, { button: 0, ctrlKey: true, detail: 1 });
 
     expect(openWorkspaceFile).not.toHaveBeenCalled();
-    await waitFor(() =>
-      expect(chip.closest(".ProseMirror-selectednode")).not.toBeNull(),
-    );
+    expect(chip.closest("[data-chip-selected]")).not.toBeNull();
+    // A NodeSelection would have hidden the caret via this class.
+    expect(textbox.classList.contains("ProseMirror-hideselection")).toBe(false);
   });
 
   it("still selects (not navigates) on double click", async () => {
@@ -123,9 +123,8 @@ describe("ComposerFileChipView navigation", () => {
     fireEvent.dblClick(chip, { button: 0, detail: 2 });
 
     expect(openWorkspaceFile).not.toHaveBeenCalled();
-    await waitFor(() =>
-      expect(chip.closest(".ProseMirror-selectednode")).not.toBeNull(),
-    );
+    expect(chip.closest("[data-chip-selected]")).not.toBeNull();
+    expect(textbox.classList.contains("ProseMirror-hideselection")).toBe(false);
   });
 
   it("still navigates on the single click that follows a double click", async () => {
@@ -162,7 +161,7 @@ describe("ComposerFileChipView navigation", () => {
     fireEvent.mouseDown(chip, { button: 0, detail: 1 });
     fireEvent.click(chip, { button: 0, detail: 1 });
 
-    expect(openWorkspaceFile).toHaveBeenCalledWith("src/app.ts", 4);
+    expect(openWorkspaceFile).toHaveBeenCalledWith("src/app.ts", { line: 4 });
   });
 
   it("jumps a directory mention to the folder, not a file open", async () => {

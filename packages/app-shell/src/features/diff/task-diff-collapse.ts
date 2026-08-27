@@ -38,6 +38,36 @@ function lineNumberFor(change: ChangeData, side: "old" | "new"): number | null {
 }
 
 /**
+ * Locates every line on `side` in `[startLine, endLine]` and names any
+ * collapsed block currently hiding each one, so a chat jump can expand then
+ * scroll.
+ */
+export function findDiffLineTargets(
+  hunks: HunkData[],
+  startLine: number,
+  endLine: number,
+  side: "old" | "new" = "new",
+): NewSideLineTarget[] {
+  const start = Math.min(startLine, endLine);
+  const end = Math.max(startLine, endLine);
+  const targets: NewSideLineTarget[] = [];
+  for (let hunkIndex = 0; hunkIndex < hunks.length; hunkIndex += 1) {
+    const hunk = hunks[hunkIndex]!;
+    const ranges = findCollapsedRanges(hunk, hunkIndex);
+    for (let index = 0; index < hunk.changes.length; index += 1) {
+      const change = hunk.changes[index]!;
+      const line = lineNumberFor(change, side);
+      if (line === null || line < start || line > end) continue;
+      const collapsed = ranges.find(
+        (range) => index >= range.start && index < range.end,
+      );
+      targets.push({ change, collapsedKey: collapsed?.key ?? null });
+    }
+  }
+  return targets;
+}
+
+/**
  * Locates a new-side line in the original hunks and names the collapsed block
  * that currently hides it, so a chat jump can expand then scroll.
  */
@@ -45,19 +75,7 @@ export function findNewSideLineTarget(
   hunks: HunkData[],
   line: number,
 ): NewSideLineTarget | null {
-  for (let hunkIndex = 0; hunkIndex < hunks.length; hunkIndex += 1) {
-    const hunk = hunks[hunkIndex]!;
-    const ranges = findCollapsedRanges(hunk, hunkIndex);
-    for (let index = 0; index < hunk.changes.length; index += 1) {
-      const change = hunk.changes[index]!;
-      if (lineNumberFor(change, "new") !== line) continue;
-      const collapsed = ranges.find(
-        (range) => index >= range.start && index < range.end,
-      );
-      return { change, collapsedKey: collapsed?.key ?? null };
-    }
-  }
-  return null;
+  return findDiffLineTargets(hunks, line, line, "new")[0] ?? null;
 }
 
 /**

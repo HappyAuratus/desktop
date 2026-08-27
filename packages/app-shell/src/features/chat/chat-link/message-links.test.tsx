@@ -12,6 +12,7 @@ import {
 } from "../../../test/mock-client";
 import { createStubPlatform } from "../../../test/stub-platform";
 import { TaskChangesNavigationProvider } from "../../diff/task-changes-navigation";
+import type { FileNavigationLocation } from "../../diff/task-changes-navigation-context";
 import { MessageList } from "../message-list";
 import { ToolCallBlock } from "../tool-call-block";
 import { MarkdownDocument, MarkdownMessage } from "../markdown-message";
@@ -171,7 +172,6 @@ describe("assistant markdown artifact links", () => {
     expect(read.openWorkspaceFile).toHaveBeenCalledWith(
       "src/lib.rs",
       undefined,
-      undefined,
     );
   });
 
@@ -179,7 +179,7 @@ describe("assistant markdown artifact links", () => {
     const user = userEvent.setup();
     const { openDiff } = await renderLinkedMarkdown("See `src/main.rs:12`");
     await user.click(screen.getByRole("button", { name: /src\/main\.rs/ }));
-    expect(openDiff).toHaveBeenCalledWith("src/main.rs", 12);
+    expect(openDiff).toHaveBeenCalledWith("src/main.rs", { line: 12 });
   });
 
   it("opens https links through the platform and blocks dangerous schemes", async () => {
@@ -216,11 +216,7 @@ describe("assistant markdown artifact links", () => {
     expect(button.className).toContain("decoration-dashed");
     expect(button).toHaveClass("text-sky-700");
     await user.click(button);
-    expect(openWorkspaceFile).toHaveBeenCalledWith(
-      "docs/guide.md",
-      undefined,
-      undefined,
-    );
+    expect(openWorkspaceFile).toHaveBeenCalledWith("docs/guide.md", undefined);
   });
 
   it.each([
@@ -239,7 +235,10 @@ describe("assistant markdown artifact links", () => {
     );
 
     await user.click(screen.getByRole("button", { name: /docs\/foo bar\.md/ }));
-    expect(openWorkspaceFile).toHaveBeenCalledWith("docs/foo bar.md", 12, 3);
+    expect(openWorkspaceFile).toHaveBeenCalledWith("docs/foo bar.md", {
+      line: 12,
+      column: 3,
+    });
   });
 
   it("keeps dangerous assistant hrefs out of the DOM", async () => {
@@ -267,7 +266,10 @@ describe("assistant markdown artifact links", () => {
       "查看 src/lib.rs (line 12, column 3)。",
     );
     await user.click(screen.getByRole("button", { name: /src\/lib\.rs/ }));
-    expect(openWorkspaceFile).toHaveBeenCalledWith("src/lib.rs", 12, 3);
+    expect(openWorkspaceFile).toHaveBeenCalledWith("src/lib.rs", {
+      line: 12,
+      column: 3,
+    });
   });
 
   it("does not nest a second file link inside a Markdown file href", async () => {
@@ -322,8 +324,11 @@ describe("assistant markdown artifact links", () => {
 async function renderMessageList(
   turns: ChatTurn[],
   options: {
-    openDiff?: (path: string, line?: number) => void;
-    openWorkspaceFile?: (path: string, line?: number, column?: number) => void;
+    openDiff?: (path: string, location?: FileNavigationLocation) => void;
+    openWorkspaceFile?: (
+      path: string,
+      location?: FileNavigationLocation,
+    ) => void;
     openWorkspaceDirectory?: (path: string) => void;
     openWorkspaceArtifact?: (
       path: string,
@@ -404,11 +409,7 @@ describe("session-wide chat links", () => {
         name: /打开文件 src\/lib\.rs|Open file src\/lib\.rs/,
       }),
     );
-    expect(openWorkspaceFile).toHaveBeenCalledWith(
-      "src/lib.rs",
-      undefined,
-      undefined,
-    );
+    expect(openWorkspaceFile).toHaveBeenCalledWith("src/lib.rs", undefined);
     expect(openDiff).not.toHaveBeenCalled();
     expect(openWorkspaceArtifact).not.toHaveBeenCalled();
   });
@@ -432,11 +433,7 @@ describe("session-wide chat links", () => {
 
     // Turn 1 link was read-only at turn 1
     await user.click(buttons[0]!);
-    expect(openWorkspaceFile).toHaveBeenCalledWith(
-      "src/main.rs",
-      undefined,
-      undefined,
-    );
+    expect(openWorkspaceFile).toHaveBeenCalledWith("src/main.rs", undefined);
     expect(openDiff).not.toHaveBeenCalled();
 
     // Turn 2 link includes the edit
@@ -467,11 +464,7 @@ describe("session-wide chat links", () => {
         ),
       }),
     );
-    expect(openWorkspaceFile).toHaveBeenCalledWith(
-      fullPath,
-      undefined,
-      undefined,
-    );
+    expect(openWorkspaceFile).toHaveBeenCalledWith(fullPath, undefined);
   });
 
   it("does not link a relative mention of a file read outside the task worktree", async () => {
@@ -524,11 +517,7 @@ describe("session-wide chat links", () => {
       ),
     });
     await user.click(button);
-    expect(openWorkspaceFile).toHaveBeenCalledWith(
-      relativePath,
-      undefined,
-      undefined,
-    );
+    expect(openWorkspaceFile).toHaveBeenCalledWith(relativePath, undefined);
   });
 
   it("links markdown files listed after a project-root glob with no per-file locations", async () => {
@@ -556,22 +545,14 @@ describe("session-wide chat links", () => {
         name: /打开文件 README\.md|Open file README\.md/,
       }),
     );
-    expect(openWorkspaceFile).toHaveBeenCalledWith(
-      "README.md",
-      undefined,
-      undefined,
-    );
+    expect(openWorkspaceFile).toHaveBeenCalledWith("README.md", undefined);
 
     await user.click(
       screen.getByRole("button", {
         name: /打开文件 docs\/guide\.md|Open file docs\/guide\.md/,
       }),
     );
-    expect(openWorkspaceFile).toHaveBeenCalledWith(
-      "docs/guide.md",
-      undefined,
-      undefined,
-    );
+    expect(openWorkspaceFile).toHaveBeenCalledWith("docs/guide.md", undefined);
   });
 
   it("links a bare README.md to the workspace root when nested README.md files were also listed", async () => {
@@ -597,14 +578,9 @@ describe("session-wide chat links", () => {
         name: /打开文件 README\.md|Open file README\.md/,
       }),
     );
-    expect(openWorkspaceFile).toHaveBeenCalledWith(
-      "README.md",
-      undefined,
-      undefined,
-    );
+    expect(openWorkspaceFile).toHaveBeenCalledWith("README.md", undefined);
     expect(openWorkspaceFile).not.toHaveBeenCalledWith(
       "crates/engine/README.md",
-      undefined,
       undefined,
     );
   });
@@ -628,11 +604,7 @@ describe("session-wide chat links", () => {
         name: /打开文件 docs\/guide\.md|Open file docs\/guide\.md/,
       }),
     );
-    expect(openWorkspaceFile).toHaveBeenCalledWith(
-      "docs/guide.md",
-      undefined,
-      undefined,
-    );
+    expect(openWorkspaceFile).toHaveBeenCalledWith("docs/guide.md", undefined);
   });
 
   it("links path lines inside a plaintext fenced file list", async () => {
@@ -668,11 +640,7 @@ describe("session-wide chat links", () => {
         name: /打开文件 docs\/guide\.md|Open file docs\/guide\.md/,
       }),
     );
-    expect(openWorkspaceFile).toHaveBeenCalledWith(
-      "docs/guide.md",
-      undefined,
-      undefined,
-    );
+    expect(openWorkspaceFile).toHaveBeenCalledWith("docs/guide.md", undefined);
   });
 
   it("keeps leading spaces in expanded tool dumps", async () => {
@@ -783,11 +751,7 @@ describe("session-wide chat links", () => {
         name: /打开文件 docs\/guide\.md|Open file docs\/guide\.md/,
       }),
     );
-    expect(openWorkspaceFile).toHaveBeenCalledWith(
-      "docs/guide.md",
-      undefined,
-      undefined,
-    );
+    expect(openWorkspaceFile).toHaveBeenCalledWith("docs/guide.md", undefined);
   });
 
   it("opens ripgrep output at its reported line and column", async () => {
@@ -818,7 +782,10 @@ describe("session-wide chat links", () => {
         name: /打开文件 src\/lib\.rs|Open file src\/lib\.rs/,
       }),
     );
-    expect(openWorkspaceFile).toHaveBeenCalledWith("src/lib.rs", 12, 3);
+    expect(openWorkspaceFile).toHaveBeenCalledWith("src/lib.rs", {
+      line: 12,
+      column: 3,
+    });
   });
 
   it("opens absolute and slash-terminated tool directories in the Files tree", async () => {
@@ -963,9 +930,7 @@ describe("session-wide chat links", () => {
     // The directory branch resolves its kind from the parent listing, so it
     // hands over the path alone; files carry their line/column slots.
     expect(openWorkspaceArtifact.mock.calls).toEqual([["docs"]]);
-    expect(openWorkspaceFile.mock.calls).toEqual([
-      ["main.py", undefined, undefined],
-    ]);
+    expect(openWorkspaceFile.mock.calls).toEqual([["main.py", undefined]]);
   });
 
   it("links indexed bare names in plain lists and tree fences", async () => {
@@ -1033,11 +998,7 @@ describe("session-wide chat links", () => {
       }),
     );
     expect(openWorkspaceDirectory).toHaveBeenCalledWith(".codex");
-    expect(openWorkspaceFile).toHaveBeenCalledWith(
-      "install",
-      undefined,
-      undefined,
-    );
+    expect(openWorkspaceFile).toHaveBeenCalledWith("install", undefined);
   });
 
   it("links comma-separated prose from ANSI PowerShell tables", async () => {
@@ -1069,11 +1030,7 @@ describe("session-wide chat links", () => {
       }),
     );
     expect(openWorkspaceDirectory).toHaveBeenCalledWith("packages");
-    expect(openWorkspaceFile).toHaveBeenCalledWith(
-      "install",
-      undefined,
-      undefined,
-    );
+    expect(openWorkspaceFile).toHaveBeenCalledWith("install", undefined);
   });
 
   it("links individual tokens inside aligned plaintext fences", async () => {
@@ -1150,10 +1107,6 @@ describe("session-wide chat links", () => {
         name: /打开文件 docs\/guide\.md|Open file docs\/guide\.md/,
       }),
     );
-    expect(openWorkspaceFile).toHaveBeenCalledWith(
-      "docs/guide.md",
-      undefined,
-      undefined,
-    );
+    expect(openWorkspaceFile).toHaveBeenCalledWith("docs/guide.md", undefined);
   });
 });

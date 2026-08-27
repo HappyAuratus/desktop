@@ -35,6 +35,7 @@ export {
 export {
   ComposerChipSelection,
   chipCaretStep,
+  composerChipSelectionKey,
   pinComposerChipSelection,
   textSelectionForChipDrag,
   chipRangeAt,

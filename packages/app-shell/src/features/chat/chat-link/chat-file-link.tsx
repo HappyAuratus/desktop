@@ -11,7 +11,10 @@ import { usePlatform } from "../../../platform";
 import { useTranslation } from "react-i18next";
 import { joinOsAbsolutePath } from "../../../lib/workspace-path";
 import { ChatExternalLink } from "../chat-external-link";
-import { useTaskChangesNavigation } from "../../diff/task-changes-navigation-context";
+import {
+  fileNavigationLocation,
+  useTaskChangesNavigation,
+} from "../../diff/task-changes-navigation-context";
 import { classifyChatCandidate, type ChatLinkClassification } from "./classify";
 import { useChatLinkContext } from "./context";
 
@@ -64,13 +67,18 @@ function openClassified(
     return;
   }
   if (classified.kind === "diff") {
-    navigation.openDiff(classified.path, classified.line);
+    navigation.openDiff(
+      classified.path,
+      fileNavigationLocation({ line: classified.line }),
+    );
     return;
   }
   navigation.openWorkspaceFile(
     classified.path,
-    classified.line,
-    classified.column,
+    fileNavigationLocation({
+      line: classified.line,
+      column: classified.column,
+    }),
   );
 }
 
@@ -276,8 +284,10 @@ function LinkedChatFile({
               onClick={() =>
                 navigation.openWorkspaceFile(
                   classified.path,
-                  classified.line,
-                  classified.column,
+                  fileNavigationLocation({
+                    line: classified.line,
+                    column: classified.column,
+                  }),
                 )
               }
             >

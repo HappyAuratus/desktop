@@ -49,7 +49,12 @@ Files viewer, the Diff viewer, or ACP tool collection with line-diff counts.
 ## Interactions
 
 - `MessageList` provides a per-turn `ChatLinkContext` around each `ResponseTurn` for task or project-only drafts. `ChatView` remounts the list when `taskId` / `projectId` changes so the per-turn artifact cache cannot leak across checkouts.
-- `TaskChangesNavigation.openDiff` / `openWorkspaceFile` / `openWorkspaceDirectory` / `openWorkspaceArtifact` in the review layout
+- `TaskChangesNavigation.openDiff` / `openWorkspaceFile` take an optional
+  `FileNavigationLocation` (`{ line, column }`) rather than positional
+  line/column. `openWorkspaceDirectory` / `openWorkspaceArtifact` stay as
+  they are (`openWorkspaceArtifact` still uses positional line/column
+  because it is a Files fallback that may resolve either a file or a
+  directory). Implemented by the review layout.
 - Desktop `locationActions` for Explorer, VS Code, and copying an OS-absolute path. Links reuse the checkout cwd already resolved by `MessageList`; they do not launch one cwd IPC per mounted link. Explorer / VS Code / Copy path are omitted until an OS-absolute cwd is known. A Diff link also offers Preview in Files.
 - Shared slash matching in `packages/app-shell/src/lib/workspace-path.ts`
 

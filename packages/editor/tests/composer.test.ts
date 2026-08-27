@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import type { Editor } from "@tiptap/core";
 import { Schema } from "@tiptap/pm/model";
+import type { Plugin } from "@tiptap/pm/state";
+import { composerChipSelectionKey } from "../src/composer/composer-chip-selection.ts";
 import {
   createComposerExtensions,
   COMPOSER_HEADING_LEVELS,
@@ -682,9 +685,9 @@ test("node selection can target a single file chip among adjacent siblings", asy
   editor.destroy();
 });
 
-test("pinComposerChipSelection keeps NodeSelection on one adjacent chip", async () => {
+test("pinComposerChipSelection covers one adjacent chip as a TextSelection", async () => {
   const { Editor } = await import("@tiptap/core");
-  const { NodeSelection } = await import("@tiptap/pm/state");
+  const { TextSelection } = await import("@tiptap/pm/state");
   const { pinComposerChipSelection } =
     await import("../src/composer/composer-chip-selection.ts");
   const editor = new Editor({
@@ -744,16 +747,205 @@ test("pinComposerChipSelection keeps NodeSelection on one adjacent chip", async 
     true,
   );
   assert.equal(prevented, true);
-  assert.ok(state.selection instanceof NodeSelection);
-  assert.equal(
-    (state.selection as InstanceType<typeof NodeSelection>).node.attrs.path,
-    "b.ts",
-  );
+  assert.ok(state.selection instanceof TextSelection);
+  assert.equal(state.selection.empty, false);
   assert.equal(state.selection.from, secondChipPos);
-  assert.equal(
-    state.selection.to,
-    secondChipPos +
-      (state.selection as InstanceType<typeof NodeSelection>).node.nodeSize,
+  const pinned = state.doc.nodeAt(secondChipPos);
+  assert.ok(pinned);
+  assert.equal(pinned.attrs.path, "b.ts");
+  assert.equal(state.selection.to, secondChipPos + pinned.nodeSize);
+  editor.destroy();
+});
+
+/**
+ * Finds the chip-selection plugin in a headless editor. Plugin/PluginKey
+ * expose their key string at runtime only (not in the typings), and headless
+ * editors keep their plugins on the extension manager, not on the state.
+ */
+function chipSelectionPlugin(editor: Editor): Plugin {
+  const wanted = (composerChipSelectionKey as unknown as { key: string }).key;
+  const plugin = editor.extensionManager.plugins.find(
+    (candidate) => (candidate as unknown as { key: string }).key === wanted,
+  );
+  assert.ok(plugin);
+  return plugin;
+}
+
+/** Click-event stub: only preventDefault and the modifier flags are read. */
+function stubClickEvent(
+  preventDefault: () => void,
+  modifiers: { shiftKey?: boolean } = {},
+): MouseEvent {
+  return { preventDefault, ...modifiers } as MouseEvent;
+}
+
+test("plain click on a promptToken mention pins a covering TextSelection", async () => {
+  const { Editor } = await import("@tiptap/core");
+  const { TextSelection } = await import("@tiptap/pm/state");
+  const editor = new Editor({
+    extensions: createComposerExtensions({ placeholder: "Type" }),
+    content: {
+      type: "doc",
+      content: [
+        {
+          type: "paragraph",
+          content: [
+            { type: "promptToken", attrs: { kind: "skill", name: "review" } },
+            { type: "text", text: " tail" },
+          ],
+        },
+      ],
+    },
+  });
+  // Mentions render as bare renderHTML spans with no host click handler, so
+  // the plugin's own plain-click pin is their only selection feedback.
+  const plugin = chipSelectionPlugin(editor);
+  let tokenPos = -1;
+  editor.state.doc.descendants((node, pos) => {
+    if (node.type.name === "promptToken") {
+      tokenPos = pos;
+      return false;
+    }
+    return true;
+  });
+  const token = editor.state.doc.nodeAt(tokenPos);
+  assert.ok(token);
+  let prevented = 0;
+  const handled = plugin.spec.props?.handleClickOn?.call(
+    plugin,
+    editor.view,
+    tokenPos,
+    token,
+    tokenPos,
+    stubClickEvent(() => {
+      prevented += 1;
+    }),
+    true,
+  );
+  assert.equal(handled, true);
+  assert.equal(prevented, 1);
+  assert.ok(editor.state.selection instanceof TextSelection);
+  assert.deepEqual(
+    { from: editor.state.selection.from, to: editor.state.selection.to },
+    { from: tokenPos, to: tokenPos + token.nodeSize },
+  );
+  editor.destroy();
+});
+
+test("plain click on a composerFile chip stays consumed for the host node view", async () => {
+  const { Editor } = await import("@tiptap/core");
+  const editor = new Editor({
+    extensions: createComposerExtensions({ placeholder: "Type" }),
+    content: {
+      type: "doc",
+      content: [
+        {
+          type: "paragraph",
+          content: [
+            { type: "composerFile", attrs: { path: "a.ts", kind: "file" } },
+            { type: "text", text: " tail" },
+          ],
+        },
+      ],
+    },
+  });
+  const plugin = chipSelectionPlugin(editor);
+  let chipPos = -1;
+  editor.state.doc.descendants((node, pos) => {
+    if (node.type.name === "composerFile") {
+      chipPos = pos;
+      return false;
+    }
+    return true;
+  });
+  const chip = editor.state.doc.nodeAt(chipPos);
+  assert.ok(chip);
+  const before = {
+    from: editor.state.selection.from,
+    to: editor.state.selection.to,
+    empty: editor.state.selection.empty,
+  };
+  let prevented = 0;
+  const handled = plugin.spec.props?.handleClickOn?.call(
+    plugin,
+    editor.view,
+    chipPos,
+    chip,
+    chipPos,
+    stubClickEvent(() => {
+      prevented += 1;
+    }),
+    true,
+  );
+  // Consumed without pinning: ComposerFileChipView owns the plain click.
+  assert.equal(handled, true);
+  assert.equal(prevented, 0);
+  assert.deepEqual(
+    {
+      from: editor.state.selection.from,
+      to: editor.state.selection.to,
+      empty: editor.state.selection.empty,
+    },
+    before,
+  );
+  editor.destroy();
+});
+
+test("shift-click on a chip keeps the drag-built range instead of re-pinning", async () => {
+  const { Editor } = await import("@tiptap/core");
+  const editor = new Editor({
+    extensions: createComposerExtensions({ placeholder: "Type" }),
+    content: {
+      type: "doc",
+      content: [
+        {
+          type: "paragraph",
+          content: [
+            { type: "text", text: "pre" },
+            { type: "promptToken", attrs: { kind: "skill", name: "review" } },
+            { type: "text", text: "post" },
+          ],
+        },
+      ],
+    },
+  });
+  const plugin = chipSelectionPlugin(editor);
+  let tokenPos = -1;
+  editor.state.doc.descendants((node, pos) => {
+    if (node.type.name === "promptToken") {
+      tokenPos = pos;
+      return false;
+    }
+    return true;
+  });
+  const token = editor.state.doc.nodeAt(tokenPos);
+  assert.ok(token);
+  // Shift-click extends the caret range; re-pinning would clobber that.
+  editor.commands.setTextSelection({ from: 1, to: tokenPos + token.nodeSize });
+  const before = {
+    from: editor.state.selection.from,
+    to: editor.state.selection.to,
+  };
+  let prevented = 0;
+  const handled = plugin.spec.props?.handleClickOn?.call(
+    plugin,
+    editor.view,
+    tokenPos,
+    token,
+    tokenPos,
+    stubClickEvent(
+      () => {
+        prevented += 1;
+      },
+      { shiftKey: true },
+    ),
+    true,
+  );
+  assert.equal(handled, true);
+  assert.equal(prevented, 0);
+  assert.deepEqual(
+    { from: editor.state.selection.from, to: editor.state.selection.to },
+    before,
   );
   editor.destroy();
 });

@@ -4,13 +4,17 @@ import { describe, expect, it, vi } from "vitest";
 import type { ComposerFileAttrs } from "@ora/editor/composer";
 import { AppI18nProvider } from "../i18n/i18n";
 import { TaskChangesNavigationProvider } from "./diff/task-changes-navigation";
+import type { FileNavigationLocation } from "./diff/task-changes-navigation-context";
 import { FileRefChip } from "./file-ref-chip";
 
 function renderChip(
   attrs: ComposerFileAttrs,
   navigation?: {
-    openDiff?: (path: string, line?: number) => void;
-    openWorkspaceFile?: (path: string, line?: number, column?: number) => void;
+    openDiff?: (path: string, location?: FileNavigationLocation) => void;
+    openWorkspaceFile?: (
+      path: string,
+      location?: FileNavigationLocation,
+    ) => void;
     openWorkspaceDirectory?: (path: string) => void;
   },
 ) {
@@ -43,7 +47,26 @@ describe("FileRefChip", () => {
     const chip = screen.getByRole("button", { name: /main\.ts/ });
     await user.click(chip);
 
-    expect(openWorkspaceFile).toHaveBeenCalledWith("src/main.ts", 12);
+    expect(openWorkspaceFile).toHaveBeenCalledWith("src/main.ts", {
+      line: 12,
+    });
+  });
+
+  it("opens a multi-line file quote in Files with its inclusive end line", async () => {
+    const user = userEvent.setup();
+    const { openWorkspaceFile } = renderChip({
+      path: "src/main.ts",
+      startLine: 9,
+      endLine: 14,
+      kind: "file",
+    });
+
+    await user.click(screen.getByRole("button", { name: /main\.ts/ }));
+
+    expect(openWorkspaceFile).toHaveBeenCalledWith("src/main.ts", {
+      line: 9,
+      endLine: 14,
+    });
   });
 
   it("opens a diff-origin quote in Changes at its start line", async () => {
@@ -59,7 +82,31 @@ describe("FileRefChip", () => {
 
     await user.click(screen.getByRole("button", { name: /example\.ts/ }));
 
-    expect(openDiff).toHaveBeenCalledWith("src/example.ts", 2);
+    expect(openDiff).toHaveBeenCalledWith("src/example.ts", {
+      line: 2,
+      endLine: 40,
+      side: "new",
+    });
+  });
+
+  it("opens an old-side diff quote on the old patch side", async () => {
+    const user = userEvent.setup();
+    const { openDiff } = renderChip({
+      path: "src/example.ts",
+      startLine: 10,
+      endLine: 10,
+      snippet: "-const value = 10;",
+      origin: "diff",
+      diffSide: "old",
+    });
+
+    await user.click(screen.getByRole("button", { name: /example\.ts/ }));
+
+    expect(openDiff).toHaveBeenCalledWith("src/example.ts", {
+      line: 10,
+      endLine: 10,
+      side: "old",
+    });
   });
 
   it("opens a directory mention as a folder, never through readFile", async () => {

@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   buildCollapsedDiffSegments,
   findNewSideLineTarget,
+  findDiffLineTargets,
 } from "./task-diff-collapse";
 
 const COMPLETE_CONTEXT_PATCH = [
@@ -84,5 +85,25 @@ describe("findNewSideLineTarget", () => {
   it("returns null when the new-side line is not in the patch", () => {
     const file = parseDiff(COMPLETE_CONTEXT_PATCH)[0]!;
     expect(findNewSideLineTarget(file.hunks, 99)).toBeNull();
+  });
+
+  it("collects every new-side line in an inclusive cited range", () => {
+    const file = parseDiff(COMPLETE_CONTEXT_PATCH)[0]!;
+    const targets = findDiffLineTargets(file.hunks, 9, 11, "new");
+
+    expect(targets.map((target) => target.change.content)).toEqual([
+      "line 9",
+      "const value = 20;",
+      "line 11",
+    ]);
+  });
+
+  it("collects old-side delete lines for a cited range", () => {
+    const file = parseDiff(COMPLETE_CONTEXT_PATCH)[0]!;
+    const targets = findDiffLineTargets(file.hunks, 10, 10, "old");
+
+    expect(targets.map((target) => target.change.content)).toEqual([
+      "const value = 10;",
+    ]);
   });
 });
