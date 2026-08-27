@@ -20,6 +20,7 @@ export const translationResources = {
     "errors.agent_name_conflict": "已存在同名 Role。",
     "errors.agent_not_found": "未找到该 Agent。",
     "errors.plugin_not_found": "未找到该插件。",
+    "errors.plugin_host_incompatible": "当前主机不支持此插件的发布制品。",
     "errors.plugin_configuration_declaration_invalid": "插件的配置声明无效。",
     "errors.plugin_configuration_not_declared": "该插件没有声明配置。",
     "errors.configuration_revision_conflict":
@@ -829,6 +830,9 @@ export const translationResources = {
     "settings.plugins.installing": "安装中",
     "settings.plugins.cancel": "取消",
     "settings.plugins.installFailed": "安装失败",
+    "settings.plugins.installSuccess": "插件已安装。",
+    "settings.plugins.installCommandConflict":
+      "插件已安装。其命令别名与 {{pluginId}} 冲突，两包均保持可用。",
     "settings.plugins.uninstallFailed": "卸载失败",
     "settings.plugins.import": "导入插件",
     "settings.plugins.importSuccess": "插件已导入。",
@@ -1450,6 +1454,8 @@ export const translationResources = {
     "errors.agent_name_conflict": "A role with this name already exists.",
     "errors.agent_not_found": "The agent was not found.",
     "errors.plugin_not_found": "The plugin was not found.",
+    "errors.plugin_host_incompatible":
+      "This plugin's release artifact is not supported on the current host.",
     "errors.plugin_configuration_declaration_invalid":
       "The plugin configuration declaration is invalid.",
     "errors.plugin_configuration_not_declared":
@@ -2342,6 +2348,9 @@ export const translationResources = {
     "settings.plugins.installing": "Installing",
     "settings.plugins.cancel": "Cancel",
     "settings.plugins.installFailed": "Install failed",
+    "settings.plugins.installSuccess": "Plugin installed.",
+    "settings.plugins.installCommandConflict":
+      "Plugin installed. Its command alias conflicts with {{pluginId}}; both packages remain available.",
     "settings.plugins.uninstallFailed": "Uninstall failed",
     "settings.plugins.import": "Import plugin",
     "settings.plugins.importSuccess": "Plugin imported.",

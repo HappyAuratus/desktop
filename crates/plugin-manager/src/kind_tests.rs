@@ -1,8 +1,8 @@
-//! Discovery tests for the host-side policy of the `workbench`, `webview`, and `mcp` kinds.
+//! Discovery tests for the host-side policy of the `workbench`, `webview`, `mcp`, and `hook` kinds.
 
-use super::tests::{agent_manifest, replace_path, write_manifest};
+use super::tests::{SymlinkKind, agent_manifest, create_symlink, replace_path, write_manifest};
 use super::{PluginContribution, PluginManager};
-use ora_plugin_config::{McpHttpTransport, McpTransport, McpValueExpression};
+use ora_plugin_config::{HookProtocol, McpHttpTransport, McpTransport, McpValueExpression};
 use ora_plugin_manifest::MethodName;
 use pretty_assertions::assert_eq;
 use std::collections::BTreeMap;
@@ -85,7 +85,8 @@ fn discovers_workbench_package_with_and_without_methods() {
             PluginContribution::Agent(_)
             | PluginContribution::Webview(_)
             | PluginContribution::Skill(_)
-            | PluginContribution::Mcp(_) => {
+            | PluginContribution::Mcp(_)
+            | PluginContribution::Hook(_) => {
                 panic!("expected workbench contributions")
             }
         })
@@ -154,7 +155,8 @@ allowed_origins = ["https://www.example.com", "https://example.com"]
         PluginContribution::Agent(_)
         | PluginContribution::Workbench(_)
         | PluginContribution::Skill(_)
-        | PluginContribution::Mcp(_) => {
+        | PluginContribution::Mcp(_)
+        | PluginContribution::Hook(_) => {
             panic!("expected a webview contribution")
         }
     };
@@ -421,4 +423,216 @@ action = { auto = "import_skill" }
             "{section}"
         );
     }
+}
+
+/// Builds an installed hook-kind manifest that self-declares its artifact target.
+fn hook_manifest() -> Value {
+    let mut manifest = agent_manifest();
+    manifest["kind"] = Value::from("hook");
+    let mut artifact = toml::Table::new();
+    artifact.insert("target".to_string(), Value::from("x86_64-pc-windows-msvc"));
+    manifest
+        .as_table_mut()
+        .unwrap()
+        .insert("artifact".to_string(), Value::Table(artifact));
+    manifest
+}
+
+const HOOK_CONFIG: &str = r#"{
+    "schemaVersion": 1,
+    "hook": {
+        "protocol": "rtk-rewrite-v1",
+        "executable": "assets/rtk.exe",
+        "command": "rtk",
+        "toolVersion": "0.45.0"
+    }
+}"#;
+
+/// Writes a processless Hook package: configuration, executable, and no `main.js`.
+fn write_hook_package(package_root: &std::path::Path, config: &str) {
+    fs::create_dir_all(package_root.join("assets")).unwrap();
+    fs::write(package_root.join("assets").join("config.json"), config).unwrap();
+    fs::write(package_root.join("assets").join("rtk.exe"), b"MZdummy").unwrap();
+    fs::remove_file(package_root.join("main.js")).unwrap();
+}
+
+/// A Hook package compiles into an Installed Hook Descriptor carrying protocol, command, and
+/// the installed artifact target.
+#[test]
+fn discovers_hook_package_with_executable() {
+    let temp_dir = TempDir::new().unwrap();
+    let package_root = write_manifest(temp_dir.path(), NAME, hook_manifest());
+    write_hook_package(&package_root, HOOK_CONFIG);
+
+    let manager = PluginManager::discover(temp_dir.path());
+
+    assert_eq!(manager.discovery_issues(), &[]);
+    let plugin = &manager.installed_plugins()[0];
+    let PluginContribution::Hook(descriptor) = &plugin.contributes else {
+        panic!("expected a hook contribution, got {:?}", plugin.contributes)
+    };
+    assert_eq!(
+        descriptor.configuration.hook.protocol,
+        HookProtocol::RtkRewriteV1
+    );
+    assert_eq!(descriptor.configuration.hook.command.as_str(), "rtk");
+    assert_eq!(
+        descriptor.configuration.hook.executable.as_str(),
+        "assets/rtk.exe"
+    );
+    assert_eq!(
+        descriptor
+            .artifact_target
+            .as_ref()
+            .map(ora_plugin_manifest::HookTarget::as_str),
+        Some("x86_64-pc-windows-msvc")
+    );
+}
+
+/// A Hook package must be config-only and must ship a hook-bearing `assets/config.json`:
+/// an entrypoint, a missing file, a Settings-only file, and an MCP file each report their field.
+#[test]
+fn rejects_hook_package_entrypoint_and_config_shape_violations() {
+    let with_entrypoint = TempDir::new().unwrap();
+    let package_root = write_manifest(with_entrypoint.path(), NAME, hook_manifest());
+    fs::create_dir_all(package_root.join("assets")).unwrap();
+    fs::write(package_root.join("assets").join("config.json"), HOOK_CONFIG).unwrap();
+    fs::write(package_root.join("assets").join("rtk.exe"), b"MZdummy").unwrap();
+    let without_config = TempDir::new().unwrap();
+    let package_root = write_manifest(without_config.path(), NAME, hook_manifest());
+    fs::remove_file(package_root.join("main.js")).unwrap();
+    fs::create_dir_all(package_root.join("assets")).unwrap();
+    fs::write(package_root.join("assets").join("rtk.exe"), b"MZdummy").unwrap();
+    let settings_only = TempDir::new().unwrap();
+    let package_root = write_manifest(settings_only.path(), NAME, hook_manifest());
+    write_hook_package(
+        &package_root,
+        r#"{
+            "schemaVersion": 1,
+            "settings": {
+                "apiKey": {"type":"string","title":"API key","description":"Key"}
+            }
+        }"#,
+    );
+    let mcp_shaped = TempDir::new().unwrap();
+    let package_root = write_manifest(mcp_shaped.path(), NAME, hook_manifest());
+    write_hook_package(&package_root, HTTP_MCP_CONFIG);
+
+    for (data_dir, expected_field) in [
+        (&with_entrypoint, "kind"),
+        (&without_config, "assets/config.json"),
+        (&settings_only, "assets/config.json"),
+        (&mcp_shaped, "assets/config.json"),
+    ] {
+        let manager = PluginManager::discover(data_dir.path());
+        assert_eq!(manager.installed_plugins(), &[], "{expected_field}");
+        assert_eq!(
+            manager.discovery_issues()[0].field_path(),
+            Some(expected_field),
+        );
+    }
+}
+
+/// The executable must be a regular file contained under `assets/`; a path outside that
+/// tree, a missing file, and (on Windows) a missing `.exe` suffix each fail closed.
+#[test]
+fn rejects_hook_executable_containment_and_extension_violations() {
+    let outside_assets = TempDir::new().unwrap();
+    let package_root = write_manifest(outside_assets.path(), NAME, hook_manifest());
+    write_hook_package(
+        &package_root,
+        r#"{
+            "schemaVersion": 1,
+            "hook": {
+                "protocol": "rtk-rewrite-v1",
+                "executable": "bin/rtk.exe",
+                "command": "rtk",
+                "toolVersion": "0.45.0"
+            }
+        }"#,
+    );
+    fs::create_dir_all(package_root.join("bin")).unwrap();
+    fs::write(package_root.join("bin").join("rtk.exe"), b"MZdummy").unwrap();
+    let missing = TempDir::new().unwrap();
+    let package_root = write_manifest(missing.path(), NAME, hook_manifest());
+    write_hook_package(&package_root, HOOK_CONFIG);
+    fs::remove_file(package_root.join("assets").join("rtk.exe")).unwrap();
+
+    for (data_dir, expected_field) in [
+        (&outside_assets, "hook.executable"),
+        (&missing, "hook.executable"),
+    ] {
+        let manager = PluginManager::discover(data_dir.path());
+        assert_eq!(manager.installed_plugins(), &[], "{expected_field}");
+        assert_eq!(
+            manager.discovery_issues()[0].field_path(),
+            Some(expected_field),
+        );
+    }
+
+    #[cfg(windows)]
+    {
+        let no_exe = TempDir::new().unwrap();
+        let package_root = write_manifest(no_exe.path(), NAME, hook_manifest());
+        write_hook_package(
+            &package_root,
+            r#"{
+                "schemaVersion": 1,
+                "hook": {
+                    "protocol": "rtk-rewrite-v1",
+                    "executable": "assets/rtk",
+                    "command": "rtk",
+                    "toolVersion": "0.45.0"
+                }
+            }"#,
+        );
+        fs::write(package_root.join("assets").join("rtk"), b"MZdummy").unwrap();
+        let manager = PluginManager::discover(no_exe.path());
+        assert_eq!(manager.installed_plugins(), &[]);
+        assert_eq!(
+            manager.discovery_issues()[0].field_path(),
+            Some("hook.executable"),
+        );
+    }
+}
+
+/// A Hook executable that is a directory is not a regular package file.
+#[test]
+fn rejects_hook_executable_that_is_a_directory() {
+    let data_dir = TempDir::new().unwrap();
+    let package_root = write_manifest(data_dir.path(), NAME, hook_manifest());
+    write_hook_package(&package_root, HOOK_CONFIG);
+    fs::remove_file(package_root.join("assets").join("rtk.exe")).unwrap();
+    fs::create_dir_all(package_root.join("assets").join("rtk.exe")).unwrap();
+
+    let manager = PluginManager::discover(data_dir.path());
+    assert_eq!(manager.installed_plugins(), &[]);
+    assert_eq!(
+        manager.discovery_issues()[0].field_path(),
+        Some("hook.executable"),
+    );
+}
+
+/// A Hook executable symlink that escapes the package is rejected so a caller-controlled
+/// replacement cannot smuggle a file from outside `assets/`.
+#[test]
+fn rejects_hook_executable_symlink_escape() {
+    let data_dir = TempDir::new().unwrap();
+    let outside = TempDir::new().unwrap();
+    let package_root = write_manifest(data_dir.path(), NAME, hook_manifest());
+    write_hook_package(&package_root, HOOK_CONFIG);
+    let link = package_root.join("assets").join("rtk.exe");
+    fs::remove_file(&link).unwrap();
+    let outside_executable = outside.path().join("rtk.exe");
+    fs::write(&outside_executable, b"MZdummy").unwrap();
+    if create_symlink(&outside_executable, &link, SymlinkKind::File).is_err() {
+        return;
+    }
+
+    let manager = PluginManager::discover(data_dir.path());
+    assert_eq!(manager.installed_plugins(), &[]);
+    assert_eq!(
+        manager.discovery_issues()[0].field_path(),
+        Some("hook.executable"),
+    );
 }

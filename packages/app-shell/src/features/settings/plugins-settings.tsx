@@ -1,6 +1,11 @@
 import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
-import type { AvailablePlugin, InstalledPlugin } from "@ora/contracts";
+import type { TFunction } from "i18next";
+import type {
+  AvailablePlugin,
+  InstalledPlugin,
+  InstallOutcome,
+} from "@ora/contracts";
 import { Button, Input, toast } from "@ora/ui";
 import {
   IconArrowBigUpLines,
@@ -34,6 +39,7 @@ const MARKETPLACE_KIND_ORDER = [
   "webview",
   "skill",
   "mcp",
+  "hook",
 ];
 
 /** Readable marketplace section labels for the known plugin kinds. */
@@ -43,6 +49,7 @@ const MARKETPLACE_KIND_LABELS: Record<string, string> = {
   webview: "Webview",
   skill: "Skill",
   mcp: "MCP",
+  hook: "Hook",
 };
 
 /**
@@ -138,7 +145,14 @@ export function PluginsSettings({
       importPlugin.mutate(
         { path },
         {
-          onSuccess: () => toast.success(t("settings.plugins.importSuccess")),
+          onSuccess: (response) =>
+            toast.success(
+              installOutcomeMessage(
+                response.outcome,
+                t,
+                "settings.plugins.importSuccess",
+              ),
+            ),
           onError: (cause) =>
             toast.error(t("settings.plugins.importFailed"), {
               description: localizeContractError(cause, t),
@@ -314,11 +328,21 @@ function AvailablePluginCard({
   const update = useUpdatePlugin(plugin.id);
   const busy = install.isPending || update.isPending;
   const hasUpdate = plugin.version !== installed?.version;
+  const incompatible = plugin.compatibility === "incompatible";
 
   const failInstall = (cause: unknown) => {
     toast.error(t("settings.plugins.installFailed"), {
       description: localizeContractError(cause, t),
     });
+  };
+  const succeedInstall = (response: { outcome: InstallOutcome }) => {
+    toast.success(
+      installOutcomeMessage(
+        response.outcome,
+        t,
+        "settings.plugins.installSuccess",
+      ),
+    );
   };
   const failUpdate = (cause: unknown) => {
     toast.error(t("settings.plugins.updateFailed"), {
@@ -336,6 +360,11 @@ function AvailablePluginCard({
         {plugin.description !== "" && (
           <span className="mt-0.5 block line-clamp-2 text-xs leading-5 text-muted-foreground">
             {plugin.description}
+          </span>
+        )}
+        {incompatible && (
+          <span className="mt-0.5 block text-xs text-muted-foreground">
+            {plugin.reason}
           </span>
         )}
       </span>
@@ -359,8 +388,14 @@ function AvailablePluginCard({
             variant="outline"
             size="icon-sm"
             className="shrink-0"
-            onClick={() => install.mutate({}, { onError: failInstall })}
+            disabled={incompatible}
             aria-label={t("settings.plugins.install")}
+            onClick={() =>
+              install.mutate(
+                {},
+                { onError: failInstall, onSuccess: succeedInstall },
+              )
+            }
           >
             <IconPlus />
           </Button>
@@ -388,4 +423,19 @@ function AvailablePluginCard({
       </span>
     </div>
   );
+}
+
+/** Maps a typed install outcome to the toast the settings surface already shows. */
+function installOutcomeMessage(
+  outcome: InstallOutcome,
+  t: TFunction,
+  successKey:
+    "settings.plugins.installSuccess" | "settings.plugins.importSuccess",
+): string {
+  if (outcome.state === "installed_with_command_conflict") {
+    return t("settings.plugins.installCommandConflict", {
+      pluginId: outcome.conflictPluginId,
+    });
+  }
+  return t(successKey);
 }

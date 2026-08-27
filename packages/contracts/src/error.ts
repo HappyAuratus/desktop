@@ -19,6 +19,7 @@ export type ContractError =
     | { "code": "agent_name_conflict"; "params": EmptyErrorParams }
     | { "code": "agent_not_found"; "params": EmptyErrorParams }
     | { "code": "plugin_not_found"; "params": EmptyErrorParams }
+    | { "code": "plugin_host_incompatible"; "params": EmptyErrorParams }
     | {
       "code": "plugin_configuration_declaration_invalid";
       "params": EmptyErrorParams;
@@ -195,6 +196,7 @@ export type PublicError =
   | { "code": "agent_name_conflict"; "params": EmptyErrorParams }
   | { "code": "agent_not_found"; "params": EmptyErrorParams }
   | { "code": "plugin_not_found"; "params": EmptyErrorParams }
+  | { "code": "plugin_host_incompatible"; "params": EmptyErrorParams }
   | {
     "code": "plugin_configuration_declaration_invalid";
     "params": EmptyErrorParams;

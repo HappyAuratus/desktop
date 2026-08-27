@@ -10,14 +10,14 @@ use ora_application::Clock;
 use ora_contracts::{
     ActivatePluginRequest, ActivatePluginResponse, AddMarketplaceSourceRequest,
     AddMarketplaceSourceResponse, DeleteMarketplaceSourceRequest, DeleteMarketplaceSourceResponse,
-    EmptyErrorParams, ImportPluginRequest, ImportPluginResponse, InstallPluginRequest,
-    InstallPluginResponse, ListAvailablePluginsRequest, ListAvailablePluginsResponse,
-    ListInstalledPluginsRequest, ListInstalledPluginsResponse, ListMarketplaceSourcesRequest,
-    ListMarketplaceSourcesResponse, PublicError, ScanPluginsRequest, ScanPluginsResponse,
-    StopPluginRequest, StopPluginResponse, SyncAvailablePluginsRequest,
-    SyncAvailablePluginsResponse, UninstallPluginRequest, UninstallPluginResponse,
-    UpdateMarketplaceSourceRequest, UpdateMarketplaceSourceResponse, UpdatePluginRequest,
-    UpdatePluginResponse,
+    EmptyErrorParams, ImportPluginRequest, ImportPluginResponse, InstallOutcome,
+    InstallPluginRequest, InstallPluginResponse, ListAvailablePluginsRequest,
+    ListAvailablePluginsResponse, ListInstalledPluginsRequest, ListInstalledPluginsResponse,
+    ListMarketplaceSourcesRequest, ListMarketplaceSourcesResponse, PluginHostCompatibility,
+    PublicError, ScanPluginsRequest, ScanPluginsResponse, StopPluginRequest, StopPluginResponse,
+    SyncAvailablePluginsRequest, SyncAvailablePluginsResponse, UninstallPluginRequest,
+    UninstallPluginResponse, UpdateMarketplaceSourceRequest, UpdateMarketplaceSourceResponse,
+    UpdatePluginRequest, UpdatePluginResponse,
 };
 use ora_db::{
     PluginSkillProjection, RepositoryPool, SqliteEffectRepository,
@@ -32,10 +32,13 @@ use ora_plugin_lifecycle::{
     PluginGenerationKey, PluginGenerationLease, PluginLifecycle, PluginLifecycleConfig,
     PluginLifecycleError, PluginNotificationSink, PluginRuntimeTimeouts,
 };
-use ora_plugin_manager::{Installer, PluginContribution, PluginManager};
+use ora_plugin_manager::{
+    HostTarget, InstallError, Installer, PluginContribution, PluginManager, UpdateError,
+    select_release,
+};
 use ora_plugin_manifest::PluginManifest;
 use ora_plugin_registry::{RegistryEntry, RegistryError, RegistryIndex, RegistrySync};
-use ora_utils::http::{DownloadSource, ProxyConfig, ReqwestDownloader};
+use ora_utils::http::{ProxyConfig, ReqwestDownloader};
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, OnceLock, PoisonError};
@@ -555,29 +558,25 @@ impl PluginApi {
         request: InstallPluginRequest,
     ) -> Result<InstallPluginResponse, BackendError> {
         let (manifest, use_proxy) = self.resolve_marketplace_release(&request.plugin_id)?;
-        let release_url = manifest
-            .url()
-            .ok_or_else(|| {
-                BackendError::internal(
-                    "marketplace plugin manifest is missing its release url",
-                    std::io::Error::new(std::io::ErrorKind::InvalidData, "missing release url"),
-                )
-            })?
-            .as_url();
-        ora_info!(plugin_id = %request.plugin_id, url = %release_url, "installing marketplace plugin");
+        let release_source = self.select_marketplace_release(&manifest)?;
+        match release_source.download() {
+            ora_utils::http::DownloadSource::Url(url) => {
+                ora_info!(plugin_id = %request.plugin_id, url = %url, "installing marketplace plugin");
+            }
+            ora_utils::http::DownloadSource::Local(path) => {
+                ora_info!(plugin_id = %request.plugin_id, path = %path.display(), "installing marketplace plugin from local source");
+            }
+        }
         let download_proxy = self.download_proxy_for(use_proxy)?;
         Installer::new(ReqwestDownloader::new(download_proxy))
-            .install(
-                &manifest,
-                DownloadSource::Url(release_url.clone()),
-                &self.data_directory,
-            )
+            .install(&manifest, release_source, &self.data_directory)
             .await
-            .map_err(|error| BackendError::internal("failed to install plugin", error))?;
-        self.finalize_new_install(&request.plugin_id).await?;
-        ora_info!(plugin_id = %request.plugin_id, "installed marketplace plugin");
+            .map_err(|error| self.map_install_error("failed to install plugin", error))?;
+        let outcome = self.finalize_new_install(&request.plugin_id).await?;
+        ora_info!(plugin_id = %request.plugin_id, outcome = ?outcome, "installed marketplace plugin");
         Ok(InstallPluginResponse {
             plugin_id: request.plugin_id,
+            outcome,
         })
     }
 
@@ -592,18 +591,17 @@ impl PluginApi {
         request: UpdatePluginRequest,
     ) -> Result<UpdatePluginResponse, BackendError> {
         let (manifest, use_proxy) = self.resolve_marketplace_release(&request.plugin_id)?;
-        let release_url = manifest
-            .url()
-            .ok_or_else(|| {
-                BackendError::internal(
-                    "marketplace plugin manifest is missing its release url",
-                    std::io::Error::new(std::io::ErrorKind::InvalidData, "missing release url"),
-                )
-            })?
-            .as_url();
-        ora_info!(plugin_id = %request.plugin_id, url = %release_url, "updating marketplace plugin");
+        let release_source = self.select_marketplace_release(&manifest)?;
+        match release_source.download() {
+            ora_utils::http::DownloadSource::Url(url) => {
+                ora_info!(plugin_id = %request.plugin_id, url = %url, "updating marketplace plugin");
+            }
+            ora_utils::http::DownloadSource::Local(path) => {
+                ora_info!(plugin_id = %request.plugin_id, path = %path.display(), "updating marketplace plugin from local source");
+            }
+        }
         // The package directory is replaced while the plugin may be running, so the process is
-        // stopped first; stopping a webview/skill/MCP package is a no-op.
+        // stopped first; stopping a webview/skill/MCP/hook package is a no-op.
         self.lifecycle
             .stop_plugin(StopPluginRequest {
                 plugin_id: request.plugin_id.clone(),
@@ -612,13 +610,9 @@ impl PluginApi {
             .map_err(BackendError::from)?;
         let download_proxy = self.download_proxy_for(use_proxy)?;
         Installer::new(ReqwestDownloader::new(download_proxy))
-            .update(
-                &manifest,
-                DownloadSource::Url(release_url.clone()),
-                &self.data_directory,
-            )
+            .update(&manifest, release_source, &self.data_directory)
             .await
-            .map_err(|error| BackendError::internal("failed to update plugin", error))?;
+            .map_err(|error| self.map_update_error("failed to update plugin", error))?;
         self.finalize_new_install(&request.plugin_id).await?;
         ora_info!(plugin_id = %request.plugin_id, "updated marketplace plugin");
         Ok(UpdatePluginResponse {
@@ -661,6 +655,43 @@ impl PluginApi {
         ))
     }
 
+    /// Selects the downloadable release for `manifest` against the current host.
+    ///
+    /// Universal releases ignore the host. Targeted Hook releases require a supported triple and
+    /// an exact artifact match so a wrong-architecture package is refused before download.
+    fn select_marketplace_release(
+        &self,
+        manifest: &PluginManifest,
+    ) -> Result<ora_plugin_manager::ResolvedReleaseSource, BackendError> {
+        let host_target = ora_plugin_registry::current_host_target();
+        select_release(manifest, HostTarget::from_option(host_target.as_ref()))
+            .map_err(|error| self.map_install_error("failed to select plugin release", error))
+    }
+
+    /// Maps installer failures that describe host incompatibility onto the public contract error.
+    fn map_install_error(&self, context: &'static str, error: InstallError) -> BackendError {
+        match error {
+            InstallError::NoArtifactForTarget { .. }
+            | InstallError::MissingRelease
+            | InstallError::UnsupportedHost
+            | InstallError::TargetMismatch { .. }
+            | InstallError::MissingArtifactTarget => BackendError::new(
+                ErrorClassification::Unprocessable,
+                PublicError::PluginHostIncompatible(EmptyErrorParams {}),
+                format!("{error}"),
+            ),
+            error => BackendError::internal(context, error),
+        }
+    }
+
+    /// Maps update failures, preserving host-incompatibility from the nested install path.
+    fn map_update_error(&self, context: &'static str, error: UpdateError) -> BackendError {
+        match error {
+            UpdateError::Install(install_error) => self.map_install_error(context, install_error),
+            error => BackendError::internal(context, error),
+        }
+    }
+
     /// Returns the downloader proxy configuration for one marketplace source's proxy policy.
     fn download_proxy_for(&self, use_proxy: bool) -> Result<ProxyConfig, BackendError> {
         if !use_proxy {
@@ -687,29 +718,92 @@ impl PluginApi {
         // and is needed because `install_local` is an `Installer` method.
         let installer = self.installer.clone();
         let data_directory = self.data_directory.clone();
+        let host_target = ora_plugin_registry::current_host_target();
         let package = tokio::task::spawn_blocking(move || {
-            installer.install_local(&archive_path, &data_directory)
+            installer.install_local(
+                &archive_path,
+                &data_directory,
+                ora_plugin_manager::HostTarget::from_option(host_target.as_ref()),
+            )
         })
         .await
         .map_err(|error| BackendError::internal("failed to join plugin import task", error))?
-        .map_err(|error| BackendError::internal("failed to import plugin archive", error))?;
-        self.finalize_new_install(&package.id).await?;
-        ora_info!(plugin_id = %package.id, "imported plugin release from local archive");
+        .map_err(|error| match error {
+            ora_plugin_manager::InstallError::TargetMismatch { .. }
+            | ora_plugin_manager::InstallError::MissingArtifactTarget
+            | ora_plugin_manager::InstallError::UnsupportedHost
+            | ora_plugin_manager::InstallError::NoArtifactForTarget { .. } => BackendError::new(
+                ErrorClassification::Unprocessable,
+                PublicError::PluginHostIncompatible(EmptyErrorParams {}),
+                format!("{error}"),
+            ),
+            error => BackendError::internal("failed to import plugin archive", error),
+        })?;
+        let outcome = self.finalize_new_install(&package.id).await?;
+        ora_info!(plugin_id = %package.id, outcome = ?outcome, "imported plugin release from local archive");
         Ok(ImportPluginResponse {
             plugin_id: package.id,
+            outcome,
         })
     }
 
-    /// Refreshes the installed-plugin snapshot after a new package lands.
-    ///
-    /// The installed snapshot is built once at startup, so a fresh install must re-scan for the
-    /// new package to appear in the installed list without restarting the backend.
-    async fn finalize_new_install(&self, plugin_id: &str) -> Result<(), BackendError> {
+    /// Refreshes the installed-plugin snapshot after a new package lands and reports the typed
+    /// installation outcome. Every installed package is available; a Hook command-alias conflict
+    /// still returns `InstalledWithCommandConflict` so callers can surface the colliding identity
+    /// instead of silently sharing a PATH alias. Both packages remain installed and available;
+    /// uniqueness is deferred to a future consumer.
+    async fn finalize_new_install(&self, plugin_id: &str) -> Result<InstallOutcome, BackendError> {
         self.sync_plugin_skills(plugin_id)?;
         if let Err(error) = self.lifecycle.scan_plugins(ScanPluginsRequest {}).await {
             ora_warn!(plugin_id = %plugin_id, %error, "installed the package but failed to refresh the installed-plugin snapshot");
         }
-        Ok(())
+        // A second Hook with the same bare command still makes PATH resolution ambiguous, so the
+        // typed outcome carries the colliding identity instead of looking like an ordinary success.
+        if let Some(conflict) = self.detect_hook_command_conflict(plugin_id) {
+            ora_warn!(
+                plugin_id = %plugin_id,
+                conflict_plugin_id = %conflict,
+                "installed hook plugin reports a command conflict"
+            );
+            return Ok(InstallOutcome::InstalledWithCommandConflict {
+                conflict_plugin_id: conflict,
+            });
+        }
+        Ok(InstallOutcome::Installed)
+    }
+
+    /// Returns the canonical plugin id of another installed Hook that owns the same command
+    /// alias as the freshly installed Hook `plugin_id`, if any.
+    ///
+    /// The new Hook itself is excluded so a re-install of the same package does not conflict
+    /// with its own contribution.
+    fn detect_hook_command_conflict(&self, plugin_id: &str) -> Option<String> {
+        let manager = PluginManager::discover(&self.data_directory);
+        let installed = manager.installed_plugins();
+        let new_hook = installed
+            .iter()
+            .find(|plugin| plugin.id.canonical() == plugin_id)?;
+        let new_command = match &new_hook.contributes {
+            PluginContribution::Hook(descriptor) => descriptor.configuration.hook.command.as_str(),
+            PluginContribution::Agent(_)
+            | PluginContribution::Workbench(_)
+            | PluginContribution::Webview(_)
+            | PluginContribution::Skill(_)
+            | PluginContribution::Mcp(_) => return None,
+        };
+        let snapshot = self.lifecycle.list_installed_plugins();
+        for plugin in snapshot.plugins.iter() {
+            if plugin.id == plugin_id {
+                continue;
+            }
+            if let ora_contracts::InstalledPluginContribution::Hook { command, .. } =
+                &plugin.contribution
+                && command == new_command
+            {
+                return Some(plugin.id.clone());
+            }
+        }
+        None
     }
 
     /// Projects validated static Skill metadata into the shared catalog and Effect source tables.
@@ -807,6 +901,10 @@ fn available_plugin(entry: &RegistryEntry) -> ora_contracts::AvailablePlugin {
         version: entry.version().to_string(),
         description: entry.description().to_owned(),
         logo: entry.logo().map(str::to_owned),
+        compatibility: match entry.host_compatibility() {
+            Ok(()) => PluginHostCompatibility::Compatible,
+            Err(reason) => PluginHostCompatibility::Incompatible { reason },
+        },
     }
 }
 
@@ -877,6 +975,163 @@ mod tests {
                 receiver.recv().await.expect("second"),
             ),
             (notification("ora/ui/push"), notification("ora/ui/other"))
+        );
+    }
+
+    /// Clean-data-directory E2E for the RTK Hook Plugin milestone: marketplace index build
+    /// (local checkout) -> compatible display -> install the verified release artifact through
+    /// the real installer -> static Hook validation (no payload execution) -> discovery ->
+    /// uninstall. The release artifact path comes from `RTK_RELEASE_ORAX`; when unset the test
+    /// is skipped so CI without the asset does not fail. There is no enable/disable step: every
+    /// installed valid Hook is available and processless, so runtime stays `stopped`.
+    #[tokio::test]
+    async fn rtk_hook_plugin_clean_data_directory_e2e() {
+        let Some(orax_path) = std::env::var("RTK_RELEASE_ORAX")
+            .ok()
+            .filter(|value| !value.is_empty() && std::path::Path::new(value).is_file())
+        else {
+            eprintln!(
+                "skipping RTK Hook Plugin E2E: set RTK_RELEASE_ORAX to the verified release artifact"
+            );
+            return;
+        };
+
+        let data_dir = tempfile::TempDir::new().expect("clean data dir");
+        let marketplace_root = tempfile::TempDir::new().expect("marketplace checkout root");
+
+        // 1. Marketplace sync (local checkout): build the registry index from a seeded listing
+        //    that mirrors the published marketplace manifest. The install substitutes only the
+        //    network download with the local verified artifact via `DownloadSource::Local`.
+        let sha256_hex =
+            "475f209c9ee975344cce972f449b4a35771b8f7c43bbe32c7ccf5a30f4882dbf".to_string();
+        let release_url = "https://github.com/ora-space/rtk-hook-plugin/releases/download/v0.1.0/rtk-ai.rtk-v0.1.0-x86_64-pc-windows-msvc.orax".to_string();
+        let registry_dir = marketplace_root
+            .path()
+            .join("registry")
+            .join("r")
+            .join("rtk-ai.rtk");
+        std::fs::create_dir_all(&registry_dir).expect("create listing dir");
+        let listing = format!(
+            "resolver = 1\ntitle = \"RTK\"\nidentifier = \"rtk-ai.rtk\"\nnamespace = \"official\"\nkind = \"hook\"\nversion = \"0.1.0\"\ndescription = \"RTK command rewrite hook\"\nhomepage = \"https://github.com/rtk-ai/rtk\"\nlicense = \"Apache-2.0\"\n\n[[targets]]\ntarget = \"x86_64-pc-windows-msvc\"\nurl = \"{release_url}\"\nsha256 = \"{sha256_hex}\"\n"
+        );
+        std::fs::write(registry_dir.join("orax.toml"), &listing).expect("write listing");
+        let registry_dir = marketplace_root.path().join("registry");
+        let build =
+            ora_plugin_registry::RegistryIndex::build_all(&[registry_dir.as_path()], 1_776_244_428);
+        assert_eq!(build.skipped().len(), 0);
+        let rtk_entry = build
+            .index()
+            .plugins()
+            .iter()
+            .find(|e| e.id().canonical() == "official/rtk-ai.rtk")
+            .expect("RTK listing indexed");
+        assert_eq!(rtk_entry.kind(), "hook");
+
+        // 2. Compatible display: on a Windows x86_64 host the listing reports compatible.
+        assert!(
+            rtk_entry.is_compatible_with_host(),
+            "RTK must be compatible"
+        );
+
+        // 3-5. Download, SHA verify, install: import the verified release artifact through the
+        //      real installer, which extracts, verifies the self-declared SHA-256, validates the
+        //      Hook Configuration statically (no payload execution), and commits the package.
+        // The locally-downloaded artifact must match the marketplace-declared SHA-256.
+        let actual_sha = ora_utils::hash::sha256_file(&orax_path).expect("hash local artifact");
+        assert_eq!(
+            actual_sha, sha256_hex,
+            "the downloaded release artifact must match the marketplace-declared SHA-256"
+        );
+        let installer = ora_plugin_manager::Installer::new(ora_utils::http::LocalFileDownloader);
+        let digest = ora_plugin_manifest::Sha256Digest::parse(&actual_sha).expect("valid digest");
+        let host = ora_plugin_registry::current_host_target().expect("supported plugin host");
+        let parsed = ora_plugin_manifest::PluginManifest::parse(&listing).expect("listing");
+        let source = ora_plugin_manager::ResolvedReleaseSource::targeted(
+            ora_utils::http::DownloadSource::Local(std::path::PathBuf::from(&orax_path)),
+            *digest.as_bytes(),
+            host,
+        );
+        let package_dir = installer
+            .install(&parsed, source, data_dir.path())
+            .await
+            .expect("install the RTK Hook Plugin");
+        assert!(
+            package_dir.ends_with(std::path::Path::new("rtk-ai.rtk").join("0.1.0")),
+            "installed package identity must be official/rtk-ai.rtk@0.1.0"
+        );
+        assert!(
+            package_dir.join("assets").join("rtk.exe").is_file(),
+            "the RTK executable must be installed inside the package"
+        );
+        assert!(
+            !package_dir.join("main.js").exists(),
+            "a Hook Plugin must never ship main.js"
+        );
+
+        // 6. Discovery: open the lifecycle and scan so the installed Hook is immediately available.
+        let hub = crate::app_event::AppEventHub::new();
+        let lifecycle = ora_plugin_lifecycle::PluginLifecycle::open(
+            ora_plugin_lifecycle::PluginLifecycleConfig {
+                data_directory: data_dir.path().to_path_buf(),
+                deno_path: std::path::PathBuf::from("deno"),
+            },
+            ora_plugin_lifecycle::DenoPluginRuntimeLauncher::new(
+                ora_plugin_lifecycle::PluginRuntimeTimeouts::default(),
+            ),
+            hub.publisher(),
+            super::BroadcastNotificationSink::new(),
+        )
+        .expect("open lifecycle");
+        lifecycle
+            .scan_plugins(ora_contracts::ScanPluginsRequest {})
+            .await
+            .expect("scan discovers the installed Hook");
+
+        let installed = lifecycle.list_installed_plugins();
+        let rtk = installed
+            .plugins
+            .iter()
+            .find(|p| p.id == "official/rtk-ai.rtk")
+            .expect("installed RTK listed");
+        let ora_contracts::InstalledPluginContribution::Hook {
+            protocol,
+            command,
+            target,
+            tool_version,
+        } = &rtk.contribution
+        else {
+            panic!("expected a Hook contribution, got {:?}", rtk.contribution);
+        };
+        assert_eq!(protocol, "rtk-rewrite-v1");
+        assert_eq!(command, "rtk");
+        assert_eq!(target.as_deref(), Some("x86_64-pc-windows-msvc"));
+        assert_eq!(tool_version, "0.45.0");
+        assert_eq!(
+            rtk.runtime,
+            ora_contracts::PluginRuntimeStatus::Stopped,
+            "a processless Hook reports stopped once discovered"
+        );
+
+        // 7. Uninstall: removes the installed package.
+        lifecycle
+            .uninstall_plugin(ora_contracts::UninstallPluginRequest {
+                plugin_id: "official/rtk-ai.rtk".to_string(),
+                data_disposition: ora_contracts::PluginDataDisposition::Delete,
+            })
+            .await
+            .expect("uninstall RTK");
+        let after = lifecycle.list_installed_plugins();
+        assert!(
+            after.plugins.iter().all(|p| p.id != "official/rtk-ai.rtk"),
+            "RTK must no longer be installed after uninstall"
+        );
+        let manager = ora_plugin_manager::PluginManager::discover(data_dir.path());
+        assert!(
+            manager
+                .installed_plugins()
+                .iter()
+                .all(|p| p.id.canonical() != "official/rtk-ai.rtk"),
+            "the installed tree must be gone after uninstall"
         );
     }
 }

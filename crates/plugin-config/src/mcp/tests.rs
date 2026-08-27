@@ -38,7 +38,9 @@ fn compiles_http_configuration_with_header_setting_reference() {
 
     let compiled = match compile_configuration_file(source).expect("compile MCP configuration") {
         CompiledConfigurationFile::Mcp(compiled) => compiled,
-        CompiledConfigurationFile::Settings(_) => panic!("expected the MCP shape"),
+        CompiledConfigurationFile::Settings(_) | CompiledConfigurationFile::Hook(_) => {
+            panic!("expected the MCP shape")
+        }
     };
 
     let settings = compiled.settings.expect("settings subset");
@@ -111,7 +113,9 @@ fn compiles_stdio_configuration_with_arguments_and_environment() {
 
     let compiled = match compile_configuration_file(source).expect("compile MCP configuration") {
         CompiledConfigurationFile::Mcp(compiled) => compiled,
-        CompiledConfigurationFile::Settings(_) => panic!("expected the MCP shape"),
+        CompiledConfigurationFile::Settings(_) | CompiledConfigurationFile::Hook(_) => {
+            panic!("expected the MCP shape")
+        }
     };
 
     let literal = |text: &str| McpArgument::Value(McpValueExpression::Literal(text.to_owned()));
@@ -164,7 +168,9 @@ fn compiles_mcp_configuration_without_settings() {
 
     let compiled = match compile_configuration_file(source).expect("compile MCP configuration") {
         CompiledConfigurationFile::Mcp(compiled) => compiled,
-        CompiledConfigurationFile::Settings(_) => panic!("expected the MCP shape"),
+        CompiledConfigurationFile::Settings(_) | CompiledConfigurationFile::Hook(_) => {
+            panic!("expected the MCP shape")
+        }
     };
 
     assert_eq!(compiled.settings, None);
@@ -491,4 +497,46 @@ fn rejects_an_explicitly_empty_settings_object() {
             CompileMcpConfigurationError::Declaration(CompileDeclarationError::EmptySettings)
         )),
     );
+}
+
+/// A file declaring both `transport` and `hook` fails closed; one package cannot carry two
+/// contribution shapes.
+#[test]
+fn rejects_a_mixed_transport_and_hook_declaration() {
+    let source = r#"{
+        "schemaVersion": 1,
+        "transport": {
+            "type": "stdio",
+            "command": "assets/server"
+        },
+        "hook": {
+            "protocol": "rtk-rewrite-v1",
+            "executable": "assets/rtk.exe",
+            "command": "rtk",
+            "toolVersion": "0.45.0"
+        }
+    }"#;
+    assert_eq!(
+        compile_configuration_file(source.as_bytes()),
+        Err(CompileConfigurationFileError::MixedContribution)
+    );
+}
+
+/// A file declaring `hook` without `transport` compiles as the Hook shape, not Settings-only.
+#[test]
+fn compiles_hook_files_through_the_shared_configuration_router() {
+    let source = br#"{
+            "schemaVersion": 1,
+            "hook": {
+                "protocol": "rtk-rewrite-v1",
+                "executable": "assets/rtk.exe",
+                "command": "rtk",
+                "toolVersion": "0.45.0"
+            }
+        }"#;
+
+    assert!(matches!(
+        compile_configuration_file(source),
+        Ok(CompiledConfigurationFile::Hook(_))
+    ));
 }

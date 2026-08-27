@@ -29,26 +29,31 @@ export type AddMarketplaceSourceResponse = {
 /**
  * Describes one marketplace plugin listed by the cached registry index.
  */
-export type AvailablePlugin = {
-  id: string;
-  name: string;
-  /**
-   * Human-readable display title declared by the manifest; falls back to `name` when a cached
-   * index or older manifest omits it.
-   */
-  title: string;
-  /**
-   * The plugin kind (`agent`, `workbench`, `webview`, `skill`, or `mcp`).
-   */
-  kind: string;
-  namespace: string;
-  version: string;
-  description: string;
-  /**
-   * Security-validated SVG source for the marketplace icon, absent when none is published.
-   */
-  logo: string | null;
-};
+export type AvailablePlugin =
+  & {
+    id: string;
+    name: string;
+    /**
+     * Human-readable display title declared by the manifest; falls back to `name` when a cached
+     * index or older manifest omits it.
+     */
+    title: string;
+    /**
+     * The plugin kind (`agent`, `workbench`, `webview`, `skill`, `mcp`, or `hook`).
+     */
+    kind: string;
+    namespace: string;
+    version: string;
+    description: string;
+    /**
+     * Security-validated SVG source for the marketplace icon, absent when none is published.
+     */
+    logo: string | null;
+  }
+  & ({ "compatibility": "compatible" } | {
+    "compatibility": "incompatible";
+    reason: string;
+  });
 
 /**
  * Requests removal of one marketplace Git source by its URL.
@@ -87,7 +92,26 @@ export type ImportPluginRequest = {
 /**
  * Confirms the identifier imported after the archive is verified and extracted.
  */
-export type ImportPluginResponse = { pluginId: string };
+export type ImportPluginResponse = {
+  pluginId: string;
+  /**
+   * The typed installation outcome, identical in shape to a marketplace install.
+   */
+  outcome: InstallOutcome;
+};
+
+/**
+ * Models the closed set of installation outcomes.
+ *
+ * The outcome is a closed enum rather than a pair of booleans so a caller can never observe
+ * contradictory success flags. Installation always succeeds and the package remains available;
+ * a command-alias collision is reported rather than silently sharing a PATH alias or pretending
+ * the new package was disabled.
+ */
+export type InstallOutcome = { "state": "installed" } | {
+  "state": "installed_with_command_conflict";
+  conflictPluginId: string;
+};
 
 /**
  * Requests installation of one marketplace plugin by its registry identifier.
@@ -97,7 +121,17 @@ export type InstallPluginRequest = { pluginId: string };
 /**
  * Confirms the identifier installed after download, verification, and extraction complete.
  */
-export type InstallPluginResponse = { pluginId: string };
+export type InstallPluginResponse = {
+  pluginId: string;
+  /**
+   * The typed installation outcome. Installation always retains the package. A conflict-free
+   * install reports `installed`; a Hook whose command alias collides with another installed
+   * Hook reports `installed_with_command_conflict` carrying the colliding identity. Both
+   * packages remain available: the host has no enablement state, and uniqueness is deferred
+   * to a future consumer.
+   */
+  outcome: InstallOutcome;
+};
 
 /**
  * Describes one installed plugin discovered from its `orax.toml` manifest.
@@ -132,6 +166,20 @@ export type InstalledPlugin =
     | { "kind": "webview"; title: string; startUrl: string }
     | { "kind": "skill" }
     | { "kind": "mcp" }
+    | {
+      "kind": "hook";
+      protocol: string;
+      command: string;
+      /**
+       * The target triple the installed physical artifact self-declares, absent for a
+       * universal release.
+       */
+      target: string | null;
+      /**
+       * The embedded tool version, independent from the Hook Plugin version.
+       */
+      toolVersion: string;
+    }
   )
   & ({ "runtime": "stopped" } | { "runtime": "starting" } | {
     "runtime": "running";
@@ -151,7 +199,21 @@ export type InstalledPluginContribution =
   | { "kind": "workbench"; title: string }
   | { "kind": "webview"; title: string; startUrl: string }
   | { "kind": "skill" }
-  | { "kind": "mcp" };
+  | { "kind": "mcp" }
+  | {
+    "kind": "hook";
+    protocol: string;
+    command: string;
+    /**
+     * The target triple the installed physical artifact self-declares, absent for a
+     * universal release.
+     */
+    target: string | null;
+    /**
+     * The embedded tool version, independent from the Hook Plugin version.
+     */
+    toolVersion: string;
+  };
 
 /**
  * Requests the cached marketplace registry index used to populate the plugin catalog.
@@ -235,6 +297,17 @@ export type PluginConfigurationSummary = { "state": "not_declared" } | {
  * Selects whether uninstall retains or deletes host-owned plugin data.
  */
 export type PluginDataDisposition = "delete" | "retain";
+
+/**
+ * Reports whether the current host can install one marketplace listing.
+ *
+ * A universal release is always compatible. A targeted release is compatible only when the host
+ * target has a matching artifact. A listing with no downloadable release is incompatible.
+ */
+export type PluginHostCompatibility = { "compatibility": "compatible" } | {
+  "compatibility": "incompatible";
+  reason: string;
+};
 
 /**
  * Represents whether the installed package and its immutable declaration are usable.

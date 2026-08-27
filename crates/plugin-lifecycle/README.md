@@ -10,8 +10,8 @@ interface.
 This crate is the sole owner of plugin processes. Nothing else in Ora starts, stops, or reaps one,
 which is what keeps the runtime state reported to the settings surface identical to the processes
 that actually exist. Every installed plugin is available. Agent and workbench processes start on
-demand and may be stopped without changing availability. Webview, skill, and MCP plugins have no
-process and therefore remain in the `stopped` runtime state.
+demand and may be stopped without changing availability. Webview, skill, MCP, and Hook plugins have
+no process and therefore remain in the `stopped` runtime state.
 
 Consumers that need to speak a protocol over a plugin connect to it instead of launching it
 (`ensure_running` / `connection`, see the data plane below). This is how the agent runtime reaches
@@ -69,8 +69,8 @@ launch, never by request params.
 
 After a successful handshake the registration is validated against the manifest kind
 (`validate_registration`). Workbench registrations may expose well-formed methods but cannot
-declare emitted notifications. Webview, skill, and MCP plugins cannot register because they have
-no process. Agent contracts are verified by the backend's agent runtime, not here.
+declare emitted notifications. Webview, skill, MCP, and Hook plugins cannot register because they
+have no process. Agent contracts are verified by the backend's agent runtime, not here.
 
 ## Storage host methods
 

@@ -8,6 +8,7 @@ import {
   type ProxySettings,
   type ContractsClient,
   type InstalledPlugin,
+  type InstallOutcome,
   type PluginConfigurationDetails,
   type PluginSettingValue,
   type Project,
@@ -90,6 +91,11 @@ export interface MockClientState {
    * committed as an installed package that is immediately available.
    */
   importTarget?: InstalledPlugin | null;
+  /**
+   * The typed install/import outcome returned by the mock plugin commands. Defaults to
+   * `installed`; a conflict test supplies `installed_with_command_conflict`.
+   */
+  installOutcome?: InstallOutcome;
   developerMode: { enabled: boolean };
   runtimeLogLevel: RuntimeLogLevelStateResponse;
   workflows: MockWorkflowRecord[];
@@ -195,6 +201,39 @@ function nextId(prefix: string, count: number): string {
 /** Produces a millisecond-precision timestamp matching the contract's bigint wire type. */
 function nextTimestamp(): bigint {
   return BigInt(Date.now());
+}
+
+/** Materializes one installed plugin from a marketplace listing for mock install tests. */
+function installedFromAvailable(available: AvailablePlugin): InstalledPlugin {
+  const shared = {
+    id: available.id,
+    namespace: available.namespace,
+    name: available.name,
+    displayName: available.name,
+    version: available.version,
+    description: available.description,
+    homepage: null,
+    license: null,
+    logo: available.logo,
+    installationValidity: { validity: "valid" as const },
+    configuration: { state: "not_declared" as const },
+    runtime: "stopped" as const,
+  };
+  if (available.kind === "hook") {
+    return {
+      ...shared,
+      kind: "hook",
+      protocol: "rtk-rewrite-v1",
+      command: "rtk",
+      target: "x86_64-pc-windows-msvc",
+      toolVersion: "0.45.0",
+    };
+  }
+  return {
+    ...shared,
+    kind: "agent",
+    agentDisplayName: available.name,
+  };
 }
 
 /** Returns or creates the mock project's canonical Workspace projection. */
@@ -536,8 +575,14 @@ export function createMockClient(state: MockClientState): ContractsClient {
         if (target === undefined)
           throw new Error(`import not configured for ${req.path}`);
         if (target === null) throw new Error(`import failed for ${req.path}`);
+        const outcome = state.installOutcome ?? {
+          state: "installed" as const,
+        };
         state.installedPlugins.push({ ...target });
-        return { pluginId: target.id };
+        return {
+          pluginId: target.id,
+          outcome,
+        };
       },
       install: async (req) => {
         const available = state.availablePlugins.find(
@@ -545,23 +590,14 @@ export function createMockClient(state: MockClientState): ContractsClient {
         );
         if (!available)
           throw new Error(`available plugin ${req.pluginId} not found`);
-        state.installedPlugins.push({
-          id: available.id,
-          namespace: available.namespace,
-          name: available.name,
-          displayName: available.name,
-          version: available.version,
-          description: available.description,
-          homepage: null,
-          license: null,
-          kind: "agent",
-          agentDisplayName: available.name,
-          logo: available.logo,
-          installationValidity: { validity: "valid" },
-          configuration: { state: "not_declared" },
-          runtime: "stopped",
-        });
-        return { pluginId: req.pluginId };
+        const outcome = state.installOutcome ?? {
+          state: "installed" as const,
+        };
+        state.installedPlugins.push(installedFromAvailable(available));
+        return {
+          pluginId: req.pluginId,
+          outcome,
+        };
       },
       update: async (req) => {
         const available = state.availablePlugins.find(
