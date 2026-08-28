@@ -21,7 +21,7 @@ interface CollapsedRange {
   key: string;
 }
 
-export interface NewSideLineTarget {
+export interface DiffLineTarget {
   change: ChangeData;
   collapsedKey: string | null;
 }
@@ -47,10 +47,10 @@ export function findDiffLineTargets(
   startLine: number,
   endLine: number,
   side: "old" | "new" = "new",
-): NewSideLineTarget[] {
+): DiffLineTarget[] {
   const start = Math.min(startLine, endLine);
   const end = Math.max(startLine, endLine);
-  const targets: NewSideLineTarget[] = [];
+  const targets: DiffLineTarget[] = [];
   for (let hunkIndex = 0; hunkIndex < hunks.length; hunkIndex += 1) {
     const hunk = hunks[hunkIndex]!;
     const ranges = findCollapsedRanges(hunk, hunkIndex);
@@ -65,17 +65,6 @@ export function findDiffLineTargets(
     }
   }
   return targets;
-}
-
-/**
- * Locates a new-side line in the original hunks and names the collapsed block
- * that currently hides it, so a chat jump can expand then scroll.
- */
-export function findNewSideLineTarget(
-  hunks: HunkData[],
-  line: number,
-): NewSideLineTarget | null {
-  return findDiffLineTargets(hunks, line, line, "new")[0] ?? null;
 }
 
 /**

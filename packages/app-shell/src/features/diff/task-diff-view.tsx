@@ -858,6 +858,14 @@ function TaskDiffFile({
     const region = selected.closest<HTMLElement>(".ora-diff-scroll-region");
     if (region === null) return;
     if (typeof region.scrollTo !== "function") return;
+    // The effect also re-runs when the user expands or collapses unrelated
+    // blocks (renderSegments changes). Re-centering then would yank them back
+    // to the cited line while they read elsewhere, so only scroll when the
+    // highlighted row is not already fully inside the viewport — which is
+    // exactly the expand-then-reveal case the re-run exists for.
+    const row = selected.getBoundingClientRect();
+    const viewport = region.getBoundingClientRect();
+    if (row.top >= viewport.top && row.bottom <= viewport.bottom) return;
     const top = diffLineScrollTop(region, selected);
     if (top === null) return;
     // Scroll only vertically (block: center) while persisting scrollLeft, so a
