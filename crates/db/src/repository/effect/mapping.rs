@@ -211,7 +211,7 @@ pub(super) fn install_source_in_all_workspaces(
     updated_at: i64,
 ) -> Result<(), DatabaseError> {
     let mut statement = transaction.prepare(
-        "SELECT effects.workspace_id, effects.generation
+        "SELECT effects.workspace_id, effects.generation, effects.updated_at
          FROM workspace_effects effects
          WHERE NOT EXISTS (
              SELECT 1 FROM workspace_effect_desired_items desired
@@ -221,14 +221,21 @@ pub(super) fn install_source_in_all_workspaces(
     )?;
     let workspaces = statement
         .query_map(params![source_id], |row| {
-            Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, i64>(1)?,
+                row.get::<_, i64>(2)?,
+            ))
         })?
         .collect::<Result<Vec<_>, _>>()?;
     drop(statement);
-    for (workspace_id, current_generation) in workspaces {
+    for (workspace_id, current_generation, previous_updated_at) in workspaces {
         let generation = generation_from_sql(current_generation)?
             .next()
             .map_err(|error| DatabaseError::CorruptEffectState(error.to_string()))?;
+        // Startup can publish a Skill revision older than a Workspace. Preserve the aggregate's
+        // monotonic audit clock while applying that historical source to the current Desired set.
+        let effective_updated_at = updated_at.max(previous_updated_at);
         transaction.execute(
             "INSERT INTO workspace_effect_desired_items (
                  id, workspace_id, source_id, revision_id, created_at, updated_at
@@ -238,19 +245,23 @@ pub(super) fn install_source_in_all_workspaces(
                 &workspace_id,
                 source_id,
                 revision_id,
-                updated_at,
+                effective_updated_at,
             ],
         )?;
         transaction.execute(
             "UPDATE workspace_effects
              SET generation = ?2, updated_at = ?3 WHERE workspace_id = ?1",
-            params![&workspace_id, generation_to_sql(generation)?, updated_at],
+            params![
+                &workspace_id,
+                generation_to_sql(generation)?,
+                effective_updated_at,
+            ],
         )?;
         enqueue_workspace_surfaces(
             transaction,
             &WorkspaceId::new(workspace_id),
             generation,
-            updated_at,
+            effective_updated_at,
         )?;
     }
     Ok(())
