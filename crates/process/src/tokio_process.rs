@@ -46,9 +46,37 @@ impl ProcessSpawner for TokioProcessSpawner {
         ProcessTree::configure_command(&mut command);
 
         let mut child = command.spawn()?;
+        let Some(process_id) = child.id() else {
+            let _ = child.start_kill();
+            handle.spawn(async move {
+                let _ = child.wait().await;
+            });
+            return Err(io::Error::other("spawned child has no platform pid"));
+        };
+        #[cfg(windows)]
+        if let Err(error) = crate::reaper::register_process(process_id) {
+            // Register before assigning the per-process Job so the reaper's shared Job becomes
+            // the common outer Job. Reversing that order makes the shared Job a child of the
+            // first process's private Job, so Windows rejects a second private Job hierarchy.
+            match ProcessTree::from_spawned(&child) {
+                Ok(tree) => {
+                    let _ = tree.kill();
+                }
+                Err(_) => {
+                    let _ = child.start_kill();
+                }
+            }
+            handle.spawn(async move {
+                let _ = child.wait().await;
+            });
+            return Err(io::Error::new(
+                error.kind(),
+                format!("failed to register spawned process {process_id} with reaper: {error}"),
+            ));
+        }
         // Build the tree handle after spawn so the child can be enrolled in its tree-wide
-        // termination group on Windows. Doing it here (rather than lazily inside the lifecycle
-        // task) propagates any Job Object setup failure as a spawn error.
+        // termination group. On Windows the shared reaper Job must already be the outer Job
+        // before this per-process Job is assigned.
         let tree = match ProcessTree::from_spawned(&child) {
             Ok(tree) => tree,
             Err(error) => {
@@ -60,18 +88,18 @@ impl ProcessSpawner for TokioProcessSpawner {
                 // runtime so it doesn't linger as a zombie either.
                 let _ = child.start_kill();
                 handle.spawn(async move {
+                    #[cfg(windows)]
+                    {
+                        let status = child.wait().await;
+                        unregister_exited_process(process_id, &status);
+                    }
+                    #[cfg(not(windows))]
                     let _ = child.wait().await;
                 });
                 return Err(error);
             }
         };
-        let Some(process_id) = child.id() else {
-            let _ = tree.kill();
-            handle.spawn(async move {
-                let _ = child.wait().await;
-            });
-            return Err(io::Error::other("spawned child has no platform pid"));
-        };
+        #[cfg(not(windows))]
         if let Err(error) = crate::reaper::register_process(process_id) {
             // Do not return a live unmanaged process when synchronous enrollment fails. The
             // reaper's acknowledgement is the point at which the caller may safely own it.

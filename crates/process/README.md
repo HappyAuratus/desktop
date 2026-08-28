@@ -21,8 +21,10 @@ Dropping a default managed handle requests termination, while `keep_alive_on_dro
 When Desktop has initialized `ora-reaper`, every spawned tree is additionally registered over a
 private parent-liveness pipe. Direct-child exit notifications discard identifiers only after the
 whole Unix process group is gone; Windows descendants remain contained by the reaper's aggregate
-Job Object. Explicit Desktop shutdown and unexpected parent EOF both forcefully terminate every
-remaining registered tree. There is an accepted narrow window between OS spawn and synchronous
-registration during which an immediate Ora crash can still leave the new process unmanaged.
+Job Object. On Windows the aggregate Job is assigned before each tree's private Job so it remains
+the common outer containment boundary for every independently managed process. Explicit Desktop
+shutdown and unexpected parent EOF both forcefully terminate every remaining registered tree.
+There is an accepted narrow window between OS spawn and synchronous registration during which an
+immediate Ora crash can still leave the new process unmanaged.
 
 Piped stdin, stdout, and stderr can each be taken only once. Protocol parsing, buffering, health checks, restart policy, and business meaning intentionally remain in upper layers such as the backend agent runtime.

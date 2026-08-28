@@ -3,9 +3,46 @@ use std::io::{Read, Write};
 use std::process::{Child, Command, Stdio};
 use std::time::{Duration, Instant};
 
+#[cfg(windows)]
+use ora_process::{ManagedProcess, ProcessSpawner, ProcessSpec, TokioProcessSpawner};
+
 const READY_FRAME: &[u8; 4] = b"ORA1";
 const REGISTER: u8 = 1;
 const SHUTDOWN: u8 = 3;
+
+/// Verifies the shared reaper Job can contain multiple independently managed process trees.
+#[cfg(windows)]
+#[tokio::test]
+async fn registers_multiple_managed_process_trees() {
+    ora_process::initialize_reaper(env!("CARGO_BIN_EXE_ora-reaper"))
+        .unwrap_or_else(|error| panic!("initialize process reaper: {error}"));
+    let spawner = TokioProcessSpawner::new();
+    let first = spawner
+        .spawn(managed_long_running_target())
+        .unwrap_or_else(|error| panic!("spawn first managed target: {error}"));
+    let second = spawner
+        .spawn(managed_long_running_target())
+        .unwrap_or_else(|error| panic!("spawn second managed target: {error}"));
+
+    first
+        .kill()
+        .await
+        .unwrap_or_else(|error| panic!("kill first managed target: {error}"));
+    second
+        .kill()
+        .await
+        .unwrap_or_else(|error| panic!("kill second managed target: {error}"));
+    first
+        .wait()
+        .await
+        .unwrap_or_else(|error| panic!("wait for first managed target: {error}"));
+    second
+        .wait()
+        .await
+        .unwrap_or_else(|error| panic!("wait for second managed target: {error}"));
+    ora_process::shutdown_reaper()
+        .unwrap_or_else(|error| panic!("shut down process reaper: {error}"));
+}
 
 /// Verifies parent EOF makes the sidecar terminate a registered live process.
 #[test]
@@ -103,6 +140,17 @@ fn spawn_long_running_target() -> Child {
     command
         .spawn()
         .unwrap_or_else(|error| panic!("spawn long-running target: {error}"))
+}
+
+/// Builds the same long-running command through Ora's managed-process API.
+#[cfg(windows)]
+fn managed_long_running_target() -> ProcessSpec {
+    ProcessSpec::new("powershell").args([
+        "-NoProfile",
+        "-NonInteractive",
+        "-Command",
+        "Start-Sleep -Seconds 30",
+    ])
 }
 
 /// Starts a target that remains alive until the reaper terminates it.

@@ -85,10 +85,11 @@ impl ProcessTree {
     /// Builds a process-tree handle from a freshly-spawned child.
     ///
     /// On Windows this creates the Job Object with `KILL_ON_JOB_CLOSE` and assigns the running
-    /// child to it. There is a small race window between spawn and assignment where the child
-    /// could fork a subprocess that escapes the job; for Ora's agent runtimes this race is
-    /// acceptable and unavoidable without `CREATE_SUSPENDED` plumbing that the tokio `Command`
-    /// type does not expose.
+    /// child to it after the external reaper has assigned its shared outer Job. There is a small
+    /// race window between spawn and assignment where the child could fork a subprocess that
+    /// escapes the private Job; the shared reaper Job still contains that descendant. Avoiding
+    /// the private-Job race entirely would require `CREATE_SUSPENDED` plumbing that the Tokio
+    /// `Command` type does not expose.
     pub(crate) fn from_spawned(child: &Child) -> io::Result<Self> {
         #[cfg(unix)]
         {
