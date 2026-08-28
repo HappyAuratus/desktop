@@ -996,6 +996,16 @@ mod tests {
             return;
         };
 
+        // Install a test-scoped TRACE subscriber so the lifecycle/manager `tracing` callsites
+        // this test exercises stay observable; `tracing` caches callsite interest, so an ordinary
+        // test that touches a callsite first can make a later structured-log assertion flaky. The
+        // `set_default` guard spans the awaited async body, unlike `with_default`'s synchronous scope.
+        use tracing_subscriber::layer::SubscriberExt;
+        let trace_subscriber =
+            tracing_subscriber::registry().with(tracing_subscriber::filter::LevelFilter::TRACE);
+        let _subscriber_guard =
+            tracing::dispatcher::set_default(&tracing::Dispatch::new(trace_subscriber));
+
         let data_dir = tempfile::TempDir::new().expect("clean data dir");
         let marketplace_root = tempfile::TempDir::new().expect("marketplace checkout root");
 
@@ -1111,8 +1121,10 @@ mod tests {
             ora_contracts::PluginRuntimeStatus::Stopped,
             "a processless Hook reports stopped once discovered"
         );
+        // Every installed valid Hook is available and processless. Command-alias uniqueness is
+        // not resolved here; a future consumer refuses ambiguous PATH resolution.
 
-        // 7. Uninstall: removes the installed package.
+        // 7. Uninstall: removes the installed package so the Hook is no longer available.
         lifecycle
             .uninstall_plugin(ora_contracts::UninstallPluginRequest {
                 plugin_id: "official/rtk-ai.rtk".to_string(),
