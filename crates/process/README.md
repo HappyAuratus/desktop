@@ -5,6 +5,8 @@
 ## Public model
 
 - `ProcessSpec` describes the executable, arguments, working directory, environment overrides, stdio policies, and drop behavior.
+- Reaper registration is the default; bounded one-shot commands can explicitly opt out with
+  `ProcessSpec::skip_reaper_registration` while retaining local wait and tree-wide kill behavior.
 - `ProcessStdio` makes piped, inherited, and null streams explicit.
 - `ProcessSpawner` abstracts process creation through an associated `ManagedProcess` type for static dispatch and test fakes.
 - `ManagedProcess` exposes one-time stdio take operations, id lookup, non-blocking status checks, waiting, and explicit tree-wide kill.
