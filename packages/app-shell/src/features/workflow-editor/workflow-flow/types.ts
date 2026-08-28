@@ -2,8 +2,11 @@ import type {
   Edge,
   Node,
   OnConnect,
+  OnBeforeDelete,
+  OnDelete,
   OnEdgesChange,
   OnNodesChange,
+  OnNodeDrag,
   OnReconnect,
   Viewport,
   XYPosition,
@@ -16,6 +19,10 @@ import type {
   WorkflowNodeData,
   WorkflowNodeKind,
 } from "@ora/workflow-mock";
+import type {
+  WorkflowHistoryEvent,
+  WorkflowHistoryStep,
+} from "../workflow-history";
 
 export type WorkflowCanvasNode =
   Node<WorkflowNodeData, "workflow"> | WorkflowAnnotationNode;
@@ -38,6 +45,21 @@ export interface WorkflowCanvasProps {
   onOrganize: () => void;
   onConnect: OnConnect;
   onReconnect: OnReconnect<Edge>;
+  onBeforeDelete: OnBeforeDelete<WorkflowCanvasNode, Edge>;
+  onDelete: OnDelete<WorkflowCanvasNode, Edge>;
+  onNodeDragStart: OnNodeDrag<WorkflowCanvasNode>;
+  onNodeDragStop: OnNodeDrag<WorkflowCanvasNode>;
+  onDeleteAnnotation: (id: string) => void;
+  canUndo: boolean;
+  canRedo: boolean;
+  historyPast: WorkflowHistoryStep[];
+  historyFuture: WorkflowHistoryStep[];
+  historyCurrentEvent: WorkflowHistoryEvent | null;
+  historyCurrentMeta?: WorkflowHistoryStep["meta"];
+  onUndo: () => void;
+  onRedo: () => void;
+  onHistoryJump: (direction: "past" | "future", steps: number) => void;
+  onClearHistory: () => void;
   inspectorCollapsed: boolean;
   inspectorAvailable: boolean;
   onExpandInspector: () => void;

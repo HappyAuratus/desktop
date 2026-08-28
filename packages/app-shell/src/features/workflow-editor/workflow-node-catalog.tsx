@@ -22,6 +22,14 @@ const ELASTIC_RESISTANCE = 0.14;
 const WHEEL_END_DELAY_MS = 100;
 const NODE_DRAG_THRESHOLD = 4;
 
+// Keep prototype node definitions available for incremental implementation,
+// but do not advertise nodes that the current workflow runtime cannot execute.
+const AVAILABLE_NODE_KINDS = new Set<WorkflowNodeKind>([
+  "start",
+  "agent",
+  "output",
+]);
+
 interface NodeDragDraft {
   kind: WorkflowNodeKind;
   pointerId: number;
@@ -48,7 +56,9 @@ export function WorkflowNodeCatalog({
   onDrop: (kind: WorkflowNodeKind, position: XYPosition) => void;
 }) {
   const { t } = useTranslation();
-  const nodeTypes = capabilities.nodeTypes;
+  const nodeTypes = capabilities.nodeTypes.filter((nodeType) =>
+    AVAILABLE_NODE_KINDS.has(nodeType.kind),
+  );
   const scrollViewportRef = useRef<HTMLDivElement>(null);
   const returnTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const elasticOffsetRef = useRef(0);

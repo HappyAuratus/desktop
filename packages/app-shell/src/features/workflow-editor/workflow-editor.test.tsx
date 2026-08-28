@@ -673,13 +673,15 @@ describe("WorkflowEditor", () => {
       bottom: 600,
     });
 
-    await user.click(screen.getByRole("button", { name: "循环" }));
+    await user.click(screen.getByRole("button", { name: "Agent" }));
 
     // The card carries the title text and the inspector header exposes the
     // same title as an editable input (Dify-style grouped layout).
-    expect(screen.getAllByText("循环 1")).toHaveLength(1);
-    expect(screen.getByLabelText("名称")).toHaveValue("循环 1");
-    expect(nodeGraphPosition("循环节点: 循环 1")).toEqual({
+    expect(screen.getByLabelText("Agent节点: Agent 1")).toHaveTextContent(
+      "Agent 1",
+    );
+    expect(screen.getByLabelText("名称")).toHaveValue("Agent 1");
+    expect(nodeGraphPosition("Agent节点: Agent 1")).toEqual({
       x: "260px",
       y: "200px",
     });
@@ -697,18 +699,18 @@ describe("WorkflowEditor", () => {
       right: 800,
       bottom: 600,
     });
-    const toolButton = screen.getByRole("button", { name: "工具" });
-    toolButton.setPointerCapture = () => {};
+    const agentButton = screen.getByRole("button", { name: "Agent" });
+    agentButton.setPointerCapture = () => {};
 
-    expect(canvas).not.toContainElement(toolButton);
-    fireEvent.pointerDown(toolButton, {
+    expect(canvas).not.toContainElement(agentButton);
+    fireEvent.pointerDown(agentButton, {
       button: 0,
       isPrimary: true,
       pointerId: 1,
       clientX: 400,
       clientY: 650,
     });
-    fireEvent.pointerMove(toolButton, {
+    fireEvent.pointerMove(agentButton, {
       isPrimary: true,
       pointerId: 1,
       clientX: 500,
@@ -721,18 +723,18 @@ describe("WorkflowEditor", () => {
       transform: "translate(-50%, -50%)",
     });
 
-    fireEvent.pointerUp(toolButton, {
+    fireEvent.pointerUp(agentButton, {
       isPrimary: true,
       pointerId: 1,
       clientX: 500,
       clientY: 350,
     });
-    fireEvent.click(toolButton);
+    fireEvent.click(agentButton);
 
     expect(
       document.querySelector("[data-workflow-node-preview]"),
     ).not.toBeInTheDocument();
-    expect(nodeGraphPosition("工具节点: 工具 1")).toEqual({
+    expect(nodeGraphPosition("Agent节点: Agent 1")).toEqual({
       x: "360px",
       y: "260px",
     });

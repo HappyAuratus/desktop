@@ -1,12 +1,17 @@
-import { act, fireEvent, render, screen } from "@testing-library/react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { act, fireEvent, render, screen, within } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createMockWorkflowCapabilities } from "@ora/workflow-mock";
+import { appI18n } from "../../i18n/i18n-instance";
 import { AppI18nProvider } from "../../i18n/i18n";
 import { WorkflowNodeCatalog } from "./workflow-node-catalog";
 
 const capabilities = createMockWorkflowCapabilities("en-US");
 
 describe("WorkflowNodeCatalog", () => {
+  beforeEach(async () => {
+    await appI18n.changeLanguage("en-US");
+  });
+
   afterEach(() => {
     vi.useRealTimers();
   });
@@ -100,6 +105,26 @@ describe("WorkflowNodeCatalog", () => {
     );
 
     expect(screen.getByRole("button", { name: "Start" })).toBeDisabled();
+  });
+
+  it("shows only node kinds supported by the current workflow runtime", () => {
+    render(
+      <AppI18nProvider>
+        <WorkflowNodeCatalog
+          capabilities={capabilities}
+          hasStartNode={false}
+          onAdd={vi.fn()}
+          onDrop={vi.fn()}
+        />
+      </AppI18nProvider>,
+    );
+
+    expect(capabilities.nodeTypes).toHaveLength(9);
+    expect(within(screen.getByRole("toolbar")).getAllByRole("button")).toEqual([
+      screen.getByRole("button", { name: "Start" }),
+      screen.getByRole("button", { name: "Agent" }),
+      screen.getByRole("button", { name: "Output" }),
+    ]);
   });
 });
 

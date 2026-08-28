@@ -97,6 +97,13 @@ import {
 } from "./workflow-definitions";
 import { WorkflowDraftSaveStatusLabel } from "./workflow-draft-save-status";
 import { useWorkflowDraftAutosave } from "./use-workflow-draft-autosave";
+import { useWorkflowHistory } from "./use-workflow-history";
+import {
+  captureWorkflowHistorySnapshot,
+  restoreWorkflowHistorySnapshot,
+  type WorkflowHistoryEvent,
+  type WorkflowHistoryMeta,
+} from "./workflow-history";
 import {
   animatePanelWidth as animateWorkflowPanel,
   cancelPanelWidthAnimation as cancelWorkflowPanelAnimation,
@@ -109,6 +116,15 @@ const WORKFLOW_INSPECTOR_COLLAPSE_THRESHOLD = 180;
 const WORKFLOW_INSPECTOR_FADE_START = 120;
 const WORKFLOW_PANEL_SETTLE_DURATION = 180;
 const MIN_WORKFLOW_CANVAS_WIDTH = 360;
+
+interface WorkflowMutationOptions {
+  persist?: boolean;
+  history?: {
+    event: WorkflowHistoryEvent;
+    meta?: WorkflowHistoryMeta;
+    group?: string;
+  };
+}
 
 export interface WorkflowEditorProps {
   capabilities?: WorkflowCapabilities;
@@ -371,6 +387,56 @@ function WorkflowEditorContent({
   const [inspectorCollapsed, setInspectorCollapsed] = useState(true);
   const [inspectorVisualWidth, setInspectorVisualWidth] = useState(0);
 
+  const restoreHistorySnapshot = useCallback(
+    (snapshot: Parameters<typeof restoreWorkflowHistorySnapshot>[1]): void => {
+      const current = workflowRef.current;
+      if (current === null) {
+        return;
+      }
+      const restored = restoreWorkflowHistorySnapshot(current, snapshot);
+      workflowRef.current = restored;
+      setWorkflow(restored);
+    },
+    [],
+  );
+  const workflowHistory = useWorkflowHistory(restoreHistorySnapshot);
+  const resetWorkflowHistory = workflowHistory.reset;
+
+  /** Names one canvas element for the history panel without exposing internal IDs. */
+  function historySubjectForNode(node: WorkflowCanvasNode): string {
+    if (isWorkflowAnnotationNode(node)) {
+      const text = node.data.text.replace(/\s+/gu, " ").trim();
+      return text === "" ? t("settings.workflow.historyAnnotation") : text;
+    }
+    return node.data.title === ""
+      ? t("settings.workflow.historyUnknownNode")
+      : node.data.title;
+  }
+
+  /** Collapses repeated affected elements into a compact, readable history subject. */
+  function historySubjectForNodes(nodes: WorkflowCanvasNode[]): string {
+    return [...new Set(nodes.map(historySubjectForNode))].join("、");
+  }
+
+  /** Names an edge through its endpoints so connection history is actionable. */
+  function historySubjectForEdge(
+    current: DemoWorkflow,
+    sourceId: string | null,
+    targetId: string | null,
+  ): string {
+    const source = current.nodes.find((node) => node.id === sourceId);
+    const target = current.nodes.find((node) => node.id === targetId);
+    const sourceName =
+      source === undefined
+        ? t("settings.workflow.historyUnknownNode")
+        : historySubjectForNode(source);
+    const targetName =
+      target === undefined
+        ? t("settings.workflow.historyUnknownNode")
+        : historySubjectForNode(target);
+    return `${sourceName} → ${targetName}`;
+  }
+
   // Autosave flush reads these after render; keep them current without render-time writes.
   useEffect(() => {
     workflowRef.current = workflow;
@@ -448,7 +514,7 @@ function WorkflowEditorContent({
           };
         }),
     );
-    setWorkflow({
+    const hydratedWorkflow: DemoWorkflow = {
       id: draftQuery.data.workflow.id,
       name: draftQuery.data.workflow.name,
       description: envelope.description ?? "",
@@ -457,12 +523,24 @@ function WorkflowEditorContent({
       nodes,
       edges: envelope.edges,
       annotations: envelope.annotations,
-    });
+    };
+    setWorkflow(hydratedWorkflow);
     setHydratedWorkflowId(draftQuery.data.workflow.id);
     // Capture the server name in the same hydrate turn so autosave can skip no-op renames.
     // eslint-disable-next-line react-hooks/refs -- render-phase hydrate pairs this with setState
     persistedNameRef.current = draftQuery.data.workflow.name;
   }
+
+  // History belongs to the mounted draft session, so a workflow switch or
+  // activation starts at a clean baseline while ordinary edits keep the stack.
+  useEffect(() => {
+    if (
+      hydratedWorkflowId === resolvedWorkflowId &&
+      workflowRef.current !== null
+    ) {
+      resetWorkflowHistory(workflowRef.current);
+    }
+  }, [hydratedWorkflowId, resetWorkflowHistory, resolvedWorkflowId]);
 
   // Write the derived id to the store before paint so the sidebar highlight
   // matches the draft that the first render already started loading.
@@ -565,14 +643,16 @@ function WorkflowEditorContent({
 
   /** Clears node context and collapses the inspector without affecting workflow edits. */
   function closeNodeInspector(): void {
-    setWorkflow((current) =>
-      current === null
-        ? current
-        : {
-            ...current,
-            nodes: current.nodes.map((node) => ({ ...node, selected: false })),
-          },
-    );
+    workflowHistory.endGroup();
+    const current = workflowRef.current ?? workflow;
+    if (current !== null) {
+      const next = {
+        ...current,
+        nodes: current.nodes.map((node) => ({ ...node, selected: false })),
+      };
+      workflowRef.current = next;
+      setWorkflow(next);
+    }
     animateInspectorTo(0);
   }
 
@@ -592,9 +672,28 @@ function WorkflowEditorContent({
   /** Applies one graph or metadata mutation to the open in-memory workflow. */
   function updateWorkflow(
     updater: (current: DemoWorkflow) => DemoWorkflow,
-    options: { persist?: boolean } = {},
+    options: WorkflowMutationOptions = {},
   ): void {
-    setWorkflow((current) => (current === null ? current : updater(current)));
+    const current = workflowRef.current ?? workflow;
+    if (current === null) {
+      return;
+    }
+    const before =
+      options.history === undefined
+        ? null
+        : captureWorkflowHistorySnapshot(current);
+    const next = updater(current);
+    workflowRef.current = next;
+    setWorkflow(next);
+    if (options.history !== undefined && before !== null) {
+      workflowHistory.record(
+        before,
+        captureWorkflowHistorySnapshot(next),
+        options.history.event,
+        options.history.meta,
+        options.history.group,
+      );
+    }
     if (options.persist !== false) {
       editGenerationRef.current += 1;
       autosave.markDirty();
@@ -607,6 +706,7 @@ function WorkflowEditorContent({
       return null;
     }
     const snapshot = workflowFromCanvasSnapshot(workflow, toObject());
+    workflowRef.current = snapshot;
     setWorkflow(snapshot);
     return snapshot;
   }
@@ -625,6 +725,7 @@ function WorkflowEditorContent({
       return "skipped";
     }
     const snapshot = workflowFromCanvasSnapshot(current, toObject());
+    workflowRef.current = snapshot;
     setWorkflow(snapshot);
     const startedGeneration = editGenerationRef.current;
     setManagerError(null);
@@ -677,6 +778,76 @@ function WorkflowEditorContent({
     enabled: workflow !== null && previewedVersion === null,
     save: persistDraft,
   });
+  const markWorkflowDirty = autosave.markDirty;
+  const undoHistory = workflowHistory.undo;
+  const redoHistory = workflowHistory.redo;
+  const jumpHistory = workflowHistory.jump;
+
+  /** Applies one history step and keeps the restored draft eligible for autosave. */
+  const undoWorkflow = useCallback((): void => {
+    const current = workflowRef.current;
+    if (current === null || previewedVersion !== null) {
+      return;
+    }
+    if (undoHistory(current)) {
+      editGenerationRef.current += 1;
+      markWorkflowDirty();
+    }
+  }, [markWorkflowDirty, previewedVersion, undoHistory]);
+
+  /** Applies one redo step and keeps the restored draft eligible for autosave. */
+  const redoWorkflow = useCallback((): void => {
+    const current = workflowRef.current;
+    if (current === null || previewedVersion !== null) {
+      return;
+    }
+    if (redoHistory(current)) {
+      editGenerationRef.current += 1;
+      markWorkflowDirty();
+    }
+  }, [markWorkflowDirty, previewedVersion, redoHistory]);
+
+  /** Jumps to a selected history row and records the restored draft as a local edit. */
+  const jumpWorkflowHistory = useCallback(
+    (direction: "past" | "future", steps: number): void => {
+      const current = workflowRef.current;
+      if (current === null || previewedVersion !== null) {
+        return;
+      }
+      if (jumpHistory(current, direction, steps)) {
+        editGenerationRef.current += 1;
+        markWorkflowDirty();
+      }
+    },
+    [jumpHistory, markWorkflowDirty, previewedVersion],
+  );
+
+  useEffect(() => {
+    function handleHistoryShortcut(event: KeyboardEvent): void {
+      if (
+        event.isComposing ||
+        (!event.ctrlKey && !event.metaKey) ||
+        previewedVersion !== null ||
+        workflowRef.current === null
+      ) {
+        return;
+      }
+      const key = event.key.toLowerCase();
+      if (key === "z") {
+        event.preventDefault();
+        if (event.shiftKey) {
+          redoWorkflow();
+        } else {
+          undoWorkflow();
+        }
+      } else if (key === "y") {
+        event.preventDefault();
+        redoWorkflow();
+      }
+    }
+    window.addEventListener("keydown", handleHistoryShortcut);
+    return () => window.removeEventListener("keydown", handleHistoryShortcut);
+  }, [previewedVersion, redoWorkflow, undoWorkflow]);
 
   /** Switches the active workflow after flushing any pending draft write. */
   async function selectWorkflow(workflowId: string): Promise<void> {
@@ -1022,17 +1193,18 @@ function WorkflowEditorContent({
 
   /** Adds a catalog node at a canvas-provided position and selects it for immediate editing. */
   function addNode(kind: WorkflowNodeKind, position: XYPosition): void {
+    const currentWorkflow = workflowRef.current ?? workflow;
     if (
-      workflow === null ||
+      currentWorkflow === null ||
       (kind === "start" &&
-        workflow.nodes.some((node) => node.data.kind === "start"))
+        currentWorkflow.nodes.some((node) => node.data.kind === "start"))
     ) {
       return;
     }
     const { sequence } = uniqueGraphId(kind, [
-      ...workflow.nodes.map((node) => node.id),
-      ...(workflow.annotations ?? []).map((node) => node.id),
-      ...workflow.edges.map((edge) => edge.id),
+      ...currentWorkflow.nodes.map((node) => node.id),
+      ...(currentWorkflow.annotations ?? []).map((node) => node.id),
+      ...currentWorkflow.edges.map((edge) => edge.id),
     ]);
     const node = createMockWorkflowNode({
       kind,
@@ -1042,48 +1214,73 @@ function WorkflowEditorContent({
       agentConfig:
         kind === "agent" ? capabilities.defaultAgentConfig : undefined,
     });
-    updateWorkflow((current) => ({
-      ...current,
-      nodes: [
-        ...current.nodes.map((candidate) => ({
-          ...candidate,
-          selected: false,
-        })),
-        { ...node, selected: true },
-      ],
-    }));
+    updateWorkflow(
+      (current) => ({
+        ...current,
+        nodes: [
+          ...current.nodes.map((candidate) => ({
+            ...candidate,
+            selected: false,
+          })),
+          { ...node, selected: true },
+        ],
+      }),
+      {
+        history: {
+          event: "node.add",
+          meta: {
+            nodeIds: [node.id],
+            subject: node.data.title,
+            nodeTitle: node.data.title,
+            nodeKind: kind,
+          },
+        },
+      },
+    );
     expandInspector();
   }
 
   /** Creates a selected editor note at the canvas-provided position. */
   function addAnnotation(position: XYPosition): void {
-    if (workflow === null) {
+    const currentWorkflow = workflowRef.current ?? workflow;
+    if (currentWorkflow === null) {
       return;
     }
     const { id } = uniqueGraphId("annotation", [
-      ...workflow.nodes.map((node) => node.id),
-      ...(workflow.annotations ?? []).map((node) => node.id),
-      ...workflow.edges.map((edge) => edge.id),
+      ...currentWorkflow.nodes.map((node) => node.id),
+      ...(currentWorkflow.annotations ?? []).map((node) => node.id),
+      ...currentWorkflow.edges.map((edge) => edge.id),
     ]);
-    updateWorkflow((current) => ({
-      ...current,
-      nodes: current.nodes.map((node) => ({ ...node, selected: false })),
-      annotations: [
-        ...(current.annotations ?? []).map((annotation) => ({
-          ...annotation,
-          selected: false,
-        })),
-        {
-          id,
-          type: "annotation",
-          position,
-          width: 240,
-          height: 140,
-          selected: true,
-          data: { text: "", theme: "yellow" },
+    updateWorkflow(
+      (current) => ({
+        ...current,
+        nodes: current.nodes.map((node) => ({ ...node, selected: false })),
+        annotations: [
+          ...(current.annotations ?? []).map((annotation) => ({
+            ...annotation,
+            selected: false,
+          })),
+          {
+            id,
+            type: "annotation",
+            position,
+            width: 240,
+            height: 140,
+            selected: true,
+            data: { text: "", theme: "yellow" },
+          },
+        ],
+      }),
+      {
+        history: {
+          event: "annotation.add",
+          meta: {
+            nodeIds: [id],
+            subject: t("settings.workflow.historyAnnotation"),
+          },
         },
-      ],
-    }));
+      },
+    );
     animateInspectorTo(0);
   }
 
@@ -1092,67 +1289,235 @@ function WorkflowEditorContent({
     id: string,
     data: Partial<WorkflowAnnotationData>,
   ): void {
-    updateWorkflow((current) => ({
-      ...current,
-      annotations: (current.annotations ?? []).map((annotation) =>
-        annotation.id === id
-          ? { ...annotation, data: { ...annotation.data, ...data } }
-          : annotation,
-      ),
-    }));
+    updateWorkflow(
+      (current) => ({
+        ...current,
+        annotations: (current.annotations ?? []).map((annotation) =>
+          annotation.id === id
+            ? { ...annotation, data: { ...annotation.data, ...data } }
+            : annotation,
+        ),
+      }),
+      {
+        history: {
+          event: "annotation.edit",
+          // Annotation text may contain lengthy user-authored content, so the
+          // history entry deliberately stays concise instead of echoing it.
+          meta: { nodeIds: [id] },
+          group: `annotation:${id}`,
+        },
+      },
+    );
   }
 
   /** Organizes executable nodes and exposes a position-only undo action. */
   function organizeNodes(): void {
-    if (workflow === null) {
+    const current = workflowRef.current ?? workflow;
+    if (current === null) {
       return;
     }
-    const previousPositions = new Map(
-      workflow.nodes.map((node) => [node.id, node.position]),
-    );
-    updateWorkflow((current) => ({
-      ...current,
-      nodes: organizeWorkflowNodes(current.nodes, current.edges),
-    }));
-    toast.message(t("settings.workflow.organizeComplete"), {
-      action: {
-        label: t("settings.workflow.undoOrganize"),
-        onClick: () => {
-          updateWorkflow((current) => ({
-            ...current,
-            nodes: current.nodes.map((node) => ({
-              ...node,
-              position: previousPositions.get(node.id) ?? node.position,
-            })),
-          }));
+    updateWorkflow(
+      (current) => ({
+        ...current,
+        nodes: organizeWorkflowNodes(current.nodes, current.edges),
+      }),
+      {
+        history: {
+          event: "layout.organize",
+          meta: { subject: historySubjectForNodes(current.nodes) },
         },
       },
-    });
+    );
+    toast.message(t("settings.workflow.organizeComplete"));
   }
 
   /** Creates a native React Flow edge after canvas validation succeeds. */
   function connectNodes(connection: Connection): void {
-    updateWorkflow((current) => {
-      if (connection.source === null || connection.target === null) {
-        return current;
-      }
-      const { id } = uniqueGraphId("edge", [
-        ...current.nodes.map((node) => node.id),
-        ...current.edges.map((edge) => edge.id),
-      ]);
-      return {
-        ...current,
-        edges: addEdge({ ...connection, id, type: "workflow" }, current.edges),
-      };
-    });
+    const current = workflowRef.current ?? workflow;
+    if (
+      current === null ||
+      connection.source === null ||
+      connection.target === null
+    ) {
+      return;
+    }
+    updateWorkflow(
+      (current) => {
+        if (connection.source === null || connection.target === null) {
+          return current;
+        }
+        const { id } = uniqueGraphId("edge", [
+          ...current.nodes.map((node) => node.id),
+          ...current.edges.map((edge) => edge.id),
+        ]);
+        return {
+          ...current,
+          edges: addEdge(
+            { ...connection, id, type: "workflow" },
+            current.edges,
+          ),
+        };
+      },
+      {
+        history: {
+          event: "edge.connect",
+          meta: {
+            subject: historySubjectForEdge(
+              current,
+              connection.source,
+              connection.target,
+            ),
+          },
+        },
+      },
+    );
   }
 
   /** Uses React Flow's reconnect helper to move an edge endpoint. */
   function reconnectEdge(edge: Edge, connection: Connection): void {
-    updateWorkflow((current) => ({
-      ...current,
-      edges: reconnectReactFlowEdge(edge, connection, current.edges),
-    }));
+    const current = workflowRef.current ?? workflow;
+    if (current === null) {
+      return;
+    }
+    updateWorkflow(
+      (current) => ({
+        ...current,
+        edges: reconnectReactFlowEdge(edge, connection, current.edges),
+      }),
+      {
+        history: {
+          event: "edge.reconnect",
+          meta: {
+            edgeIds: [edge.id],
+            subject: historySubjectForEdge(
+              current,
+              connection.source,
+              connection.target,
+            ),
+          },
+        },
+      },
+    );
+  }
+
+  /** Removes a canvas annotation as one semantic history step. */
+  function deleteAnnotation(id: string): void {
+    const current = workflowRef.current ?? workflow;
+    const annotation = current?.annotations?.find(
+      (candidate) => candidate.id === id,
+    );
+    updateWorkflow(
+      (current) => ({
+        ...current,
+        annotations: (current.annotations ?? []).filter(
+          (annotation) => annotation.id !== id,
+        ),
+      }),
+      {
+        history: {
+          event: "node.delete",
+          meta: {
+            nodeIds: [id],
+            subject:
+              annotation === undefined
+                ? t("settings.workflow.historyAnnotation")
+                : historySubjectForNode(annotation),
+          },
+        },
+      },
+    );
+  }
+
+  /** Starts a node drag transaction so many position changes become one undo item. */
+  function startNodeDrag(
+    _event: MouseEvent | TouchEvent,
+    node: WorkflowCanvasNode,
+    nodes: WorkflowCanvasNode[],
+  ): void {
+    const current = workflowRef.current ?? workflow;
+    if (current === null || previewedVersion !== null) {
+      return;
+    }
+    workflowHistory.beginTransaction(
+      captureWorkflowHistorySnapshot(current),
+      "node.move",
+      {
+        nodeIds: nodes.map((candidate) => candidate.id),
+        // Annotation text is content rather than a stable node name. Keep move
+        // history concise while retaining executable node titles.
+        subject: [
+          ...new Set(
+            nodes.map((candidate) =>
+              isWorkflowAnnotationNode(candidate)
+                ? t("settings.workflow.historyAnnotation")
+                : historySubjectForNode(candidate),
+            ),
+          ),
+        ].join("、"),
+        nodeTitle: isWorkflowAnnotationNode(node) ? undefined : node.data.title,
+        nodeKind: isWorkflowAnnotationNode(node)
+          ? "annotation"
+          : node.data.kind,
+      },
+    );
+  }
+
+  /** Finishes a node drag transaction after React Flow has applied its final position. */
+  function stopNodeDrag(): void {
+    const current = workflowRef.current ?? workflow;
+    if (current === null || previewedVersion !== null) {
+      workflowHistory.cancelTransaction();
+      return;
+    }
+    workflowHistory.commitTransaction(captureWorkflowHistorySnapshot(current));
+  }
+
+  /** Captures the elements React Flow is about to remove for one delete history step. */
+  async function beforeDelete({
+    nodes,
+    edges,
+  }: {
+    nodes: WorkflowCanvasNode[];
+    edges: Edge[];
+  }): Promise<boolean> {
+    const current = workflowRef.current ?? workflow;
+    if (current === null || previewedVersion !== null) {
+      return false;
+    }
+    const firstNode = nodes[0];
+    const nodeTitle =
+      firstNode !== undefined && !isWorkflowAnnotationNode(firstNode)
+        ? firstNode.data.title
+        : undefined;
+    const subject =
+      nodes.length > 0
+        ? historySubjectForNodes(nodes)
+        : edges
+            .map((edge) =>
+              historySubjectForEdge(current, edge.source, edge.target),
+            )
+            .join("、");
+    workflowHistory.beginTransaction(
+      captureWorkflowHistorySnapshot(current),
+      nodes.length > 0 ? "node.delete" : "edge.delete",
+      {
+        nodeIds: nodes.map((node) => node.id),
+        edgeIds: edges.map((edge) => edge.id),
+        subject,
+        nodeTitle,
+      },
+    );
+    return true;
+  }
+
+  /** Commits the delete transaction once React Flow has removed its elements. */
+  function completeDelete(): void {
+    const current = workflowRef.current ?? workflow;
+    if (current === null) {
+      workflowHistory.cancelTransaction();
+      return;
+    }
+    workflowHistory.commitTransaction(captureWorkflowHistorySnapshot(current));
   }
 
   /** Applies React Flow node changes directly to the active graph. */
@@ -1292,11 +1657,21 @@ function WorkflowEditorContent({
                 value={workflow.name}
                 disabled={previewedVersion !== null}
                 onChange={(event) =>
-                  updateWorkflow((current) => ({
-                    ...current,
-                    name: event.target.value,
-                  }))
+                  updateWorkflow(
+                    (current) => ({
+                      ...current,
+                      name: event.target.value,
+                    }),
+                    {
+                      history: {
+                        event: "workflow.rename",
+                        meta: { subject: event.target.value },
+                        group: "workflow:name",
+                      },
+                    },
+                  )
                 }
+                onBlur={workflowHistory.endGroup}
                 aria-label={t("settings.workflow.workflowName")}
                 className="h-7 max-w-72 border-transparent bg-transparent px-1 text-sm font-medium shadow-none hover:border-border focus-visible:border-border"
               />
@@ -1375,6 +1750,21 @@ function WorkflowEditorContent({
                 onOrganize={organizeNodes}
                 onConnect={connectNodes}
                 onReconnect={reconnectEdge}
+                onBeforeDelete={beforeDelete}
+                onDelete={completeDelete}
+                onNodeDragStart={startNodeDrag}
+                onNodeDragStop={stopNodeDrag}
+                onDeleteAnnotation={deleteAnnotation}
+                canUndo={workflowHistory.canUndo}
+                canRedo={workflowHistory.canRedo}
+                historyPast={workflowHistory.past}
+                historyFuture={workflowHistory.future}
+                historyCurrentEvent={workflowHistory.currentEvent}
+                historyCurrentMeta={workflowHistory.currentMeta}
+                onUndo={undoWorkflow}
+                onRedo={redoWorkflow}
+                onHistoryJump={jumpWorkflowHistory}
+                onClearHistory={workflowHistory.clear}
                 inspectorCollapsed={inspectorCollapsed}
                 inspectorAvailable={inspectorAvailable}
                 onExpandInspector={expandInspector}
@@ -1484,12 +1874,26 @@ function WorkflowEditorContent({
                   void skillsQuery.refetch();
                 }}
                 onUpdate={(updatedNode) =>
-                  updateWorkflow((current) => ({
-                    ...current,
-                    nodes: current.nodes.map((node) =>
-                      node.id === updatedNode.id ? updatedNode : node,
-                    ),
-                  }))
+                  updateWorkflow(
+                    (current) => ({
+                      ...current,
+                      nodes: current.nodes.map((node) =>
+                        node.id === updatedNode.id ? updatedNode : node,
+                      ),
+                    }),
+                    {
+                      history: {
+                        event: "node.edit",
+                        meta: {
+                          nodeIds: [updatedNode.id],
+                          subject: updatedNode.data.title,
+                          nodeTitle: updatedNode.data.title,
+                          nodeKind: updatedNode.data.kind,
+                        },
+                        group: `node:${updatedNode.id}`,
+                      },
+                    },
+                  )
                 }
                 onDelete={(nodeId) => {
                   void deleteElements({ nodes: [{ id: nodeId }] });

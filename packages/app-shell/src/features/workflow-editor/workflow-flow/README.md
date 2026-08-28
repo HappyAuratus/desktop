@@ -10,7 +10,8 @@ React Flow–based canvas for the workspace workflow editor.
   nodes and edges in a second hook-owned store.
 - Provide grid alignment, an interactive minimap, pointer/hand interaction
   modes, editor-only annotations, automatic node organization, the node catalog
-  overlay, and inspector restore controls.
+  overlay, inspector restore controls, and the bottom-left undo/redo/history
+  controls.
 - Render native React Flow `Node<TData>` and `Edge` elements without adapters.
 - Use React Flow's `BaseEdge`, path helpers, selection, deletion, and viewport
   helpers instead of maintaining parallel interaction utilities.
@@ -43,7 +44,7 @@ React Flow–based canvas for the workspace workflow editor.
 - Workflow export captures that same live `toObject()` snapshot before handing
   the pretty-printed JSON to the host save flow.
 - Automatic organization moves executable nodes only; annotations retain their
-  authored positions and the toast action restores the previous node positions.
+  authored positions and is recorded as one semantic history step.
 - Catalog drops only commit inside canvas bounds and snap to the visible grid.
 - Published versions open in a read-only canvas preview; activating a version
   copies that graph into the editable draft.
@@ -52,6 +53,11 @@ React Flow–based canvas for the workspace workflow editor.
   action.
 - The current-draft row in version history can publish that draft through the
   same dialog as the header Publish action.
+- Change history stores complete authored workflow snapshots, coalesces a drag
+  or focused text edit into one step, and excludes selection/measurement state.
+  The history panel is newest-to-oldest, highlights the current operation,
+  names affected nodes and edge endpoints when available, can jump to any
+  retained step, and can clear the session stack.
 
 ## Interactions
 

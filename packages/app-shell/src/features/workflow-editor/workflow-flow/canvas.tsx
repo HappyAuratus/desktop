@@ -51,6 +51,7 @@ import {
   WorkflowAnnotationView,
 } from "./annotation";
 import { WorkflowCanvasTools, type CanvasInteractionMode } from "./tools";
+import { WorkflowHistoryControls } from "./history-controls";
 import type { WorkflowCanvasNode, WorkflowCanvasProps } from "./types";
 import { WorkflowVersionHistory } from "./version-history";
 import "@xyflow/react/dist/style.css";
@@ -160,7 +161,7 @@ export function WorkflowCanvas(props: WorkflowCanvasProps) {
       value={{
         readOnly: props.readOnly,
         update: props.onUpdateAnnotation,
-        remove: (id) => props.onNodesChange([{ id, type: "remove" }]),
+        remove: props.onDeleteAnnotation,
       }}
     >
       <WorkflowCanvasInner {...props} />
@@ -182,6 +183,20 @@ function WorkflowCanvasInner({
   onOrganize,
   onConnect,
   onReconnect,
+  onBeforeDelete,
+  onDelete,
+  onNodeDragStart,
+  onNodeDragStop,
+  canUndo,
+  canRedo,
+  historyPast,
+  historyFuture,
+  historyCurrentEvent,
+  historyCurrentMeta,
+  onUndo,
+  onRedo,
+  onHistoryJump,
+  onClearHistory,
   inspectorCollapsed,
   inspectorAvailable,
   onExpandInspector,
@@ -544,6 +559,10 @@ function WorkflowCanvasInner({
             isValidConnection={isValidConnection}
             onNodesChange={onNodesChange}
             onEdgesChange={onEdgesChange}
+            onBeforeDelete={onBeforeDelete}
+            onDelete={onDelete}
+            onNodeDragStart={onNodeDragStart}
+            onNodeDragStop={onNodeDragStop}
             onNodeClick={(_event, node) => {
               // Selection alone cannot reopen the rail: drag-collapse keeps the
               // node selected, so a same-node click is a no-op for React Flow.
@@ -623,6 +642,21 @@ function WorkflowCanvasInner({
           onAddAnnotation={addAnnotationAtViewportCenter}
           onOrganize={organizeAndFrameNodes}
         />
+        <div className="absolute bottom-3 left-3 z-40">
+          <WorkflowHistoryControls
+            canUndo={canUndo}
+            canRedo={canRedo}
+            past={historyPast}
+            future={historyFuture}
+            currentEvent={historyCurrentEvent}
+            currentMeta={historyCurrentMeta}
+            readOnly={readOnly}
+            onUndo={onUndo}
+            onRedo={onRedo}
+            onJump={onHistoryJump}
+            onClear={onClearHistory}
+          />
+        </div>
       </div>
 
       {!readOnly && (

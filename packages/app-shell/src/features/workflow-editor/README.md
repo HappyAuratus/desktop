@@ -9,6 +9,7 @@ category.
 - Persist and edit the workflow library (create, rename, delete, import, export).
 - Render the React Flow canvas and the node inspector for the selected draft.
 - Autosave the open draft and publish / preview / activate versions.
+- Keep a session-only semantic history for undo, redo, and direct history jumps.
 - Show unpublished vs the active published version as muted canvas caption
   beside the history control.
 
@@ -39,5 +40,11 @@ category.
   a successful leave clears the sidebar error.
 - The inner library rail is gone: the app sidebar is the only workflow list.
   Newest-created workflows are first; create prepends the row and opens its draft.
+- The node catalog advertises only the runtime-backed Start, Agent, and Output
+  nodes. Prototype metadata for other node kinds remains available so each kind
+  can be exposed when its runtime support is implemented.
 - Collapsing the app sidebar hides the library in place; it does not remount
   the canvas, so in-memory draft edits survive.
+- Undo/redo history is scoped to the mounted draft session. Switching drafts,
+  activating a version, or leaving the editor clears it; autosave and published
+  version history are independent.
