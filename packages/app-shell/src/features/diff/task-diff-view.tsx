@@ -70,11 +70,11 @@ import {
   fileNavigationLocation,
   type FileNavigationLocation,
 } from "./task-changes-navigation-context";
+import { diffLineScrollTop, isDiffScrollAtEnd } from "./task-diff-scroll";
 import {
-  diffFileScrollTop,
-  diffLineScrollTop,
-  isDiffFileScrollSettled,
-} from "./task-diff-scroll";
+  runDiffFileScroll,
+  type DiffFileScrollRunHandle,
+} from "./task-diff-scroll-run";
 
 /** Matches the changes-panel slide so the file tree toggle feels consistent. */
 const FILE_TREE_SLIDE_MS = 180;
@@ -149,14 +149,24 @@ export function TaskDiffView({
   const jumpHighlightDismissed =
     fileRequest !== undefined &&
     fileRequest.requestId === dismissedJumpRequestId;
+  // Last tree-click flash. It is never cleared by a timer: the overlay fades
+  // to transparent via `animation-fill-mode`, and re-clicking re-keys it to
+  // replay — so a click on an already-visible file still gets feedback.
+  const [fileFlash, setFileFlash] = useState<{
+    path: string;
+    seq: number;
+  } | null>(null);
   const scrollContainerRef = useRef<HTMLDivElement | null>(null);
   const fileElementsRef = useRef(new Map<string, HTMLDivElement>());
   const fileTreePanelRef = useRef<ResizablePanelHandle | null>(null);
   const fileTreeAnimationRef = useRef<number | null>(null);
   const fileTreeWidthRef = useRef(FILE_TREE_WIDTH);
-  // Programmatic jumps (chat links, tree clicks) must not be overwritten by the
-  // scroll spy: on mount it treats an empty viewport as "scrolled to the end".
-  const suppressScrollSyncRef = useRef(false);
+  // The single scroll run that currently owns the viewport. While it is set
+  // the scroll spy stands down, so the run's own scroll events and the layout
+  // shifts it triggers cannot steal the selection mid-flight.
+  const activeScrollRunRef = useRef<DiffFileScrollRunHandle | null>(null);
+  /** File request whose jump scroll already started, deduplicating effect re-runs. */
+  const jumpScrollRequestIdRef = useRef<number | null>(null);
   const onPreviewPathChangeRef = useRef(onPreviewPathChange);
   /** Last path reported upward, so repeat notifications collapse to one call. */
   const notifiedPreviewPathRef = useRef<string | null>(null);
@@ -230,96 +240,67 @@ export function TaskDiffView({
   ]);
 
   /**
-   * Scrolls the Diff viewport so `path` sits near the top.
-   * Returns false when the panel has not laid out yet so callers can retry
-   * instead of treating a 0-height first paint as a completed jump.
+   * Scrolls `path` to the top of the Changes viewport and keeps re-aligning it
+   * while virtualized placeholders take their real height. The run holds the
+   * scroll spy until it settles — or the user takes over — so neither the
+   * run's own scroll events nor late layout shifts can move the selection
+   * elsewhere. A new run always replaces the previous one.
    */
-  const scrollToPath = useCallback((path: string, behavior: ScrollBehavior) => {
-    const root = scrollContainerRef.current;
-    const element = fileElementsRef.current.get(path);
-    if (
-      root === null ||
-      element === undefined ||
-      typeof root.scrollTo !== "function"
-    ) {
-      return false;
-    }
-    const top = diffFileScrollTop(root, element);
-    if (top === null) return false;
-    root.scrollTo({ top, behavior });
-    return true;
+  const startScrollRun = useCallback((path: string) => {
+    activeScrollRunRef.current?.cancel();
+    const run = runDiffFileScroll({
+      getRoot: () => scrollContainerRef.current,
+      getTarget: () => fileElementsRef.current.get(path),
+      onArrived: () => {
+        if (activeScrollRunRef.current === run) {
+          activeScrollRunRef.current = null;
+        }
+      },
+      onInterrupted: () => {
+        if (activeScrollRunRef.current === run) {
+          activeScrollRunRef.current = null;
+        }
+      },
+    });
+    activeScrollRunRef.current = run;
   }, []);
 
-  /** Selects a changed file and aligns its first line with the top of the Diff viewport. */
+  // A run outliving this panel must not keep scrolling against detached nodes.
+  useEffect(() => () => activeScrollRunRef.current?.cancel(), []);
+
+  /** Selects a changed file and aligns its header with the top of the Diff viewport. */
   const selectFile = useCallback(
-    (path: string, behavior: ScrollBehavior = "smooth") => {
-      suppressScrollSyncRef.current = true;
+    (path: string) => {
       setSelectedFilePath(path);
       notifyPreviewPath(path);
-      if (scrollToPath(path, behavior)) return;
-      requestAnimationFrame(() => {
-        if (!scrollToPath(path, behavior))
-          suppressScrollSyncRef.current = false;
-      });
+      startScrollRun(path);
+      setFileFlash((current) => ({ path, seq: (current?.seq ?? 0) + 1 }));
     },
-    [notifyPreviewPath, scrollToPath],
+    [notifyPreviewPath, startScrollRun],
   );
 
   useLayoutEffect(() => {
     if (fileRequest === undefined || diffQuery.isLoading) return;
     if (fileRequest.requestId !== appliedFileRequestId) return;
+    // One jump per request: the run itself owns retries, so selection changes
+    // and refetch-driven list identity changes must not re-jump the viewport
+    // to an old request's path (they would yank the user away from wherever
+    // they scrolled — visible as a double run when tree-clicking the very
+    // file a restored request points at).
+    if (jumpScrollRequestIdRef.current === fileRequest.requestId) return;
     const matchingPath = filePaths.find((path) =>
       pathsMatchForWorkspace(fileRequest.path, path),
     );
     if (matchingPath === undefined || matchingPath !== selectedFilePath) return;
-    suppressScrollSyncRef.current = true;
-    let cancelled = false;
-    let succeeded = false;
-    let attempts = 0;
-    let observer: ResizeObserver | null = null;
-    const attempt = () => {
-      if (cancelled || succeeded) return;
-      const root = scrollContainerRef.current;
-      const element = fileElementsRef.current.get(matchingPath);
-      scrollToPath(matchingPath, "auto");
-      // Placeholder heights above the file can shrink after the first jump.
-      // Keep retrying until the requested section is actually at the top.
-      if (
-        root !== null &&
-        element !== undefined &&
-        isDiffFileScrollSettled(root, element)
-      ) {
-        succeeded = true;
-        observer?.disconnect();
-        return;
-      }
-      if (++attempts < 90) {
-        requestAnimationFrame(attempt);
-        return;
-      }
-      suppressScrollSyncRef.current = false;
-    };
-    attempt();
-    const root = scrollContainerRef.current;
-    const target = fileElementsRef.current.get(matchingPath);
-    const content = root?.firstElementChild;
-    if (typeof ResizeObserver !== "undefined" && root !== null) {
-      observer = new ResizeObserver(() => attempt());
-      observer.observe(root);
-      if (content instanceof Element) observer.observe(content);
-      if (target !== undefined) observer.observe(target);
-    }
-    return () => {
-      cancelled = true;
-      observer?.disconnect();
-    };
+    jumpScrollRequestIdRef.current = fileRequest.requestId;
+    startScrollRun(matchingPath);
   }, [
     appliedFileRequestId,
     diffQuery.isLoading,
     filePaths,
     fileRequest,
-    scrollToPath,
     selectedFilePath,
+    startScrollRun,
   ]);
 
   useEffect(() => {
@@ -380,15 +361,15 @@ export function TaskDiffView({
     if (root === null || filePaths.length === 0) return;
     let frame: number | null = null;
     const updateActiveFile = () => {
-      if (suppressScrollSyncRef.current) {
-        suppressScrollSyncRef.current = false;
-        return;
-      }
+      // A programmatic jump owns the viewport until it settles; skipping (not
+      // consuming anything) keeps its own scroll events and the layout shifts
+      // they trigger from moving the selection mid-flight.
+      if (activeScrollRunRef.current !== null) return;
       if (frame !== null) return;
       frame = requestAnimationFrame(() => {
         frame = null;
         let activePath = filePaths[0]!;
-        if (root.scrollHeight - root.scrollTop - root.clientHeight <= 2) {
+        if (isDiffScrollAtEnd(root)) {
           activePath = filePaths.at(-1)!;
         } else {
           const rootTop = root.getBoundingClientRect().top;
@@ -666,7 +647,7 @@ export function TaskDiffView({
                           else fileElementsRef.current.set(path, element);
                         }}
                         data-diff-path={path}
-                        className="scroll-mt-0"
+                        className="relative scroll-mt-0"
                       >
                         <TaskDiffFileViewport
                           file={file}
@@ -695,6 +676,13 @@ export function TaskDiffView({
                           rootRef={scrollContainerRef}
                           forceRender={activeFilePath === path}
                         />
+                        {fileFlash?.path === path && (
+                          <div
+                            key={fileFlash.seq}
+                            aria-hidden="true"
+                            className="ora-diff-file-flash"
+                          />
+                        )}
                       </div>
                     );
                   })}
@@ -738,7 +726,7 @@ export function TaskDiffView({
                 <TaskDiffFileTree
                   files={files}
                   selectedPath={activeFilePath}
-                  onSelect={(path) => selectFile(path)}
+                  onSelect={selectFile}
                 />
               )}
             </ResizablePanel>

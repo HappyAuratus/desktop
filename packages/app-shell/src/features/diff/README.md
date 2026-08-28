@@ -6,6 +6,15 @@ Task Changes panel: parsed worktree patches, file tree, and git commit/push acti
 
 - Render unified/split diffs for a task scope (`branch` / staged / unstaged / commit).
 - Collapse distant unchanged context and restore it on demand.
+- Scroll a selected file to the viewport top through the single programmatic
+  scroll runner (`task-diff-scroll-run.ts`), shared by file-tree clicks and
+  chat-link jumps so exactly one run owns the viewport at a time. Because
+  off-screen files render as estimated-height placeholders, the run keeps
+  re-aligning until the target sits at the top (or the container is clamped
+  at its end), holds the scroll spy until then, and hands the viewport back
+  the moment the user scrolls (wheel / touch / pointer). A tree click also
+  paints a one-second wash over the selected section (`ora-diff-file-flash`),
+  so a click that needs no scrolling still reads as acknowledged.
 - Jump from chat file links to a new-side line inside the active patch, or
   highlight an inclusive start–end range from a user-authored quote chip.
   Diff quotes pass `{ line, endLine, side }` so a delete range is looked up
