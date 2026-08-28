@@ -3277,9 +3277,11 @@ name = "ora-process"
 version = "0.0.0"
 dependencies = [
  "libc",
+ "ora-logging",
  "pretty_assertions",
  "tempfile",
  "tokio",
+ "tracing",
  "windows-sys 0.61.2",
 ]
 
