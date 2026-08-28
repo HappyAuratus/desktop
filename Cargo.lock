@@ -3278,6 +3278,7 @@ version = "0.0.0"
 dependencies = [
  "libc",
  "ora-logging",
+ "ora-utils",
  "pretty_assertions",
  "tempfile",
  "tokio",
@@ -3398,6 +3399,7 @@ dependencies = [
  "tokio",
  "unicode-normalization",
  "url",
+ "windows-sys 0.61.2",
  "zip",
 ]
 

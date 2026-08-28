@@ -14,6 +14,10 @@
 - `initialize_reaper` installs Desktop's process-global cleanup sidecar; spawns then register and
   await acknowledgement before returning a managed handle.
 
+On Windows, production children and the cleanup sidecar are created without console windows.
+Their stdio contracts remain unchanged, so protocol pipes and inherited diagnostic output still
+work without exposing Deno, command-shell, or sidecar terminals beside the desktop UI.
+
 ## Lifecycle guarantees
 
 Explicit `kill` requests forceful termination of the entire process tree: a process group on Unix and a Job Object on Windows. It follows start-kill semantics, so success means the OS accepted the request; callers must still await `wait` to reap the direct child and obtain its final status.

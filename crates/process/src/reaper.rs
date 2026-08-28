@@ -221,9 +221,7 @@ fn configure_reaper_command(command: &mut std::process::Command) {
 
     #[cfg(windows)]
     {
-        use std::os::windows::process::CommandExt;
-        use windows_sys::Win32::System::Threading::CREATE_NEW_PROCESS_GROUP;
-        command.creation_flags(CREATE_NEW_PROCESS_GROUP);
+        ora_utils::process::hide_console_window_in_new_process_group(command);
     }
 
     #[cfg(not(any(unix, windows)))]

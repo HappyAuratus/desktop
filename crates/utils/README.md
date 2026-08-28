@@ -36,6 +36,8 @@ that any other crate can consume without introducing dependency cycles.
   policy with a bounded read and returns its source text, so callers never hold untrusted markup.
 - `fs`: portable file naming for untrusted names (`sanitize_file_name`) and collision-free name
   selection inside a directory (`next_available_file_name`).
+- `process`: cross-platform background-command configuration that suppresses incidental Windows
+  console windows while preserving normal pipes and exit-status observation.
 - `Slug`: an owned lowercase ASCII slug segment with stable syntax and byte-length guarantees.
 - `GitBranchName`: an owned short Git branch name validated without starting a Git process.
 

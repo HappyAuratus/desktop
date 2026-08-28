@@ -33,6 +33,7 @@ impl ProcessSpawner for TokioProcessSpawner {
         let reaper_registration = spec.reaper_registration();
         let mut command = Command::new(spec.program());
         command.args(spec.args_iter());
+        ora_utils::process::hide_console_window(command.as_std_mut());
 
         if let Some(cwd) = spec.cwd_path() {
             command.current_dir(cwd);
