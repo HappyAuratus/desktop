@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { localizeContractError } from "../../i18n/contract-error";
-import { appVersion } from "../../lib/app-version";
 import { usePlatform } from "../../platform";
 import {
   AlertDialog,
@@ -61,6 +60,7 @@ import {
 } from "../../state/stores/settings-store";
 import { useChatStore } from "../../chat-store-context";
 import { useStore } from "zustand";
+import { DesktopUpdateControl } from "../workspace/desktop-update-control";
 import type {
   ApprovalPolicy,
   InterfaceDensity,
@@ -205,9 +205,9 @@ export function SettingsDialog() {
                   );
                 })}
               </nav>
-              <p className="mt-auto hidden px-2 pb-1 pt-6 text-xs leading-5 text-muted-foreground sm:block">
-                v{appVersion}
-              </p>
+              <div className="mt-auto hidden pt-6 sm:block">
+                <DesktopUpdateControl />
+              </div>
             </aside>
 
             <ScrollArea className="min-h-0">
