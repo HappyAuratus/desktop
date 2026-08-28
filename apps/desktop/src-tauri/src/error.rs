@@ -20,6 +20,8 @@ pub enum DesktopBootstrapError {
     LoggingReload(#[from] ora_logging::LogLevelReloadError),
     #[error(transparent)]
     Binaries(#[from] BinaryResolutionError),
+    #[error("failed to start the process reaper")]
+    ProcessReaper(#[source] std::io::Error),
     #[error(transparent)]
     Backend(#[from] BackendBootstrapError),
     #[error("failed to load the persisted Desktop runtime preference")]

@@ -3068,6 +3068,7 @@ dependencies = [
  "ora-plugin-lifecycle",
  "ora-plugin-manager",
  "ora-plugin-manifest",
+ "ora-process",
  "ora-runtime-settings",
  "ora-surface",
  "ora-utils",
@@ -3292,6 +3293,14 @@ dependencies = [
  "tokio",
  "tokio-util",
  "tracing",
+]
+
+[[package]]
+name = "ora-reaper"
+version = "0.0.0"
+dependencies = [
+ "ora-process",
+ "pretty_assertions",
 ]
 
 [[package]]

@@ -16,6 +16,7 @@ pub type DesktopRuntimeLogLevelManager =
 pub struct BundledBinaryPaths {
     ripgrep: PathBuf,
     deno: PathBuf,
+    reaper: PathBuf,
 }
 
 impl BundledBinaryPaths {
@@ -24,6 +25,7 @@ impl BundledBinaryPaths {
         Ok(Self {
             ripgrep: resolve_binary("rg")?,
             deno: resolve_binary("deno")?,
+            reaper: resolve_reaper_binary()?,
         })
     }
 
@@ -35,6 +37,11 @@ impl BundledBinaryPaths {
     /// Returns the executable reserved for Rust-owned Deno integrations.
     pub fn deno_path(&self) -> &PathBuf {
         &self.deno
+    }
+
+    /// Returns the process-lifetime sidecar used to clean up child process trees.
+    pub fn reaper_path(&self) -> &PathBuf {
+        &self.reaper
     }
 }
 
@@ -57,6 +64,14 @@ fn resolve_binary(executable_name: &'static str) -> Result<PathBuf, BinaryResolu
     Ok(PathBuf::from(executable_name))
 }
 
+/// Resolves the target-qualified sidecar built into the Tauri binaries directory for development.
+#[cfg(debug_assertions)]
+fn resolve_reaper_binary() -> Result<PathBuf, BinaryResolutionError> {
+    Ok(PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("binaries")
+        .join(target_qualified_binary_name("ora-reaper")))
+}
+
 /// Resolves one external binary beside the Tauri process in release builds.
 #[cfg(not(debug_assertions))]
 fn resolve_binary(executable_name: &'static str) -> Result<PathBuf, BinaryResolutionError> {
@@ -68,6 +83,23 @@ fn resolve_binary(executable_name: &'static str) -> Result<PathBuf, BinaryResolu
             name: executable_name,
             path,
         })
+    }
+}
+
+/// Resolves the sidecar name Tauri installs beside the packaged Desktop executable.
+#[cfg(not(debug_assertions))]
+fn resolve_reaper_binary() -> Result<PathBuf, BinaryResolutionError> {
+    resolve_binary("ora-reaper")
+}
+
+/// Produces the source filename required by Tauri's external binary convention.
+#[cfg(debug_assertions)]
+fn target_qualified_binary_name(name: &str) -> String {
+    let target = env!("ORA_DESKTOP_TARGET_TRIPLE");
+    if cfg!(target_os = "windows") {
+        format!("{name}-{target}.exe")
+    } else {
+        format!("{name}-{target}")
     }
 }
 
@@ -212,6 +244,9 @@ mod tests {
             BundledBinaryPaths {
                 ripgrep: PathBuf::from("rg"),
                 deno: PathBuf::from("deno"),
+                reaper: PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+                    .join("binaries")
+                    .join(super::target_qualified_binary_name("ora-reaper")),
             }
         );
     }

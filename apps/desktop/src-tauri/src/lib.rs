@@ -43,7 +43,7 @@ const PLUGIN_HOME_DIRECTORY_NAME: &str = ".ora";
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let builder = surface::register_workbench_protocol(tauri::Builder::default());
-    builder
+    let run_result = builder
         .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
             let (state, guard) = bootstrap_desktop(app)?;
@@ -52,14 +52,23 @@ pub fn run() {
                 message = "bundled binary paths registered",
                 ripgrep_path = %state.binary_paths.ripgrep_path().display(),
                 deno_path = %state.binary_paths.deno_path().display(),
+                reaper_path = %state.binary_paths.reaper_path().display(),
             );
             app.manage(state);
             app.manage(guard);
             Ok(())
         })
         .invoke_handler(include!("app_commands.rs"))
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .run(tauri::generate_context!());
+    // Tauri has released managed backend state at this point, so process owners already had an
+    // opportunity to shut down gracefully. The reaper now forcefully clears any survivors.
+    if let Err(error) = ora_process::shutdown_reaper() {
+        ora_error!(
+            message = "process reaper failed during Desktop shutdown",
+            error = %error,
+        );
+    }
+    run_result.expect("error while running tauri application");
 }
 
 /// Resolves Desktop paths and constructs configuration, logging, and Backend state.
@@ -110,6 +119,8 @@ fn bootstrap_desktop(
             return Err(error.into());
         }
     };
+    ora_process::initialize_reaper(binary_paths.reaper_path())
+        .map_err(DesktopBootstrapError::ProcessReaper)?;
     let ripgrep_path = binary_paths.ripgrep_path().to_path_buf();
     let default_worktree_root = legacy_config::default_worktree_root(&home_directory);
     let backend = Backend::open(BackendPaths {

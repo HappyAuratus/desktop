@@ -54,9 +54,20 @@ tasks:
     cmds:
       - cargo build --workspace
 
+  build:reaper:
+    desc: Build the debug process reaper sidecar for the current target
+    cmds:
+      - node scripts/build-reaper.mjs
+
+  build:reaper:release:
+    desc: Build the release process reaper sidecar for the current target
+    cmds:
+      - node scripts/build-reaper.mjs --release
+
   build:desktop:
     desc: Build and bundle the Tauri desktop app installers
     cmds:
+      - task: build:reaper:release
       - task: export-contracts
       - pnpm --filter @ora/desktop tauri build
 
@@ -172,6 +183,7 @@ tasks:
       ORA_DATA_DIR: "{{.ROOT_DIR}}/.data"
       VSLANG: "1033"
     cmds:
+      - task: build:reaper
       - pnpm --filter @ora/desktop tauri dev
 
   logdy:

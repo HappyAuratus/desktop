@@ -189,7 +189,9 @@ async fn wait_closes_unowned_stdin_so_stdin_readers_exit() {
     // Child::wait. Without the fix this hangs until the timeout elapses.
     let exit = tokio::time::timeout(Duration::from_secs(5), process.wait())
         .await
-        .expect("expected wait to return after closing stdin, but it hung");
+        .unwrap_or_else(|error| {
+            panic!("expected wait to return after closing stdin, but it hung: {error}")
+        });
     let exit = exit.unwrap_or_else(|error| panic!("expected process wait to succeed: {error}"));
 
     assert!(exit.success());

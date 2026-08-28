@@ -1,6 +1,7 @@
 [workspace]
 members = [
     "apps/desktop/src-tauri",
+    "apps/ora-reaper",
     "crates/application",
     "crates/acp",
     "crates/backend",
@@ -30,6 +31,7 @@ members = [
     "xtask",
 ]
 default-members = [
+    "apps/ora-reaper",
     "crates/application",
     "crates/acp",
     "crates/backend",

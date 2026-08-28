@@ -1,0 +1,13 @@
+[package]
+name = "ora-reaper"
+version.workspace = true
+edition.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+ora-process = { workspace = true }
+
+[dev-dependencies]
+pretty_assertions = { workspace = true }

@@ -98,7 +98,11 @@ jobs:
           const fs = require("node:fs");
           const configPath = "apps/desktop/src-tauri/tauri.conf.json";
           const config = JSON.parse(fs.readFileSync(configPath, "utf8"));
-          config.bundle.externalBin = ["binaries/rg", "binaries/deno"];
+          config.bundle.externalBin = [
+            "binaries/rg",
+            "binaries/deno",
+            "binaries/ora-reaper",
+          ];
           fs.writeFileSync(configPath, `${JSON.stringify(config, null, 2)}\n`);
       - name: Set desktop version from release tag
         if: startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && inputs.tag != '')
