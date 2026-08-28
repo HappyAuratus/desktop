@@ -165,6 +165,44 @@ describe("ComposerEditor", () => {
     );
   });
 
+  it("pins a skill mention on plain click instead of giving no feedback", async () => {
+    const user = userEvent.setup();
+    const editorRef = createRef<ComposerEditorHandle>();
+    render(
+      <ComposerEditor ref={editorRef} ariaLabel="Message" onSubmit={vi.fn()} />,
+    );
+    const textbox = screen.getByRole("textbox", { name: "Message" });
+
+    act(() => {
+      editorRef.current?.replaceDocument({
+        type: "doc",
+        content: [
+          {
+            type: "paragraph",
+            content: [
+              { type: "promptToken", attrs: { kind: "skill", name: "review" } },
+              { type: "text", text: " tail" },
+            ],
+          },
+        ],
+      });
+    });
+    // Mentions render as bare spans with no host click handler, so the chip
+    // plugin's own pin is the only feedback a plain click can produce.
+    const mention = await waitFor(() => {
+      const el = textbox.querySelector(".composer-mention");
+      expect(el).not.toBeNull();
+      return el!;
+    });
+
+    await user.click(mention);
+
+    // The painted wash is the selection feedback for a mention; the
+    // TextSelection-not-NodeSelection property is covered by the editor
+    // package tests (jsdom focus semantics make hideselection unreliable).
+    expect(mention).toHaveAttribute("data-chip-selected", "true");
+  });
+
   it("steps the caret across a file chip instead of node-selecting it", async () => {
     const user = userEvent.setup();
     const editorRef = createRef<ComposerEditorHandle>();
@@ -225,7 +263,7 @@ describe("ComposerEditor", () => {
     ).toBeNull();
   });
 
-  it("serializes quoted snippets as citation fences for the agent", async () => {
+  it("serializes quoted file snippets as a path:range reference, not the body", async () => {
     const editorRef = createRef<ComposerEditorHandle>();
     render(
       <ComposerEditor ref={editorRef} ariaLabel="Message" onSubmit={vi.fn()} />,
@@ -246,8 +284,8 @@ describe("ComposerEditor", () => {
     await waitFor(() =>
       expect(textbox.querySelector("[data-composer-file]")).not.toBeNull(),
     );
-    expect(composerText(textbox)).toContain("```4:5:src/app.ts");
-    expect(composerText(textbox)).toContain("const a = 1;");
+    expect(composerText(textbox)).toContain("`src/app.ts:4-5`");
+    expect(composerText(textbox)).not.toContain("const a = 1;");
     expect(textbox.textContent).toContain("L4-5");
   });
 

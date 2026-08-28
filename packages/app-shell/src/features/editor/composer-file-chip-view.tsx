@@ -21,7 +21,10 @@ import { FileRefChipContent } from "../file-ref-chip";
  *
  * A plain single click jumps to the reference's Files/Changes location, same
  * as the read-only history chip. Double-click and Ctrl/Cmd-click keep their
- * existing node-selection behaviour (for delete/drag) instead of navigating.
+ * existing select behaviour (for delete/drag) instead of navigating: they
+ * pin a TextSelection over the atom so the caret stays visible and the chip
+ * paints `data-chip-selected`. Without a navigation context, a plain click
+ * selects the same way.
  */
 export function ComposerFileChipView({ node, editor, getPos }: NodeViewProps) {
   const { t } = useTranslation();
@@ -34,11 +37,18 @@ export function ComposerFileChipView({ node, editor, getPos }: NodeViewProps) {
   const suppressNextClickRef = useRef(false);
 
   const selectOnlyThisChip = (event: ReactMouseEvent<HTMLElement>): void => {
+    const pos = getPos();
+    // Bail before consuming the press: preventing the default on a stale
+    // (destroyed) node would swallow the mousedown without focusing the
+    // editor, so the caret would silently disappear.
+    if (typeof pos !== "number") return;
     event.preventDefault();
     event.stopPropagation();
-    const pos = getPos();
-    if (typeof pos !== "number") return;
-    editor.chain().focus().setNodeSelection(pos).run();
+    editor
+      .chain()
+      .focus()
+      .setTextSelection({ from: pos, to: pos + node.nodeSize })
+      .run();
   };
 
   /** Drops this reference from the prompt; hover swaps the type icon for it. */
@@ -90,7 +100,13 @@ export function ComposerFileChipView({ node, editor, getPos }: NodeViewProps) {
           suppressNextClickRef.current = false;
           return;
         }
-        if (event.button !== 0 || navigation === null) return;
+        if (event.button !== 0) return;
+        if (navigation === null) {
+          // No Files/Changes jump: treat the click as a select so the chip
+          // highlights and the caret is not swallowed by a NodeSelection.
+          selectOnlyThisChip(event);
+          return;
+        }
         event.preventDefault();
         event.stopPropagation();
         navigateToFileRef(attrs, navigation);

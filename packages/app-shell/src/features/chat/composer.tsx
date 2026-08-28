@@ -316,7 +316,14 @@ export function Composer({
       try {
         replaceAttachments(images);
         if (doc !== undefined) {
-          editorRef.current?.replaceDocument(doc);
+          try {
+            editorRef.current?.replaceDocument(doc);
+          } catch {
+            // A stale or hand-edited parked doc (schema drift) must not break
+            // hydration: fall back to the text-only markdown restore so the
+            // composer still comes up with the typed message.
+            editorRef.current?.replaceText(text);
+          }
         } else if (text.length === 0) {
           editorRef.current?.clear();
         } else {

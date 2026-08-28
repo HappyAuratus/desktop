@@ -63,6 +63,13 @@ button.composer-file-ref[data-navigable="true"]:focus-visible {
   flex-shrink: 0;
 }
 
+/* When the icon is a diff glyph wrapped in a span, keep the box centered. */
+.composer-file-ref-icon:has(> .composer-file-ref-icon) {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
 .composer-file-ref-label {
   display: inline-flex;
   min-width: 0;
@@ -85,4 +92,20 @@ button.composer-file-ref[data-navigable="true"]:focus-visible {
     var(--muted-foreground)
   );
   font-weight: 400;
+}
+
+/*
+ * Diff-gutter reference: the file-type glyph is swapped for a small violet
+ * diff icon (IconFileDiff). Violet is the app's established "change" hue
+ * (turn-diff summary, tool blocks), so a changed-file chip reads differently
+ * from a plain file reference instead of showing two icons on one chip.
+ */
+.composer-file-ref-diff-icon {
+  width: 0.95em;
+  height: 0.95em;
+  color: oklch(0.55 0.12 285);
+}
+
+.dark .composer-file-ref-diff-icon {
+  color: oklch(0.68 0.12 285);
 }

@@ -29,6 +29,7 @@ import {
   type TaskDiffViewType,
 } from "../diff/task-diff-view";
 import { TaskChangesNavigationProvider } from "../diff/task-changes-navigation";
+import type { FileNavigationLocation } from "../diff/task-changes-navigation-context";
 import { WorkspaceReviewFilesPanel } from "../files/workspace-review-files-panel";
 import type {
   WorkspaceDirectoryRequest,
@@ -179,6 +180,8 @@ export function WorkspaceReviewLayout({
           path: savedFile.path,
           requestId: fileRequestSequence.current,
           line: savedFile.line,
+          endLine: savedFile.endLine,
+          side: savedFile.side,
         });
       } else {
         workspaceFileRequestSequence.current += 1;
@@ -187,6 +190,7 @@ export function WorkspaceReviewLayout({
           requestId: workspaceFileRequestSequence.current,
           line: savedFile.line,
           column: savedFile.column,
+          endLine: savedFile.endLine,
         });
       }
     },
@@ -387,14 +391,15 @@ export function WorkspaceReviewLayout({
   }
 
   const openWorkspaceFile = useCallback(
-    (path: string, line?: number, column?: number) => {
+    (path: string, location?: FileNavigationLocation) => {
       if (context.kind === "none") return;
       workspaceFileRequestSequence.current += 1;
       setWorkspaceFileRequest({
         path,
         requestId: workspaceFileRequestSequence.current,
-        line,
-        column,
+        line: location?.line,
+        column: location?.column,
+        endLine: location?.endLine,
       });
       setReviewFilePath(path);
       setWorkspaceDirectoryRequest(undefined);
@@ -443,17 +448,19 @@ export function WorkspaceReviewLayout({
   );
 
   const openDiff = useCallback(
-    (path: string, line?: number) => {
+    (path: string, location?: FileNavigationLocation) => {
       // A context with no resolved workspace id has no Changes surface to open.
       if (workspaceId === undefined) {
-        openWorkspaceFile(path, line);
+        openWorkspaceFile(path, location);
         return;
       }
       fileRequestSequence.current += 1;
       setFileRequest({
         path,
         requestId: fileRequestSequence.current,
-        line,
+        line: location?.line,
+        endLine: location?.endLine,
+        side: location?.side,
       });
       setReviewFilePath(path);
       setPanel("changes");

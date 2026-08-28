@@ -4,6 +4,7 @@ import {
   composerFileLineRangeLabel,
   type ComposerFileAttrs,
 } from "@ora/editor/composer";
+import { IconFileDiff } from "@tabler/icons-react";
 import { useTranslation } from "react-i18next";
 import { useTaskChangesNavigation } from "./diff/task-changes-navigation-context";
 import { navigateToFileRef } from "./file-ref-chip-navigation";
@@ -19,13 +20,23 @@ import "./file-ref-chip.css";
 export function FileRefChipContent({ attrs }: { attrs: ComposerFileAttrs }) {
   const kind = attrs.kind === "directory" ? "directory" : "file";
   const rangeLabel = composerFileLineRangeLabel(attrs);
+  const diff = attrs.origin === "diff";
   return (
     <>
-      <WorkspaceFileIcon
-        path={attrs.path}
-        kind={kind}
-        className="composer-file-ref-icon"
-      />
+      {diff ? (
+        <span className="composer-file-ref-icon" aria-hidden="true">
+          <IconFileDiff
+            className="composer-file-ref-icon composer-file-ref-diff-icon"
+            stroke={2.25}
+          />
+        </span>
+      ) : (
+        <WorkspaceFileIcon
+          path={attrs.path}
+          kind={kind}
+          className="composer-file-ref-icon"
+        />
+      )}
       <span className="composer-file-ref-label">
         <span className="composer-file-ref-name">
           {composerFileLabel(attrs)}

@@ -107,6 +107,8 @@ describe("MarkdownDocument", () => {
   });
 
   it("keeps quotes that were adjacent in the composer on one line", () => {
+    // Non-diff quotes serialize as inline backtick references with a space
+    // between neighbours, and both stay chips on a single line.
     const content = [
       composerFilePlainText({
         path: "src/main.py",
@@ -120,7 +122,7 @@ describe("MarkdownDocument", () => {
         endLine: 2,
         snippet: "import sys",
       }),
-    ].join("");
+    ].join(" ");
     render(
       <AppI18nProvider>
         <MarkdownDocument density="compact" content={content} />
@@ -135,15 +137,16 @@ describe("MarkdownDocument", () => {
     expect(chips[0]?.parentElement).toBe(chips[1]?.parentElement);
   });
 
-  it("renders a quote whose snippet contains a fence line", () => {
-    // codeFenceMarker widens the payload's own fence past the snippet's
-    // backticks; the chip has to survive that longer marker.
+  it("keeps a quote's backtick-heavy snippet out of the payload and chip", () => {
+    // A file quote's snippet is never serialized, so even one full of backticks
+    // cannot widen a fence or leak into history — it stays a ranged reference.
     const content = composerFilePlainText({
       path: "docs/guide.md",
       startLine: 3,
       endLine: 5,
       snippet: "```\nconst a = 1;\n```",
     });
+    expect(content).toBe("`docs/guide.md:3-5`");
     render(
       <AppI18nProvider>
         <MarkdownDocument density="compact" content={content} />
@@ -153,6 +156,7 @@ describe("MarkdownDocument", () => {
     const chip = document.querySelector("[data-composer-file='docs/guide.md']");
     expect(chip?.textContent).toBe("guide.mdL3-5");
     expect(document.querySelector("pre")).toBeNull();
+    expect(screen.queryByText(/const a = 1;/)).toBeNull();
   });
 
   it("still renders ordinary fenced code in a user message as a code block", () => {
@@ -759,7 +763,7 @@ describe("MarkdownMessage chat links", () => {
 });
 
 describe("sent file-quote chip navigation", () => {
-  it("opens the quoted file in Files, at its start line, when clicked", async () => {
+  it("opens the quoted file in Files, at its cited range, when clicked", async () => {
     const user = userEvent.setup();
     const openWorkspaceFile = vi.fn();
     const content = composerFilePlainText({
@@ -782,10 +786,13 @@ describe("sent file-quote chip navigation", () => {
     const chip = screen.getByRole("button", { name: /main\.py/ });
     expect(chip).toHaveClass("composer-file-ref");
     await user.click(chip);
-    expect(openWorkspaceFile).toHaveBeenCalledWith("src/main.py", 9);
+    expect(openWorkspaceFile).toHaveBeenCalledWith("src/main.py", {
+      line: 9,
+      endLine: 14,
+    });
   });
 
-  it("opens a diff-origin quote in Changes at its start line when clicked", async () => {
+  it("opens a diff-origin quote in Changes at its cited range when clicked", async () => {
     const user = userEvent.setup();
     const openDiff = vi.fn();
     const content = composerFilePlainText({
@@ -808,6 +815,10 @@ describe("sent file-quote chip navigation", () => {
     );
 
     await user.click(screen.getByRole("button", { name: /example\.ts/ }));
-    expect(openDiff).toHaveBeenCalledWith("src/example.ts", 2);
+    expect(openDiff).toHaveBeenCalledWith("src/example.ts", {
+      line: 2,
+      endLine: 40,
+      side: "new",
+    });
   });
 });

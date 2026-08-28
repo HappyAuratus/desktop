@@ -5,7 +5,10 @@ import { useState, type ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { AppI18nProvider } from "../../i18n/i18n";
 import { createStubPlatform } from "../../test/stub-platform";
-import { useTaskChangesNavigation } from "./task-changes-navigation-context";
+import {
+  useTaskChangesNavigation,
+  type FileNavigationLocation,
+} from "./task-changes-navigation-context";
 import { WorkspaceReviewLayout } from "../workspace/workspace-review-layout";
 import { responsiveReviewWidth } from "../workspace/workspace-review-layout-utils";
 import { flushDebouncedPersistStorage } from "../../state/stores/debounced-json-storage";
@@ -22,8 +25,12 @@ vi.mock("./task-diff-view", () => ({
     onPreviewPathChange,
   }: {
     toolbar?: ReactNode;
-    fileRequest?: { path: string; requestId: number; line?: number };
-    onFileNotFound?: (path: string, line?: number) => void;
+    fileRequest?: {
+      path: string;
+      requestId: number;
+      line?: number;
+    };
+    onFileNotFound?: (path: string, location?: FileNavigationLocation) => void;
     onPreviewPathChange?: (path: string) => void;
   }) => (
     <section aria-label="Task diff">
@@ -36,7 +43,7 @@ vi.mock("./task-diff-view", () => ({
       <button
         type="button"
         data-testid="simulate-not-found"
-        onClick={() => onFileNotFound?.("src/missing.ts", 10)}
+        onClick={() => onFileNotFound?.("src/missing.ts", { line: 10 })}
       >
         Simulate Not Found
       </button>
@@ -106,7 +113,9 @@ function OpenWorkspaceFileButton() {
   return (
     <button
       type="button"
-      onClick={() => navigation?.openWorkspaceFile("src/lib.ts", 8, 1)}
+      onClick={() =>
+        navigation?.openWorkspaceFile("src/lib.ts", { line: 8, column: 1 })
+      }
     >
       Open workspace file
     </button>

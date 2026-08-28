@@ -1,5 +1,8 @@
 import type { ComposerFileAttrs } from "@ora/editor/composer";
-import type { TaskChangesNavigation } from "./diff/task-changes-navigation-context";
+import {
+  fileNavigationLocation,
+  type TaskChangesNavigation,
+} from "./diff/task-changes-navigation-context";
 
 /**
  * Routes a user-authored file reference chip (composer `@` mention, file-preview
@@ -12,7 +15,10 @@ import type { TaskChangesNavigation } from "./diff/task-changes-navigation-conte
  * stripping is needed here either.
  *
  * Returns whether navigation happened, so callers can decide whether to
- * suppress the click's default behaviour.
+ * suppress the click's default behaviour. File-preview quotes pass their
+ * inclusive `endLine` so Files/Changes can highlight the whole cited range
+ * rather than only the first line. Diff quotes also pass `side` so a delete
+ * range is looked up on the old side of the patch.
  */
 export function navigateToFileRef(
   attrs: ComposerFileAttrs,
@@ -24,10 +30,15 @@ export function navigateToFileRef(
     navigation.openWorkspaceDirectory(attrs.path);
     return true;
   }
+  const location = fileNavigationLocation({
+    line: attrs.startLine,
+    endLine: attrs.endLine,
+    side: attrs.diffSide,
+  });
   if (attrs.origin === "diff") {
-    navigation.openDiff(attrs.path, attrs.startLine);
+    navigation.openDiff(attrs.path, location);
     return true;
   }
-  navigation.openWorkspaceFile(attrs.path, attrs.startLine);
+  navigation.openWorkspaceFile(attrs.path, location);
   return true;
 }
