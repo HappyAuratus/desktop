@@ -25,6 +25,7 @@ export {
 } from "./composer-link";
 export {
   ComposerMarkdownPaste,
+  composerFileAttrsFromPlainText,
   looksLikeComposerMarkdown,
   markdownToComposerContent,
 } from "./composer-markdown";

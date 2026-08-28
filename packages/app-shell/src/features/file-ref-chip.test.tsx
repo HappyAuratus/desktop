@@ -109,6 +109,24 @@ describe("FileRefChip", () => {
     });
   });
 
+  it("shows a diff badge only on diff-origin chips", () => {
+    renderChip({
+      path: "src/example.ts",
+      startLine: 2,
+      snippet: " keep\n+added",
+      origin: "diff",
+    });
+    const diffChip = screen.getByRole("button", { name: /example\.ts/ });
+    expect(
+      diffChip.querySelector(".composer-file-ref-diff-icon"),
+    ).not.toBeNull();
+
+    diffChip.parentElement?.remove();
+    renderChip({ path: "src/main.ts", kind: "file" });
+    const plainChip = screen.getByRole("button", { name: /main\.ts/ });
+    expect(plainChip.querySelector(".composer-file-ref-diff-icon")).toBeNull();
+  });
+
   it("opens a directory mention as a folder, never through readFile", async () => {
     const user = userEvent.setup();
     const { openWorkspaceDirectory, openWorkspaceFile } = renderChip({

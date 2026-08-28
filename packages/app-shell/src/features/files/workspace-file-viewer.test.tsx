@@ -307,7 +307,7 @@ describe("WorkspaceFileViewer", () => {
     );
 
     expect(addComposerFileSelections).toHaveBeenCalledWith([
-      { path: "README.md", startLine: 2, endLine: 2, snippet: "two" },
+      { path: "README.md", startLine: 2, endLine: 2 },
     ]);
   });
 
@@ -340,7 +340,6 @@ describe("WorkspaceFileViewer", () => {
         path: "README.md",
         startLine: 2,
         endLine: 4,
-        snippet: "two\nthree\nfour",
       },
     ]);
   });
@@ -378,7 +377,6 @@ describe("WorkspaceFileViewer", () => {
         path: "README.md",
         startLine: 2,
         endLine: 4,
-        snippet: "two\nthree\nfour",
       },
     ]);
   });
@@ -442,7 +440,7 @@ describe("WorkspaceFileViewer", () => {
 
     fireEvent.keyDown(line(3), { key: "Enter", ctrlKey: true });
     expect(addComposerFileSelections).toHaveBeenCalledWith([
-      { path: "README.md", startLine: 2, endLine: 3, snippet: "two\nthree" },
+      { path: "README.md", startLine: 2, endLine: 3 },
     ]);
   });
 

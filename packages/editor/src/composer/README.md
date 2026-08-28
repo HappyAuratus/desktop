@@ -23,17 +23,21 @@ Tiptap preset and plain-text helpers for prompt boxes (chat composer, HITL).
   source extensions, dotfiles) and `$skill` tokens become chips on that text
   path; versions (`v1.0`), globs (`*.ts`), slash-command chips, and directory
   `kind` need TipTap JSON parking (chat composer) for a lossless round-trip.
-  Ranged quotes may carry a `snippet` attr so send expands to a
-  `start:end:path` citation fence; Diff-gutter quotes also set `origin: "diff"`
-  and expand to a mini `diff --git` patch with unified markers. A mixed
-  add/delete range is still one chip; `diffSide` is omitted and the body
-  carries `+/-/ `. The patch's hunk note names the quoted file lines
-  (`lines 2-40`) because the hunk counts describe the body, which is shorter
-  whenever a drag crossed a collapsed hunk. `parseComposerFileQuote` is the
-  inverse of both payloads: read-only surfaces only hold the sent text, so it
-  is what lets them rebuild the chip — including its label — from the fence
-  alone. Any other fence parses to null and stays a code block.
-  Path-only `@` mentions stay backtick paths.
+  File quotes never expand to their body — non-diff quotes serialize to
+  `` `path:range` ``, so what the agent reads and what history replays is a
+  reference, while the chip keeps its range label. A Diff-gutter quote sets
+  `origin: "diff"` and is the one payload that expands to a mini `diff --git`
+  patch with unified `+/-/ ` markers. A mixed add/delete range is still one
+  chip; `diffSide` is omitted and the body carries `+/-/ `. The patch's hunk
+  note names the quoted file lines (`lines 2-40`) because the hunk counts
+  describe the body, which is shorter whenever a drag crossed a collapsed
+  hunk. `parseComposerFileQuote` is the inverse of the `diff` fence (and of
+  legacy `start:end:path` citation fences): read-only surfaces only hold the
+  sent text, so it is what lets them rebuild the chip — including its label —
+  from the fence alone. Any other fence parses to null and stays a code block.
+  Path-only `@` mentions stay backtick paths. Read-only user history also turns
+  path-like backtick spans back into chips so a reference is never shown as
+  raw code.
   Inline code that contains backticks, and fenced blocks that contain a ` ``` `
   line, serialize with a longer CommonMark fence so parse cannot close early.
   `[label](javascript:…)` / `data:` / `vbscript:` / `file:` hrefs stay literal

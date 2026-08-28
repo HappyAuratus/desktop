@@ -19,6 +19,10 @@ import {
   composerFilePlainText,
 } from "../src/composer/composer-file.ts";
 import { parseComposerFileQuote } from "../src/composer/composer-file-quote.ts";
+import {
+  composerFileAttrsFromPlainText,
+  markdownToComposerContent,
+} from "../src/composer/composer-markdown.ts";
 import { parseFenceOpener } from "../src/composer/composer-code-fence.ts";
 import { highlightInputMatch } from "../src/composer/composer-highlight.ts";
 import { isComposerOpenableUrl } from "../src/composer/composer-link.ts";
@@ -106,7 +110,7 @@ test("file chips serialize to backtick path:line payloads", () => {
   );
 });
 
-test("composerFileChipTitle keeps one-line path:range and uses path for multiline payloads", () => {
+test("composerFileChipTitle keeps path:range; only a multi-line diff payload drops it", () => {
   assert.equal(
     composerFileChipTitle({
       path: "src/app.ts",
@@ -121,6 +125,16 @@ test("composerFileChipTitle keeps one-line path:range and uses path for multilin
       startLine: 4,
       endLine: 5,
       snippet: "const a = 1;\nconst b = 2;",
+    }),
+    "src/app.ts:4-5",
+  );
+  assert.equal(
+    composerFileChipTitle({
+      path: "src/app.ts",
+      startLine: 4,
+      endLine: 5,
+      snippet: " keep\n+new line",
+      origin: "diff",
     }),
     "src/app.ts",
   );
@@ -148,7 +162,7 @@ test("composerFileAttrsFromUnknown drops non-positive and NaN line numbers", () 
   );
 });
 
-test("file chips with snippets serialize to citation fences", () => {
+test("non-diff file quotes serialize to a path:range reference, not the file body", () => {
   assert.equal(
     composerFilePlainText({
       path: "src/app.ts",
@@ -156,7 +170,7 @@ test("file chips with snippets serialize to citation fences", () => {
       endLine: 5,
       snippet: "const a = 1;\nconst b = 2;",
     }),
-    "\n```4:5:src/app.ts\nconst a = 1;\nconst b = 2;\n```\n",
+    "`src/app.ts:4-5`",
   );
 });
 
@@ -238,17 +252,8 @@ function fencedQuoteParts(payload: string): { info: string; body: string } {
   };
 }
 
-test("parseComposerFileQuote round-trips every payload composerFilePlainText writes", () => {
+test("parseComposerFileQuote round-trips every diff-gutter payload composerFilePlainText writes", () => {
   const quotes = [
-    {
-      path: "src/app.ts",
-      startLine: 4,
-      endLine: 5,
-      snippet: "const a = 1;\nconst b = 2;",
-      kind: "file" as const,
-      origin: undefined,
-      diffSide: undefined,
-    },
     {
       path: "src/example.ts",
       startLine: 1,
@@ -284,6 +289,60 @@ test("parseComposerFileQuote round-trips every payload composerFilePlainText wri
     const { info, body } = fencedQuoteParts(composerFilePlainText(quote));
     assert.deepEqual(parseComposerFileQuote(info, body), quote);
   }
+});
+
+test("composerFileAttrsFromPlainText round-trips path and path:range backtick references", () => {
+  assert.deepEqual(composerFileAttrsFromPlainText("src/app.ts"), {
+    path: "src/app.ts",
+    startLine: undefined,
+    endLine: undefined,
+    kind: "file",
+  });
+  assert.deepEqual(composerFileAttrsFromPlainText("src/app.ts:4-5"), {
+    path: "src/app.ts",
+    startLine: 4,
+    endLine: 5,
+    kind: "file",
+  });
+  assert.deepEqual(composerFileAttrsFromPlainText("src/app.ts:7"), {
+    path: "src/app.ts",
+    startLine: 7,
+    endLine: 7,
+    kind: "file",
+  });
+  // Plain inline code, semver-looking tokens, and globs stay inline code.
+  assert.equal(composerFileAttrsFromPlainText("const x = 1;"), null);
+  assert.equal(composerFileAttrsFromPlainText("v1.0"), null);
+  assert.equal(composerFileAttrsFromPlainText("*.ts"), null);
+});
+
+test("markdownToComposerContent restores quote fences as chips, never as a code block", () => {
+  const diffFence = [
+    "",
+    "```diff",
+    "diff --git a/src/example.ts b/src/example.ts",
+    "--- a/src/example.ts",
+    "+++ b/src/example.ts",
+    "@@ -1,1 +1,2 @@ quoted from git diff, lines 1-2",
+    " keep",
+    "+new line",
+    "```",
+    "",
+  ].join("\n");
+  const diffDoc = markdownToComposerContent(diffFence);
+  assert.equal(diffDoc.content?.[0]?.type, "composerFile");
+
+  // A legacy `start:end:path` citation restores as a chip with the body dropped,
+  // so no file content is carried or displayed by a text-only restore.
+  const legacy = markdownToComposerContent(
+    "```4:5:src/app.ts\nconst a = 1;\n```",
+  );
+  assert.equal(legacy.content?.[0]?.type, "composerFile");
+  assert.equal(legacy.content?.[0]?.attrs?.snippet, null);
+
+  // An ordinary code fence stays a code block.
+  const plainDoc = markdownToComposerContent("```ts\nconst a = 1;\n```");
+  assert.equal(plainDoc.content?.[0]?.type, "codeBlock");
 });
 
 test("parseComposerFileQuote leaves ordinary fenced code alone", () => {

@@ -71,10 +71,9 @@ export function WorkspaceFileViewer({
 
   const anchors = useMemo<QuoteLineAnchor[]>(
     () =>
-      lines.map((line, index) => ({
+      lines.map((_line, index) => ({
         key: String(index + 1),
         lineNumber: index + 1,
-        snippet: line,
         path,
       })),
     [lines, path],

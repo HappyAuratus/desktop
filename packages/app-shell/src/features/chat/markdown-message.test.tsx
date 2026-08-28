@@ -107,6 +107,8 @@ describe("MarkdownDocument", () => {
   });
 
   it("keeps quotes that were adjacent in the composer on one line", () => {
+    // Non-diff quotes serialize as inline backtick references with a space
+    // between neighbours, and both stay chips on a single line.
     const content = [
       composerFilePlainText({
         path: "src/main.py",
@@ -120,7 +122,7 @@ describe("MarkdownDocument", () => {
         endLine: 2,
         snippet: "import sys",
       }),
-    ].join("");
+    ].join(" ");
     render(
       <AppI18nProvider>
         <MarkdownDocument density="compact" content={content} />
@@ -135,15 +137,16 @@ describe("MarkdownDocument", () => {
     expect(chips[0]?.parentElement).toBe(chips[1]?.parentElement);
   });
 
-  it("renders a quote whose snippet contains a fence line", () => {
-    // codeFenceMarker widens the payload's own fence past the snippet's
-    // backticks; the chip has to survive that longer marker.
+  it("keeps a quote's backtick-heavy snippet out of the payload and chip", () => {
+    // A file quote's snippet is never serialized, so even one full of backticks
+    // cannot widen a fence or leak into history — it stays a ranged reference.
     const content = composerFilePlainText({
       path: "docs/guide.md",
       startLine: 3,
       endLine: 5,
       snippet: "```\nconst a = 1;\n```",
     });
+    expect(content).toBe("`docs/guide.md:3-5`");
     render(
       <AppI18nProvider>
         <MarkdownDocument density="compact" content={content} />
@@ -153,6 +156,7 @@ describe("MarkdownDocument", () => {
     const chip = document.querySelector("[data-composer-file='docs/guide.md']");
     expect(chip?.textContent).toBe("guide.mdL3-5");
     expect(document.querySelector("pre")).toBeNull();
+    expect(screen.queryByText(/const a = 1;/)).toBeNull();
   });
 
   it("still renders ordinary fenced code in a user message as a code block", () => {

@@ -80,6 +80,37 @@ describe("ComposerFileChipView navigation", () => {
     await user.click(chip);
   });
 
+  it("shows a diff badge only on diff-origin chips in the composer", async () => {
+    const { editorRef } = renderComposerWithNavigation();
+    const textbox = screen.getByRole("textbox", { name: "Message" });
+
+    act(() => {
+      editorRef.current?.insertFileChips([
+        { path: "src/app.ts", startLine: 4, origin: "diff" },
+      ]);
+    });
+    const diffChip = await waitFor(() => {
+      const el = textbox.querySelector("[data-composer-file='src/app.ts']");
+      expect(el).not.toBeNull();
+      return el!;
+    });
+    expect(
+      diffChip.querySelector(".composer-file-ref-diff-icon"),
+    ).not.toBeNull();
+
+    act(() => {
+      editorRef.current?.insertFileChips([
+        { path: "src/lib.ts", startLine: 1 },
+      ]);
+    });
+    const plainChip = await waitFor(() => {
+      const el = textbox.querySelector("[data-composer-file='src/lib.ts']");
+      expect(el).not.toBeNull();
+      return el!;
+    });
+    expect(plainChip.querySelector(".composer-file-ref-diff-icon")).toBeNull();
+  });
+
   it("still selects (not navigates) on Ctrl+click, preserving delete/drag behaviour", async () => {
     const { editorRef, openWorkspaceFile } = renderComposerWithNavigation();
     const textbox = screen.getByRole("textbox", { name: "Message" });

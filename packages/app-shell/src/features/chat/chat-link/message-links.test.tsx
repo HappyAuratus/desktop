@@ -182,6 +182,18 @@ describe("assistant markdown artifact links", () => {
     expect(openDiff).toHaveBeenCalledWith("src/main.rs", { line: 12 });
   });
 
+  it("passes the cited line range through to Changes for a multi-line prose citation", async () => {
+    const user = userEvent.setup();
+    const { openDiff } = await renderLinkedMarkdown(
+      "Changed `src/main.rs (line 12-20)`.",
+    );
+    await user.click(screen.getByRole("button", { name: /src\/main\.rs/ }));
+    expect(openDiff).toHaveBeenCalledWith("src/main.rs", {
+      line: 12,
+      endLine: 20,
+    });
+  });
+
   it("opens https links through the platform and blocks dangerous schemes", async () => {
     const user = userEvent.setup();
     const { openExternalUrl } = await renderLinkedMarkdown(
@@ -269,6 +281,30 @@ describe("assistant markdown artifact links", () => {
     expect(openWorkspaceFile).toHaveBeenCalledWith("src/lib.rs", {
       line: 12,
       column: 3,
+    });
+  });
+
+  it("keeps the full line range when a prose citation spans multiple lines", async () => {
+    const user = userEvent.setup();
+    const { openWorkspaceFile } = await renderLinkedMarkdown(
+      "查看 src/lib.rs (line 12-20)。",
+    );
+    await user.click(screen.getByRole("button", { name: /src\/lib\.rs/ }));
+    expect(openWorkspaceFile).toHaveBeenCalledWith("src/lib.rs", {
+      line: 12,
+      endLine: 20,
+    });
+  });
+
+  it("keeps the line range for the plural `lines` prose form", async () => {
+    const user = userEvent.setup();
+    const { openWorkspaceFile } = await renderLinkedMarkdown(
+      "请修复 src/lib.rs (lines 12-20) 中的问题。",
+    );
+    await user.click(screen.getByRole("button", { name: /src\/lib\.rs/ }));
+    expect(openWorkspaceFile).toHaveBeenCalledWith("src/lib.rs", {
+      line: 12,
+      endLine: 20,
     });
   });
 

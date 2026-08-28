@@ -33,11 +33,13 @@ App-shell wrapper around `@ora/editor` for prompt boxes.
 - Style kit nodes with Ora CSS variables. Links match the dashboard underline
   and open in the host browser on click. File `@` mentions render as inline
   type-icon + basename refs (Tabler via `WorkspaceFileIcon` / React node view),
-  not bordered pills: soft teal basename ink with type-colored icons. Line
-  quotes append a muted `L12-34` range; when a snippet was captured,
-  `documentPlainText` expands to a citation fence for file-preview quotes, or
-  a mini `diff --git` patch for Diff-gutter quotes, while the
-  chip stays compact in the composer. File chips with a line range expose
+  not bordered pills: soft teal basename ink with type-colored icons. Diff-gutter
+  quotes swap the file-type glyph for a violet `IconFileDiff` so a changed-file
+  chip reads differently from a plain mention instead of stacking two icons.
+  Line quotes append a muted `L12-34` range; file-preview quotes serialize to a
+  backtick `path:range` reference, while Diff-gutter quotes expand to a mini
+  `diff --git` patch — the chip stays compact in the composer and never shows
+  the file body. File chips with a line range expose
   `data-start-line` / `data-end-line` and a matching `title`. Drag-selecting
   across chips snaps the range onto the chip under the pointer (atoms skip
   native `::selection`) and paints `data-chip-selected` without a React

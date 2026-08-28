@@ -23,6 +23,25 @@ export function diffFileScrollTop(
   return Math.max(0, top);
 }
 
+/**
+ * Computes the scrollTop that vertically centers `element` inside `root`,
+ * leaving the horizontal scroll position untouched. A line jump must never
+ * shift wide code sideways, so callers persist `scrollLeft` while centering.
+ */
+export function diffLineScrollTop(
+  root: HTMLElement,
+  element: HTMLElement,
+): number | null {
+  if (root.clientHeight <= 0 || element.offsetHeight <= 0) return null;
+  const offset =
+    element.getBoundingClientRect().top -
+    root.getBoundingClientRect().top +
+    root.scrollTop;
+  const top = offset - (root.clientHeight - element.offsetHeight) / 2;
+  if (!Number.isFinite(top)) return null;
+  return Math.max(0, top);
+}
+
 const DIFF_FILE_ALIGN_TOLERANCE_PX = 64;
 
 /**

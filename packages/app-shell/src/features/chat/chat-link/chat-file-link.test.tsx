@@ -105,6 +105,16 @@ describe("ChatFileLink", () => {
     expect(openDiff).toHaveBeenCalledWith("src/main.rs", { line: 12 });
   });
 
+  it("passes a parsed line range to openDiff", async () => {
+    const user = userEvent.setup();
+    const { openDiff } = await renderFileLink("src/main.rs:12-20");
+    await user.click(screen.getByRole("button", { name: /src\/main\.rs/ }));
+    expect(openDiff).toHaveBeenCalledWith("src/main.rs", {
+      line: 12,
+      endLine: 20,
+    });
+  });
+
   it("keeps commands as plain code", async () => {
     await renderFileLink("cargo test");
     expect(screen.queryByRole("button")).toBeNull();
@@ -145,6 +155,21 @@ describe("ChatFileLink", () => {
     expect(button).toHaveClass("text-sky-700");
     expect(button.className).toContain("decoration-dashed");
     expect(button.className).toContain("hover:underline");
+  });
+
+  it("marks an edited file link with a diff badge and leaves a Files link plain", async () => {
+    const edited = await renderFileLink("src/main.rs");
+    const editedButton = screen.getByRole("button", { name: /src\/main\.rs/ });
+    expect(
+      editedButton.querySelector("[data-diff-reference='true']"),
+    ).not.toBeNull();
+
+    edited.unmount();
+    await renderFileLink("src/lib.rs");
+    const filesButton = screen.getByRole("button", { name: /src\/lib\.rs/ });
+    expect(
+      filesButton.querySelector("[data-diff-reference='true']"),
+    ).toBeNull();
   });
 
   it("offers Explorer and VS Code without Terminal on the desktop host", async () => {

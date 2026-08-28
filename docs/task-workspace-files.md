@@ -21,11 +21,12 @@ The layers remain narrow:
 - `apps/desktop/src-tauri/src/commands.rs` owns Tauri extraction, task-root
   resolution, and the command/channel boundary.
 - `packages/app-shell/src/features/files` owns the file tree, viewer, search UI,
-  cache invalidation, and gutter `+` line quotes into the composer (with eager
-  snippet text). A quote stays a compact chip on both sides of send: the prompt
-  carries the snippet as a fenced payload for the agent, and chat history reads
-  that payload back into the same chip instead of replaying the source. The
-  same
+  cache invalidation, and gutter `+` line quotes into the composer. A quote
+  stays a compact chip on both sides of send: the prompt carries a backtick
+  `path:range` reference (the agent reads the body itself), and chat history
+  reads that back into the same chip instead of replaying source. Diff-gutter
+  quotes are the exception — they expand to a mini `diff --git` patch because
+  the change is not yet on disk. The same
   Files panel hosts the Specs sub-view; see [Specification management](spec-management.md).
   Chat inline artifact links open this panel through `openWorkspaceFile` and a
   `WorkspaceFileRequest` (`path` + `requestId` + optional

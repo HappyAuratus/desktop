@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   diffFileScrollTop,
+  diffLineScrollTop,
   isDiffFileAligned,
   isDiffFileScrollSettled,
 } from "./task-diff-scroll";
@@ -130,6 +131,57 @@ describe("diffFileScrollTop", () => {
     });
 
     expect(diffFileScrollTop(root, file)).toBe(0);
+  });
+});
+
+describe("diffLineScrollTop", () => {
+  it("returns null while the diff viewport has not received a height", () => {
+    const root = geometryElement({
+      clientHeight: 0,
+      height: 0,
+      top: 0,
+      scrollTop: 500,
+    });
+    const line = geometryElement({
+      offsetHeight: 24,
+      height: 24,
+      top: 1000,
+    });
+
+    expect(diffLineScrollTop(root, line)).toBeNull();
+  });
+
+  it("returns null while the target line has not laid out", () => {
+    const root = geometryElement({
+      clientHeight: 400,
+      height: 400,
+      top: 0,
+      scrollTop: 500,
+    });
+    const line = geometryElement({
+      offsetHeight: 0,
+      height: 0,
+      top: 1000,
+    });
+
+    expect(diffLineScrollTop(root, line)).toBeNull();
+  });
+
+  it("vertically centers a scrolled line inside the viewport", () => {
+    const root = geometryElement({
+      clientHeight: 400,
+      height: 400,
+      top: 0,
+      scrollTop: 500,
+    });
+    const line = geometryElement({
+      offsetHeight: 24,
+      height: 24,
+      top: 1000,
+    });
+
+    // content offset 1000 - 0 + 500 = 1500, pulled up by (400 - 24) / 2 = 188.
+    expect(diffLineScrollTop(root, line)).toBe(1312);
   });
 });
 

@@ -1,4 +1,5 @@
 import { useEffect, useState, type ReactNode } from "react";
+import { IconFileDiff } from "@tabler/icons-react";
 import {
   ContextMenu,
   ContextMenuContent,
@@ -27,6 +28,9 @@ const CHAT_FILE_LINK_CLASS =
 
 const CHAT_FILE_LINK_CODE_CLASS =
   "border-0 bg-transparent p-0 font-[inherit] text-[length:inherit] text-inherit leading-[inherit]";
+
+const CHAT_DIFF_BADGE_CLASS =
+  "inline-flex shrink-0 translate-y-[0.08em] items-center gap-0.5 pr-1 font-mono text-[0.8em] font-medium text-violet-700 dark:text-violet-400";
 
 export interface ChatFileLinkProps {
   source: "inline-code" | "href";
@@ -69,7 +73,10 @@ function openClassified(
   if (classified.kind === "diff") {
     navigation.openDiff(
       classified.path,
-      fileNavigationLocation({ line: classified.line }),
+      fileNavigationLocation({
+        line: classified.line,
+        endLine: classified.endLine,
+      }),
     );
     return;
   }
@@ -77,6 +84,7 @@ function openClassified(
     classified.path,
     fileNavigationLocation({
       line: classified.line,
+      endLine: classified.endLine,
       column: classified.column,
     }),
   );
@@ -215,6 +223,16 @@ function LinkedChatFile({
     .filter((part) => part !== undefined && part !== "")
     .join(" ");
   const showPreviewInFiles = classified.kind === "diff";
+  const diffBadge =
+    classified.kind === "diff" ? (
+      <span
+        className={CHAT_DIFF_BADGE_CLASS}
+        aria-hidden="true"
+        data-diff-reference="true"
+      >
+        <IconFileDiff className="size-3" stroke={2.25} />
+      </span>
+    ) : null;
   const triggerChildren =
     source === "inline-code" ? (
       <code className={CHAT_FILE_LINK_CODE_CLASS}>{children}</code>
@@ -261,6 +279,7 @@ function LinkedChatFile({
   return (
     <ContextMenu>
       <ContextMenuTrigger render={<button {...buttonProps} />}>
+        {diffBadge}
         {triggerChildren}
       </ContextMenuTrigger>
       {hasContextMenu && (
@@ -286,6 +305,7 @@ function LinkedChatFile({
                   classified.path,
                   fileNavigationLocation({
                     line: classified.line,
+                    endLine: classified.endLine,
                     column: classified.column,
                   }),
                 )

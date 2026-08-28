@@ -70,7 +70,11 @@ import {
   fileNavigationLocation,
   type FileNavigationLocation,
 } from "./task-changes-navigation-context";
-import { diffFileScrollTop, isDiffFileScrollSettled } from "./task-diff-scroll";
+import {
+  diffFileScrollTop,
+  diffLineScrollTop,
+  isDiffFileScrollSettled,
+} from "./task-diff-scroll";
 
 /** Matches the changes-panel slide so the file tree toggle feels consistent. */
 const FILE_TREE_SLIDE_MS = 180;
@@ -859,10 +863,18 @@ function TaskDiffFile({
 
   useLayoutEffect(() => {
     if (jumpScrollKey === null) return;
-    const selected = fileRootRef.current?.querySelector(
+    const selected = fileRootRef.current?.querySelector<HTMLElement>(
       ".diff-code-selected, .diff-selected",
     );
-    selected?.scrollIntoView({ block: "center", inline: "nearest" });
+    if (selected === null || selected === undefined) return;
+    const region = selected.closest<HTMLElement>(".ora-diff-scroll-region");
+    if (region === null) return;
+    if (typeof region.scrollTo !== "function") return;
+    const top = diffLineScrollTop(region, selected);
+    if (top === null) return;
+    // Scroll only vertically (block: center) while persisting scrollLeft, so a
+    // jump to a long line never yanks the whole diff sideways.
+    region.scrollTo({ top, left: region.scrollLeft });
   }, [jumpScrollKey, renderSegments]);
 
   return (

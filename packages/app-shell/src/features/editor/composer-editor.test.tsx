@@ -263,7 +263,7 @@ describe("ComposerEditor", () => {
     ).toBeNull();
   });
 
-  it("serializes quoted snippets as citation fences for the agent", async () => {
+  it("serializes quoted file snippets as a path:range reference, not the body", async () => {
     const editorRef = createRef<ComposerEditorHandle>();
     render(
       <ComposerEditor ref={editorRef} ariaLabel="Message" onSubmit={vi.fn()} />,
@@ -284,8 +284,8 @@ describe("ComposerEditor", () => {
     await waitFor(() =>
       expect(textbox.querySelector("[data-composer-file]")).not.toBeNull(),
     );
-    expect(composerText(textbox)).toContain("```4:5:src/app.ts");
-    expect(composerText(textbox)).toContain("const a = 1;");
+    expect(composerText(textbox)).toContain("`src/app.ts:4-5`");
+    expect(composerText(textbox)).not.toContain("const a = 1;");
     expect(textbox.textContent).toContain("L4-5");
   });
 
