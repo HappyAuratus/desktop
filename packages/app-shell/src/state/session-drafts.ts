@@ -65,9 +65,8 @@ function base64ByteLength(data: string): number {
 /**
  * Expands the ancestors needed to keep a project or worktree draft visible.
  *
- * Every caller runs a `select*` action first, and those clear `pendingRestore`,
- * so by this point the user has explicitly navigated and owns the layout — no
- * staged-restore guard is possible (or needed) here.
+ * Every caller runs a `select*` action first, so by this point the user has
+ * explicitly navigated and owns the layout.
  */
 function expandDraftScope(scope: DraftScope): void {
   useUiStore.getState().expandProject(scope.projectId);
