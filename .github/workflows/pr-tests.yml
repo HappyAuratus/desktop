@@ -117,6 +117,9 @@ jobs:
         with:
           workspaces: . -> target
           save-if: ${{ github.ref == 'refs/heads/main' }}
+      # zip's XZ support links Rust test binaries against liblzma.
+      - name: Install Rust system dependencies
+        run: sudo apt-get update && sudo apt-get install -y liblzma-dev
       # ora-fs search tests spawn ripgrep by command name. Keep the downloaded
       # sidecar outside the repository and expose it through the job PATH.
       - name: Setup ripgrep
