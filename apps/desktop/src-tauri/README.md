@@ -58,6 +58,8 @@ its debug executable first, while `build:desktop` and the packaging workflow bui
 executable. The build helper copies it into `binaries/ora-reaper-<target-triple>` so Tauri can
 package it using the same external-binary convention. Debug Desktop starts that target-qualified
 file directly; packaged builds resolve Tauri's installed `ora-reaper` executable beside Ora.
+The generated `binaries` directory is excluded from Tauri's development watcher because sidecar
+installation is not a Rust source change and must not restart a freshly launched application.
 
 Desktop starts the reaper before constructing Backend state. Normal shutdown first releases
 process owners, then asks the reaper to forcefully clear survivors and waits for acknowledgement;
