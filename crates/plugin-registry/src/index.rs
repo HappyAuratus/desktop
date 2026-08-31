@@ -37,7 +37,7 @@ impl RegistryIndex {
     /// Scans every injected registry directory for `orax.toml`, parses each valid manifest, and
     /// merges the results into one deterministically ordered index built at `updated_at`.
     ///
-    /// Sources covering the same `namespace/name` id are merged: the id is listed once, and the
+    /// Sources covering the same `namespace/identifier` id are merged: the id is listed once, and the
     /// first occurrence in source-then-scan order wins, so the combined listing has no duplicate
     /// ids regardless of how heavily the sources overlap.
     pub fn build_all(registry_dirs: &[&Path], updated_at: i64) -> RegistryBuild {
@@ -72,7 +72,7 @@ impl RegistryIndex {
     }
 
     /// Resolves the full release manifest for a marketplace identifier by re-reading the source
-    /// `registry` directory, matching `namespace/name` against each parsed manifest.
+    /// `registry` directory, matching `namespace/identifier` against each parsed manifest.
     ///
     /// This is the install-time companion of [`Self::build`]: the cached index carries only the
     /// lightweight display fields, so consumers re-read the source `orax.toml` to obtain the
@@ -252,29 +252,33 @@ mod tests {
 
     const UPDATED_AT: i64 = 1_776_244_428;
 
-    /// Builds a syntactically valid `orax.toml` string for a named plugin.
-    fn valid_manifest(name: &str, description: &str) -> String {
+    /// Builds a syntactically valid `orax.toml` string for a plugin identifier.
+    fn valid_manifest(identifier: &str, description: &str) -> String {
         format!(
             "resolver = 1\n\
-             identifier = \"{name}\"\n\
+             identifier = \"{identifier}\"\n\
              namespace = \"official\"\n\
              kind = \"workbench\"\n\
              version = \"1.2.0\"\n\
              description = \"{description}\"\n\
              homepage = \"https://example.com\"\n\
              license = \"MIT\"\n\
-             url = \"https://example.com/{name}.orax\"\n\
+             url = \"https://example.com/{identifier}.orax\"\n\
              sha256 = \"{}\"\n",
             "ab".repeat(32)
         )
     }
 
     /// Writes a manifest at a nesting level that mimics the two-tier marketplace layout.
-    fn write_manifest(root: &Path, name: &str, source: &str) -> Result<PathBuf, std::io::Error> {
+    fn write_manifest(
+        root: &Path,
+        identifier: &str,
+        source: &str,
+    ) -> Result<PathBuf, std::io::Error> {
         let path = root
             .join("registry")
-            .join(&name[..1])
-            .join(name)
+            .join(&identifier[..1])
+            .join(identifier)
             .join("orax.toml");
         let parent = path
             .parent()
@@ -284,7 +288,8 @@ mod tests {
         Ok(path)
     }
 
-    /// Verifies entries are ordered by their `namespace/name` identifier regardless of scan order.
+    /// Verifies entries are ordered by their `namespace/identifier` identifier regardless of scan
+    /// order.
     #[test]
     fn builds_deterministically_ordered_index() -> Result<(), Box<dyn std::error::Error>> {
         let root = TempDir::new()?;
@@ -473,6 +478,35 @@ mod tests {
 
         let loaded = RegistryIndex::load(&target)?;
         assert_eq!(loaded, index);
+        Ok(())
+    }
+
+    /// Verifies the persisted schema uses `identifier` and still accepts the previous cache key.
+    #[test]
+    fn serializes_identifier_and_reads_legacy_name() -> Result<(), Box<dyn std::error::Error>> {
+        let root = TempDir::new()?;
+        write_manifest(
+            root.path(),
+            "weather",
+            &valid_manifest("weather", "Weather plugin"),
+        )?;
+
+        let index = RegistryIndex::build(root.path(), UPDATED_AT)
+            .index()
+            .clone();
+        let serialized = serde_json::to_value(&index)?;
+        assert_eq!(serialized["plugins"][0]["identifier"], "weather");
+        assert!(serialized["plugins"][0].get("name").is_none());
+
+        let mut legacy = serialized;
+        let plugin = legacy["plugins"][0]
+            .as_object_mut()
+            .ok_or_else(|| std::io::Error::other("expected a serialized plugin object"))?;
+        let identifier = plugin
+            .remove("identifier")
+            .ok_or_else(|| std::io::Error::other("expected an identifier field"))?;
+        plugin.insert("name".to_owned(), identifier);
+        assert_eq!(serde_json::from_value::<RegistryIndex>(legacy)?, index);
         Ok(())
     }
 

@@ -1002,7 +1002,7 @@ fn map_marketplace_source_error(error: MarketplaceSourceStoreError) -> BackendEr
 fn available_plugin(entry: &RegistryEntry) -> ora_contracts::AvailablePlugin {
     ora_contracts::AvailablePlugin {
         id: entry.id().canonical(),
-        name: entry.name().to_owned(),
+        name: entry.identifier().to_owned(),
         title: entry.title().to_owned(),
         kind: entry.kind().to_owned(),
         namespace: entry.namespace().to_owned(),

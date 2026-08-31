@@ -20,7 +20,7 @@
   manifest into a `RegistryEntry`, and returns a deterministically ordered index built at an
   injected Unix timestamp.
 - `RegistryIndex::build_all` scans several registry directories and merges their entries into one
-  index: a shared `namespace/name` id is listed once and the first source in source order wins.
+  index: a shared `namespace/identifier` id is listed once and the first source in source order wins.
 - `RegistryIndex::load` reads a previously written index file; `RegistryIndex::write` replaces the
   target file atomically through `ora-utils` so readers never observe a partial index.
 - Each entry carries the manifest's display `title` (falling back to the identifier when the

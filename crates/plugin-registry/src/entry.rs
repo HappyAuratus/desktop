@@ -10,9 +10,14 @@ use serde::{Deserialize, Serialize};
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct RegistryEntry {
     id: PluginId,
-    name: String,
+    /// The manifest identifier segment, serialized under the schema's `identifier` spelling.
+    ///
+    /// `name` remains an accepted alias so a cache written by an older desktop can still be
+    /// loaded and replaced by the next successful registry sync.
+    #[serde(rename = "identifier", alias = "name")]
+    identifier: String,
     /// Human-readable display title from the manifest. Old cached indexes predate this field, so
-    /// it defaults to empty and consumers fall back to `name` until the next resync.
+    /// it defaults to empty and consumers fall back to `identifier` until the next resync.
     #[serde(default)]
     title: String,
     /// The plugin kind (`agent`, `workbench`, `webview`, `skill`, `mcp`, or `hook`) surfaced for
@@ -53,7 +58,7 @@ impl RegistryEntry {
         };
         Self {
             id: entry_id(manifest),
-            name: manifest.name().as_str().to_owned(),
+            identifier: manifest.name().as_str().to_owned(),
             title: manifest.title().to_owned(),
             kind: manifest.kind().as_str().to_owned(),
             namespace: manifest.namespace().as_str().to_owned(),
@@ -64,14 +69,14 @@ impl RegistryEntry {
         }
     }
 
-    /// Returns the unique `namespace/name` identifier.
+    /// Returns the unique `namespace/identifier` identifier.
     pub fn id(&self) -> &PluginId {
         &self.id
     }
 
-    /// Returns the plugin name (the identifier segment).
-    pub fn name(&self) -> &str {
-        &self.name
+    /// Returns the plugin identifier segment.
+    pub fn identifier(&self) -> &str {
+        &self.identifier
     }
 
     /// Returns the human-readable display title, empty when an older cache indexed it without one.
@@ -149,13 +154,14 @@ impl RegistryEntry {
     }
 }
 
-/// Derives the unique `namespace/name` identifier a manifest resolves to.
+/// Derives the unique `namespace/identifier` a manifest resolves to.
 ///
 /// Identifier construction is shared by index building and install-time lookup, so both agree on
 /// what a marketplace identifier means without the lookup path having to build a whole entry.
 pub(crate) fn entry_id(manifest: &PluginManifest) -> PluginId {
     // The manifest grammar is a strict subset of what `PluginId` accepts, so this cannot fail for
     // a manifest that already parsed; the fallback keeps the function total.
-    PluginId::new(manifest.namespace().as_str(), manifest.name().as_str())
-        .unwrap_or_else(|error| unreachable!("validated manifest name is a plugin id: {error}"))
+    PluginId::new(manifest.namespace().as_str(), manifest.name().as_str()).unwrap_or_else(|error| {
+        unreachable!("validated manifest identifier is a plugin id: {error}")
+    })
 }
