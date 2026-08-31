@@ -189,7 +189,6 @@ beforeEach(() => {
       workflowRunId: null,
       draftId: null,
     },
-    pendingRestore: null,
     createFocus: null,
   });
   useDraftSessionsStore.getState().clear();
@@ -1315,41 +1314,6 @@ describe("WorkspaceSidebar", () => {
     expect(useUiStore.getState().expandedProjects.has(PROJECT.id)).toBe(false);
   });
 
-  it("does not re-expand a collapsed project when restoring its selected session", async () => {
-    useUiStore.setState({
-      expandedProjects: new Set(),
-      expandedTasks: new Set(),
-      treeExpansionBootstrapped: true,
-    });
-    useWorkspaceSelectionStore.setState({
-      selection: {
-        projectId: null,
-        taskId: null,
-        sessionId: null,
-        workflowRunId: null,
-        draftId: null,
-      },
-      pendingRestore: {
-        projectId: PROJECT.id,
-        taskId: TASK.id,
-        sessionId: SESSION.id,
-        workflowRunId: null,
-        draftId: null,
-      },
-      createFocus: null,
-    });
-    renderSidebar(workspaceWithOneSession());
-
-    await waitFor(() =>
-      expect(useWorkspaceSelectionStore.getState().selection.sessionId).toBe(
-        SESSION.id,
-      ),
-    );
-    expect(treeRow(TASK.title)).toBeNull();
-    expect(useUiStore.getState().expandedProjects.has(PROJECT.id)).toBe(false);
-    expect(treeRowShell(PROJECT.name).dataset.selectionHint).toBe("true");
-  });
-
   it("bubbles selection hint to collapsed ancestors and clears it on expand", async () => {
     const user = userEvent.setup();
     useUiStore.setState({
@@ -1424,44 +1388,6 @@ describe("WorkspaceSidebar", () => {
     );
     expect(useUiStore.getState().treeExpansionBootstrapped).toBe(false);
     expect(useUiStore.getState().expandedProjects.size).toBe(0);
-  });
-
-  it("keeps a staged session restore when the sessions query fails", async () => {
-    useWorkspaceSelectionStore.setState({
-      selection: {
-        projectId: null,
-        taskId: null,
-        sessionId: null,
-        workflowRunId: null,
-        draftId: null,
-      },
-      pendingRestore: {
-        projectId: PROJECT.id,
-        taskId: TASK.id,
-        sessionId: SESSION.id,
-        workflowRunId: null,
-        draftId: null,
-      },
-      createFocus: null,
-    });
-    const state = workspaceWithOneSession();
-    const client = createMockClient(state);
-    vi.spyOn(client.session, "list").mockRejectedValue(
-      new LocalTransportError("tauri_invoke_failure", "sessions unavailable"),
-    );
-    renderSidebar(state, undefined, client);
-
-    await waitFor(() =>
-      expect(
-        screen.getByText(/sessions unavailable|调用失败|tauri/i),
-      ).toBeTruthy(),
-    );
-    expect(
-      useWorkspaceSelectionStore.getState().pendingRestore?.sessionId,
-    ).toBe(SESSION.id);
-    expect(
-      useWorkspaceSelectionStore.getState().selection.sessionId,
-    ).toBeNull();
   });
 
   // Matches the working-indicator aria-label in either shipped locale.
