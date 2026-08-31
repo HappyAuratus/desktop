@@ -19,7 +19,7 @@ tasks:
     cmds:
       - task: install:frontend
       - task: install:crates
-      - task: build
+      - task: build:test
 
   install:frontend:
     desc: Install dependencies for the frontend packages
@@ -45,6 +45,14 @@ tasks:
     desc: Build all Rust workspace packages
     cmds:
       - cargo build --workspace
+
+  build:test:
+    desc: Precompile Rust workspace checks and test targets
+    env:
+      CARGO_INCREMENTAL: "0"
+    cmds:
+      - cargo clippy --workspace -- -D warnings
+      - cargo test --workspace --no-run
 
   build:reaper:
     desc: Build the debug process reaper sidecar for the current target
