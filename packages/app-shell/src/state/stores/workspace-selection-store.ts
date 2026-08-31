@@ -12,7 +12,13 @@ export type { WorkspaceSelection };
 // unread on disk.
 const LEGACY_WORKSPACE_SELECTION_STORAGE_KEY = "ora.workspace-selection.v1";
 if (typeof window !== "undefined") {
-  window.localStorage.removeItem(LEGACY_WORKSPACE_SELECTION_STORAGE_KEY);
+  // Storage can throw (blocked/disabled); a wipe failure must never block the
+  // module loading and take the store down with it on startup.
+  try {
+    window.localStorage.removeItem(LEGACY_WORKSPACE_SELECTION_STORAGE_KEY);
+  } catch {
+    // Ignore: the stale key simply stays until a later run wipes it.
+  }
 }
 
 /**

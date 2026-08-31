@@ -10,7 +10,13 @@ import { pathsMatchForWorkspace } from "../../lib/workspace-path";
 // Wipe the key older versions wrote so a stale snapshot never lingers unread.
 const LEGACY_REVIEW_STORAGE_KEY = "ora.review.v1";
 if (typeof window !== "undefined") {
-  window.localStorage.removeItem(LEGACY_REVIEW_STORAGE_KEY);
+  // Storage can throw (blocked/disabled); a wipe failure must never block the
+  // module loading and take the store down with it on startup.
+  try {
+    window.localStorage.removeItem(LEGACY_REVIEW_STORAGE_KEY);
+  } catch {
+    // Ignore: the stale key simply stays until a later run wipes it.
+  }
 }
 
 export type ReviewPanelKind = "changes" | "files";
