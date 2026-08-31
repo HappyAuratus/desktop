@@ -69,7 +69,7 @@ export interface LocationActionsCapability {
 
 /**
  * Explains why a release cannot be installed by the updater itself. Mirrors the Rust
- * `ManualUpdateReason` in `apps/desktop/src-tauri/src/update/mod.rs`.
+ * `ManualUpdateReason` in `apps/desktop/src-tauri/src/update.rs`.
  */
 export type ManualUpdateReason = "system_package" | "unpackaged_binary";
 

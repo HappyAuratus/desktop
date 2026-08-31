@@ -10,6 +10,7 @@
 Ora is an IDE for AI Agent. In the crates folder where the rust code lives:
 
 - Crate names are prefixed with `ora-`. For example, the `core` folder's crate is named `ora-core`
+- Prefer `name.rs` as the module root with a sibling `name/` directory for submodules; do not introduce `mod.rs`.
 - When using format! and you can inline variables into {}, always do that.
 - Always collapse nested if statements which can be collapsed by &&-combining their conditions.
 - Always inline format! args when possible.
