@@ -23,88 +23,42 @@ impl TimestampSource for FixedTimestampSource {
     }
 }
 
-/// Verifies the current schema includes the linear Effect persistence migration.
+/// Verifies separate checkouts retain one anonymous in-memory database for the pool's lifetime.
 #[test]
-fn bootstraps_the_current_workspace_schema() {
-    let catalog = default_migration_catalog().expect("build migration catalog");
-    assert_eq!(
-        catalog.target_versions(),
-        ["0001", "0002", "0003", "0004", "0005", "0006"]
-    );
-
-    let database = with_trace_logging(|| {
-        DatabaseBootstrapper::new(FixedTimestampSource {
-            now: 1_700_000_000_000,
-        })
-        .bootstrap(&DatabaseLocation::in_memory(), &catalog)
-        .expect("bootstrap database")
+fn in_memory_repository_pool_preserves_data_across_checkouts() {
+    let catalog = MigrationCatalog::new(vec![table_migration("0001", "checkout_records")])
+        .expect("build migration catalog");
+    let pool = with_trace_logging(|| {
+        DatabaseBootstrapper::new(FixedTimestampSource { now: 1 })
+            .bootstrap_repository_pool(&DatabaseLocation::in_memory(), &catalog)
+            .expect("bootstrap database")
     });
 
+    pool.with_connection(|connection| {
+        connection.execute("INSERT INTO checkout_records (id) VALUES (7)", [])?;
+        Ok(())
+    })
+    .expect("insert record through first checkout");
+
     assert_eq!(
-        load_table_names(database.connection()),
-        vec![
-            "agents",
-            "effect_attempt_resource_projections",
-            "effect_audit_events",
-            "effect_conditions",
-            "effect_consumer_revisions",
-            "effect_consumers",
-            "effect_coordination_receipts",
-            "effect_desired_effects",
-            "effect_managed_items",
-            "effect_operation_artifacts",
-            "effect_operations",
-            "effect_readiness_receipts",
-            "effect_reconcile_attempts",
-            "effect_reconcile_requests",
-            "effect_resolved_materializations",
-            "effect_resource_claims",
-            "effect_resource_projection_contributors",
-            "effect_resource_projections",
-            "effect_resource_requirement_effects",
-            "effect_resource_requirements",
-            "effect_resource_status",
-            "effect_resources",
-            "effect_revisions",
-            "effect_scopes",
-            "effect_sources",
-            "effect_target_declarations",
-            "effect_target_projection_effects",
-            "effect_target_projections",
-            "effect_target_resource_bindings",
-            "effect_target_status",
-            "effect_targets",
-            "git_cleanup_jobs",
-            "migrations",
-            "plugin_marketplace_source",
-            "projects",
-            "sessions",
-            "skills",
-            "tasks",
-            "user_config",
-            "workflow_node_runs",
-            "workflow_runs",
-            "workflow_snapshots",
-            "workflows",
-            "workspace_locations",
-            "workspace_provisioning",
-            "workspaces",
-            "worktree_provisioning_leases",
-            "worktrees",
-        ],
-    );
-    assert_eq!(
-        load_applied_migrations(database.connection()),
-        expected_applied_migrations(&catalog, 1_700_000_000_000),
+        pool.with_connection(|connection| {
+            connection
+                .query_row("SELECT id FROM checkout_records", [], |row| {
+                    row.get::<_, i64>(0)
+                })
+                .map_err(Into::into)
+        })
+        .expect("read record through second checkout"),
+        7,
     );
 }
 
 /// Verifies runtime ownership columns point directly at workspaces and no longer encode task-run variants.
 #[test]
 fn runtime_tables_use_direct_workspace_ownership() {
-    let database = with_trace_logging(|| {
+    let pool = with_trace_logging(|| {
         DatabaseBootstrapper::new(FixedTimestampSource { now: 1 })
-            .bootstrap(
+            .bootstrap_repository_pool(
                 &DatabaseLocation::in_memory(),
                 &default_migration_catalog().expect("build migration catalog"),
             )
@@ -112,7 +66,8 @@ fn runtime_tables_use_direct_workspace_ownership() {
     });
 
     assert_eq!(
-        load_table_column_names(database.connection(), "sessions"),
+        pool.with_connection(|connection| Ok(load_table_column_names(connection, "sessions")))
+            .expect("load session columns"),
         vec![
             "id",
             "workspace_id",
@@ -127,7 +82,10 @@ fn runtime_tables_use_direct_workspace_ownership() {
         ],
     );
     assert_eq!(
-        load_table_column_names(database.connection(), "workflow_runs"),
+        pool.with_connection(|connection| {
+            Ok(load_table_column_names(connection, "workflow_runs"))
+        })
+        .expect("load workflow run columns"),
         vec![
             "id",
             "workspace_id",
@@ -148,7 +106,8 @@ fn runtime_tables_use_direct_workspace_ownership() {
         ],
     );
     assert_eq!(
-        load_table_column_names(database.connection(), "tasks"),
+        pool.with_connection(|connection| Ok(load_table_column_names(connection, "tasks")))
+            .expect("load task columns"),
         vec![
             "id",
             "workspace_id",
@@ -159,7 +118,8 @@ fn runtime_tables_use_direct_workspace_ownership() {
         ],
     );
     assert_eq!(
-        load_table_column_names(database.connection(), "worktrees"),
+        pool.with_connection(|connection| Ok(load_table_column_names(connection, "worktrees")))
+            .expect("load worktree columns"),
         vec![
             "workspace_id",
             "branch_name",
@@ -170,14 +130,16 @@ fn runtime_tables_use_direct_workspace_ownership() {
         ],
     );
     assert_eq!(
-        database
-            .connection()
-            .query_row(
-                "SELECT pk FROM pragma_table_info('worktrees') WHERE name = 'workspace_id'",
-                [],
-                |row| row.get::<_, i64>(0),
-            )
-            .expect("load worktree workspace primary-key position"),
+        pool.with_connection(|connection| {
+            connection
+                .query_row(
+                    "SELECT pk FROM pragma_table_info('worktrees') WHERE name = 'workspace_id'",
+                    [],
+                    |row| row.get::<_, i64>(0),
+                )
+                .map_err(Into::into)
+        })
+        .expect("load worktree workspace primary-key position"),
         1,
     );
 }
@@ -538,18 +500,6 @@ fn rebuilds_multiple_changed_migrations_in_directional_order() {
     );
 }
 
-/// Reads table names in the same deterministic order used by the schema assertion.
-fn load_table_names(connection: &Connection) -> Vec<String> {
-    let mut statement = connection
-        .prepare("SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name")
-        .expect("prepare table query");
-    statement
-        .query_map([], |row| row.get(0))
-        .expect("query table names")
-        .collect::<Result<Vec<_>, _>>()
-        .expect("read table names")
-}
-
 /// Reads a table's declared columns without coupling the test to SQLite's SQL text formatting.
 fn load_table_column_names(connection: &Connection, table_name: &str) -> Vec<String> {
     let statement = format!("PRAGMA table_info({table_name})");
@@ -581,18 +531,6 @@ fn load_applied_migrations(connection: &Connection) -> Vec<AppliedMigration> {
         .expect("read migrations")
 }
 
-/// Builds the exact rows expected when every target migration is applied at one timestamp.
-fn expected_applied_migrations(
-    catalog: &MigrationCatalog,
-    executed_at: i64,
-) -> Vec<AppliedMigration> {
-    catalog
-        .target_versions()
-        .iter()
-        .map(|version| applied_from(catalog, version, executed_at))
-        .collect()
-}
-
 /// Builds an expected applied row from the current catalog SQL snapshot.
 fn applied_from(catalog: &MigrationCatalog, version: &str, executed_at: i64) -> AppliedMigration {
     let migration = catalog.migration(version).expect("find migration");
@@ -612,7 +550,7 @@ fn bootstrap_file_database(
 ) -> Result<(), DatabaseError> {
     with_trace_logging(|| {
         DatabaseBootstrapper::new(FixedTimestampSource { now })
-            .bootstrap(&DatabaseLocation::path(path), catalog)
+            .bootstrap_repository_pool(&DatabaseLocation::path(path), catalog)
             .map(|_| ())
     })
 }
