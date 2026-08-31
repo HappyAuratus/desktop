@@ -104,4 +104,4 @@ effect after Ora restarts. Daily log files continue to rotate at UTC boundaries.
 
 ## Verification
 
-The Tauri Rust crate shares the root `Cargo.lock`, dependency graph, and target directory with the reusable Rust crates. `task test:frontend` includes the Desktop TypeScript transport tests, while `task test:crates` includes `ora-desktop` alongside every other Rust workspace package. `task test` runs both groups.
+The Tauri Rust crate shares the root `Cargo.lock`, dependency graph, and target directory with the reusable Rust crates. `task test:frontend` includes the Desktop TypeScript transport tests, while `task test:crates`, `task test:tauri`, and `task test:e2e` separately cover reusable crates, the Tauri package, and Desktop E2E tests. `task test` runs all four groups; CI runs the groups independently.

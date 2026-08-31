@@ -51,8 +51,8 @@ tasks:
     env:
       CARGO_INCREMENTAL: "0"
     cmds:
-      - cargo clippy --workspace -- -D warnings
-      - cargo test --workspace --no-run
+      - cargo clippy --workspace --exclude ora-desktop --exclude ora-desktop-tests -- -D warnings
+      - cargo test --workspace --exclude ora-desktop --exclude ora-desktop-tests --no-run
 
   build:reaper:
     desc: Build the debug process reaper sidecar for the current target
@@ -136,13 +136,29 @@ tasks:
       - pnpm --filter @ora-space/plugin-sdk lint
 
   lint:crates:
-    desc: Run linters on all Rust workspace packages
+    desc: Run linters on all crates packages
     env:
       CARGO_INCREMENTAL: "0"
     silent: true
     cmds:
       - cargo fmt --all -- --check
-      - cargo clippy --workspace -- -D warnings
+      - cargo clippy --workspace --exclude ora-desktop --exclude ora-desktop-tests -- -D warnings
+
+  lint:tauri:
+    desc: Run linters on the Tauri desktop package
+    env:
+      CARGO_INCREMENTAL: "0"
+    silent: true
+    cmds:
+      - cargo clippy --package ora-desktop -- -D warnings
+
+  lint:e2e:
+    desc: Run linters on the Desktop E2E package
+    env:
+      CARGO_INCREMENTAL: "0"
+    silent: true
+    cmds:
+      - cargo clippy --package ora-desktop-tests -- -D warnings
 
   test:
     desc: Run all frontend and Rust workspace checks (may take a long time)
@@ -150,6 +166,8 @@ tasks:
     cmds:
       - task: test:frontend
       - task: test:crates
+      - task: test:tauri
+      - task: test:e2e
 
   test:frontend:
     desc: Run all frontend TypeScript package test suites
@@ -175,7 +193,23 @@ tasks:
         msg: "Deno is not available on PATH. Install it before running Rust tests."
     cmds:
       - task: lint:crates
-      - cargo test --workspace
+      - cargo test --workspace --exclude ora-desktop --exclude ora-desktop-tests
+
+  test:tauri:
+    desc: Run the Tauri desktop package test suite
+    env:
+      CARGO_INCREMENTAL: "0"
+    cmds:
+      - task: lint:tauri
+      - cargo test --package ora-desktop
+
+  test:e2e:
+    desc: Run the Desktop E2E test suite
+    env:
+      CARGO_INCREMENTAL: "0"
+    cmds:
+      - task: lint:e2e
+      - cargo test --package ora-desktop-tests
 
   ###################################################
   ############# Run Development Servers #############

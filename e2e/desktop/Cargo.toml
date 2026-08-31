@@ -1,0 +1,29 @@
+[package]
+name = "ora-desktop-tests"
+version.workspace = true
+edition.workspace = true
+publish = false
+
+[lib]
+name = "desktop"
+path = "src/lib.rs"
+
+[[bin]]
+name = "fake-agent"
+path = "src/fake_agent.rs"
+test = false
+bench = false
+
+[lints]
+workspace = true
+
+[dependencies]
+chrono-tz = { workspace = true }
+ora-backend = { workspace = true }
+ora-contracts = { workspace = true }
+ora-db = { workspace = true }
+pretty_assertions = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+tempfile = { workspace = true }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread", "time"] }

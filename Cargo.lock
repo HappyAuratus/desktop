@@ -3150,6 +3150,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "ora-desktop-tests"
+version = "0.0.0"
+dependencies = [
+ "chrono-tz",
+ "ora-backend",
+ "ora-contracts",
+ "ora-db",
+ "pretty_assertions",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "tokio",
+]
+
+[[package]]
 name = "ora-domain"
 version = "0.0.0"
 dependencies = [

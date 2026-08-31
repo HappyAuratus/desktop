@@ -29,6 +29,7 @@ members = [
     "crates/test-support",
     "crates/utils",
     "crates/user-config",
+    "e2e/desktop",
     "xtask",
 ]
 default-members = [
@@ -59,6 +60,7 @@ default-members = [
     "crates/test-support",
     "crates/utils",
     "crates/user-config",
+    "e2e/desktop",
     "xtask",
 ]
 resolver = "2"
