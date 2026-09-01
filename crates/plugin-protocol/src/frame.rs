@@ -1,12 +1,39 @@
+use serde::Serialize;
+use serde_json::Value;
 use std::io;
-
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 
-pub(crate) const JSON_RPC_FRAME_TYPE: u8 = 0x01;
-pub(crate) const MAX_FRAME_LENGTH: usize = 16 * 1024 * 1024;
+/// Frame tag identifying a JSON-RPC payload inside Ora's plugin transport envelope.
+pub const JSON_RPC_FRAME_TYPE: u8 = 0x01;
+/// Largest complete plugin frame, including its one-byte type tag.
+pub const MAX_FRAME_LENGTH: usize = 16 * 1024 * 1024;
+
+/// Reads and decodes one complete JSON-RPC value, returning `None` only at a clean EOF.
+pub async fn read_message<R>(reader: &mut R) -> io::Result<Option<Value>>
+where
+    R: AsyncRead + Unpin,
+{
+    let Some(payload) = read_frame(reader).await? else {
+        return Ok(None);
+    };
+    serde_json::from_slice(&payload)
+        .map(Some)
+        .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))
+}
+
+/// Encodes and writes one JSON-RPC value as a complete plugin transport frame.
+pub async fn write_message<W, Message>(writer: &mut W, message: &Message) -> io::Result<()>
+where
+    W: AsyncWrite + Unpin,
+    Message: Serialize + ?Sized,
+{
+    let payload = serde_json::to_vec(message)
+        .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?;
+    write_frame(writer, &payload).await
+}
 
 /// Reads one length-delimited plugin protocol frame, returning `None` at a clean EOF.
-pub(crate) async fn read_frame<R>(reader: &mut R) -> io::Result<Option<Vec<u8>>>
+async fn read_frame<R>(reader: &mut R) -> io::Result<Option<Vec<u8>>>
 where
     R: AsyncRead + Unpin,
 {
@@ -34,12 +61,11 @@ where
             format!("unsupported plugin frame type {}", frame[0]),
         ));
     }
-
     Ok(Some(frame.split_off(1)))
 }
 
-/// Writes one JSON-RPC payload using Ora's binary plugin frame envelope.
-pub(crate) async fn write_frame<W>(writer: &mut W, payload: &[u8]) -> io::Result<()>
+/// Writes one JSON payload using Ora's binary plugin frame envelope.
+async fn write_frame<W>(writer: &mut W, payload: &[u8]) -> io::Result<()>
 where
     W: AsyncWrite + Unpin,
 {
@@ -59,19 +85,20 @@ where
 
 #[cfg(test)]
 mod tests {
-    use super::{JSON_RPC_FRAME_TYPE, MAX_FRAME_LENGTH, read_frame, write_frame};
+    use super::{JSON_RPC_FRAME_TYPE, MAX_FRAME_LENGTH, read_message, write_message};
     use pretty_assertions::assert_eq;
+    use serde_json::json;
     use tokio::io::{AsyncWriteExt, duplex};
 
-    /// Verifies a payload survives a fragmented asynchronous frame round trip.
+    /// Verifies a JSON value survives a fragmented asynchronous frame round trip.
     #[tokio::test]
-    async fn round_trips_json_rpc_frame() {
+    async fn round_trips_json_rpc_message() {
         let (mut writer, mut reader) = duplex(64);
-        let payload = br#"{"jsonrpc":"2.0","id":1,"result":"ok"}"#.to_vec();
-        let expected = payload.clone();
-        let write_task = tokio::spawn(async move { write_frame(&mut writer, &payload).await });
+        let expected = json!({ "jsonrpc": "2.0", "id": 1, "result": "ok" });
+        let message = expected.clone();
+        let write_task = tokio::spawn(async move { write_message(&mut writer, &message).await });
 
-        assert_eq!(read_frame(&mut reader).await.unwrap(), Some(expected));
+        assert_eq!(read_message(&mut reader).await.unwrap(), Some(expected));
         write_task.await.unwrap().unwrap();
     }
 
@@ -82,7 +109,7 @@ mod tests {
         writer.write_all(&[0, 0, 0, 2, 0xff, b'{']).await.unwrap();
 
         assert_eq!(
-            read_frame(&mut reader).await.unwrap_err().kind(),
+            read_message(&mut reader).await.unwrap_err().kind(),
             std::io::ErrorKind::InvalidData
         );
     }
@@ -96,7 +123,7 @@ mod tests {
         writer.write_u8(JSON_RPC_FRAME_TYPE).await.unwrap();
 
         assert_eq!(
-            read_frame(&mut reader).await.unwrap_err().kind(),
+            read_message(&mut reader).await.unwrap_err().kind(),
             std::io::ErrorKind::InvalidData
         );
     }
@@ -109,7 +136,7 @@ mod tests {
         writer.shutdown().await.unwrap();
 
         assert_eq!(
-            read_frame(&mut reader).await.unwrap_err().kind(),
+            read_message(&mut reader).await.unwrap_err().kind(),
             std::io::ErrorKind::UnexpectedEof
         );
     }

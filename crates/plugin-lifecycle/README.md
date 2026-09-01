@@ -112,12 +112,12 @@ workbench, webview, skill, or MCP plugin runs with zero Deno permissions specifi
 start a process (see `permissions::permissions_for`); every `ora/childprocess/*` call from one of
 those kinds gets the same `-32601` a genuinely unknown method would.
 
-| Method                        | Params                                             | Result                                   |
-| ----------------------------- | -------------------------------------------------- | ---------------------------------------- |
-| `ora/childprocess/spawn`      | `{ command \| packageCommand, args?, cwd?, env? }` | `{ processId, pid }`                     |
-| `ora/childprocess/write`      | `{ processId, bytesBase64 }`                       | `{}`                                     |
-| `ora/childprocess/closeStdin` | `{ processId }`                                    | `{}` (signals EOF, does not kill)        |
-| `ora/childprocess/kill`       | `{ processId }`                                    | `{}` (idempotent, best-effort tree-kill) |
+| Method                         | Params                                             | Result                                   |
+| ------------------------------ | -------------------------------------------------- | ---------------------------------------- |
+| `ora/childprocess/spawn`       | `{ command \| packageCommand, args?, cwd?, env? }` | `{ processId, pid }`                     |
+| `ora/childprocess/write`       | `{ processId, bytesBase64 }`                       | `{}`                                     |
+| `ora/childprocess/close_stdin` | `{ processId }`                                    | `{}` (signals EOF, does not kill)        |
+| `ora/childprocess/kill`        | `{ processId }`                                    | `{}` (idempotent, best-effort tree-kill) |
 
 A spawn request names its executable exactly one of two ways, and the choice decides who resolves
 it. `command` is passed to the operating system unchanged — a PATH lookup, or a path the plugin

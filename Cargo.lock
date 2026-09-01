@@ -3124,6 +3124,7 @@ dependencies = [
  "ora-plugin-lifecycle",
  "ora-plugin-manager",
  "ora-plugin-manifest",
+ "ora-plugin-protocol",
  "ora-plugin-registry",
  "ora-plugin-runtime",
  "ora-process",
@@ -3205,6 +3206,7 @@ dependencies = [
  "ora-plugin-lifecycle",
  "ora-plugin-manager",
  "ora-plugin-manifest",
+ "ora-plugin-protocol",
  "ora-process",
  "ora-runtime-settings",
  "ora-scheduler",
@@ -3236,10 +3238,12 @@ dependencies = [
 name = "ora-desktop-tests"
 version = "0.0.0"
 dependencies = [
+ "agent-client-protocol-schema",
  "chrono-tz",
  "ora-backend",
  "ora-contracts",
  "ora-db",
+ "ora-plugin-protocol",
  "pretty_assertions",
  "serde",
  "serde_json",
@@ -3360,6 +3364,7 @@ dependencies = [
  "ora-plugin-config",
  "ora-plugin-manager",
  "ora-plugin-manifest",
+ "ora-plugin-protocol",
  "ora-plugin-runtime",
  "ora-process",
  "ora-utils",
@@ -3407,6 +3412,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "ora-plugin-protocol"
+version = "0.0.0"
+dependencies = [
+ "pretty_assertions",
+ "serde",
+ "serde_json",
+ "tokio",
+ "ts-rs",
+]
+
+[[package]]
 name = "ora-plugin-registry"
 version = "0.0.0"
 dependencies = [
@@ -3429,6 +3445,7 @@ name = "ora-plugin-runtime"
 version = "0.0.0"
 dependencies = [
  "ora-logging",
+ "ora-plugin-protocol",
  "ora-process",
  "pretty_assertions",
  "serde_json",
@@ -7227,6 +7244,7 @@ name = "xtask"
 version = "0.0.0"
 dependencies = [
  "ora-contracts",
+ "ora-plugin-protocol",
  "pretty_assertions",
  "serde_json",
  "tempfile",

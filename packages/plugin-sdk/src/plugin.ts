@@ -2,12 +2,19 @@ import {
   createDenoTransport,
   decodeFrames,
   encodeFrame,
+  INTERNAL_ERROR,
+  JSON_RPC_VERSION,
   type JsonRpcNotification,
   type JsonRpcRequest,
   type JsonValue,
+  METHOD_NOT_FOUND,
+  PLUGIN_METHODS,
+  type PluginEffectResource,
+  type PluginRegistrationParams,
   type PluginTransport,
   type RequestId,
-} from "./protocol.ts";
+  SKILL_DIRECTORY_V1,
+} from "./protocol/index.ts";
 
 export type MethodHandler = (
   input: JsonValue,
@@ -27,7 +34,6 @@ export interface HostRequestOptions {
   timeoutMs?: number;
 }
 
-/** One Workspace-relative Effect Resource included in the immutable plugin registration. */
 /**
  * The one materialization format Ora's agent Consumer adapter accepts.
  *
@@ -35,14 +41,17 @@ export interface HostRequestOptions {
  * the process when it does not match — a typo here is not a degraded mode, it is a plugin that
  * never starts, reported once as an invalid Effect declaration.
  */
-export const SKILL_DIRECTORY_V1 = "ora/skill-directory.v1";
+export { SKILL_DIRECTORY_V1 };
 
-export interface EffectResourceDeclaration {
-  workspaceRelativePath: string;
-  /** Narrowed to the literal the host accepts, so a wrong spelling fails at compile time. */
-  materializationFormat: typeof SKILL_DIRECTORY_V1;
-  coordination: "uninterrupted" | "quiesce_before_mutation";
-}
+export type EffectResourceDeclaration =
+  & Omit<
+    PluginEffectResource,
+    "materializationFormat"
+  >
+  & {
+    /** Narrowed to the literal the host accepts, so a wrong spelling fails at compile time. */
+    materializationFormat: typeof SKILL_DIRECTORY_V1;
+  };
 
 /**
  * A host method failed, or could not be completed.
@@ -75,7 +84,7 @@ export class HostRequestError extends Error {
 interface PendingHostRequest {
   resolve(result: JsonValue): void;
   reject(error: HostRequestError): void;
-  timer: number;
+  timer: ReturnType<typeof setTimeout>;
 }
 
 /** Stores a plugin's immutable capability registry and serves host traffic. */
@@ -150,7 +159,7 @@ export class Plugin {
     if (this.#writer === undefined) {
       throw new Error("A plugin can only notify the host while running");
     }
-    await this.#writer.write({ jsonrpc: "2.0", method, params });
+    await this.#writer.write({ jsonrpc: JSON_RPC_VERSION, method, params });
   }
 
   /**
@@ -189,22 +198,24 @@ export class Plugin {
         );
       }, timeoutMs);
       this.#pendingHostRequests.set(id, { resolve, reject, timer });
-      writer.write({ jsonrpc: "2.0", id, method, params }).catch((error) => {
-        const pending = this.#pendingHostRequests.get(id);
-        if (pending === undefined) {
-          return;
-        }
-        this.#pendingHostRequests.delete(id);
-        clearTimeout(pending.timer);
-        reject(
-          new HostRequestError(
-            "transport",
-            error instanceof Error
-              ? error.message
-              : "Host request write failed",
-          ),
-        );
-      });
+      writer.write({ jsonrpc: JSON_RPC_VERSION, id, method, params }).catch(
+        (error) => {
+          const pending = this.#pendingHostRequests.get(id);
+          if (pending === undefined) {
+            return;
+          }
+          this.#pendingHostRequests.delete(id);
+          clearTimeout(pending.timer);
+          reject(
+            new HostRequestError(
+              "transport",
+              error instanceof Error
+                ? error.message
+                : "Host request write failed",
+            ),
+          );
+        },
+      );
     });
   }
 
@@ -220,20 +231,16 @@ export class Plugin {
 
     const writer = new FrameWriter(transport.writable);
     this.#writer = writer;
-    const registration: { [key: string]: JsonValue } = {
+    const registration = {
       methods: [...this.#methods.keys()],
       emits: [...this.#emits],
-    };
-    if (this.#effectResources.length > 0) {
-      registration.effectResources = this.#effectResources.map((resource) => ({
-        workspaceRelativePath: resource.workspaceRelativePath,
-        materializationFormat: resource.materializationFormat,
-        coordination: resource.coordination,
-      }));
-    }
+      ...(this.#effectResources.length === 0
+        ? {}
+        : { effectResources: this.#effectResources }),
+    } satisfies PluginRegistrationParams;
     await writer.write({
-      jsonrpc: "2.0",
-      method: "ora/register",
+      jsonrpc: JSON_RPC_VERSION,
+      method: PLUGIN_METHODS.register,
       params: registration,
     });
 
@@ -274,7 +281,8 @@ export class Plugin {
   /** Routes a host response to its pending request; reports whether the message was one. */
   #settleHostResponse(message: unknown): boolean {
     if (
-      !isRecord(message) || message.jsonrpc !== "2.0" || "method" in message ||
+      !isRecord(message) || message.jsonrpc !== JSON_RPC_VERSION ||
+      "method" in message ||
       typeof message.id !== "number"
     ) {
       return false;
@@ -292,7 +300,7 @@ export class Plugin {
       const data = (error.data ?? null) as JsonValue;
       const kind = isRecord(data) && typeof data.kind === "string"
         ? data.kind
-        : error.code === -32601
+        : error.code === METHOD_NOT_FOUND
         ? "method_not_found"
         : "host";
       pending.reject(
@@ -327,7 +335,10 @@ export class Plugin {
 
   /** Runs the handler for a host notification, or reports that this was not a notification. */
   #matchNotification(message: unknown): Promise<void> | undefined {
-    if (!isRecord(message) || message.jsonrpc !== "2.0" || "id" in message) {
+    if (
+      !isRecord(message) || message.jsonrpc !== JSON_RPC_VERSION ||
+      "id" in message
+    ) {
       return undefined;
     }
     if (typeof message.method !== "string") {
@@ -350,7 +361,7 @@ export class Plugin {
       await writer.write(
         errorResponse(
           request.id,
-          -32601,
+          METHOD_NOT_FOUND,
           `Unknown plugin method ${request.method}`,
         ),
       );
@@ -360,7 +371,7 @@ export class Plugin {
     try {
       const result = await handler(request.params ?? null);
       await writer.write({
-        jsonrpc: "2.0",
+        jsonrpc: JSON_RPC_VERSION,
         id: request.id,
         result: result ?? null,
       });
@@ -368,7 +379,7 @@ export class Plugin {
       await writer.write(
         errorResponse(
           request.id,
-          error instanceof PluginMethodError ? error.code : -32603,
+          error instanceof PluginMethodError ? error.code : INTERNAL_ERROR,
           error instanceof Error ? error.message : "Plugin method failed",
         ),
       );
@@ -431,7 +442,7 @@ class FrameWriter {
 
 /** Validates the host request shape before any plugin handler sees it. */
 function parseRequest(message: unknown): JsonRpcRequest {
-  if (!isRecord(message) || message.jsonrpc !== "2.0") {
+  if (!isRecord(message) || message.jsonrpc !== JSON_RPC_VERSION) {
     throw new Error("Host message is not JSON-RPC 2.0");
   }
   if (
@@ -449,8 +460,8 @@ function isShutdownNotification(
 ): message is JsonRpcNotification {
   return (
     isRecord(message) &&
-    message.jsonrpc === "2.0" &&
-    message.method === "ora/shutdown" &&
+    message.jsonrpc === JSON_RPC_VERSION &&
+    message.method === PLUGIN_METHODS.shutdown &&
     !("id" in message)
   );
 }
@@ -464,7 +475,7 @@ function errorResponse(
   code: number,
   message: string,
 ): JsonValue {
-  return { jsonrpc: "2.0", id, error: { code, message } };
+  return { jsonrpc: JSON_RPC_VERSION, id, error: { code, message } };
 }
 
 let consoleRedirected = false;

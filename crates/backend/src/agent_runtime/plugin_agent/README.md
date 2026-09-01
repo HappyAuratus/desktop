@@ -12,14 +12,14 @@ sees a `RuntimeConnection` and cannot tell which kind of provider produced it.
 
 - Attach to one lifecycle-owned plugin process and read the notifications of that one generation.
 - Reject, at handshake time, any plugin whose registration does not cover `agent/start`,
-  `agent/stop`, `agent/listModels`, and the emitted `agent/acp`.
+  `agent/stop`, `agent/list_models`, and the emitted `agent/acp`.
 - Call `agent/start` and confirm the plugin will speak a protocol version this host understands.
-- Read the plugin's pre-session model list through `agent/listModels`.
+- Read the plugin's pre-session model list through `agent/list_models`.
 - Relay ACP messages in both directions as `agent/acp` notifications.
 - Ask the plugin to stop its agent before the lifecycle ends the plugin's process tree.
 - Convert registered Workspace-relative Skill locators into host-owned Effect Resources. The
   canonical Plugin ID is the consumer identity; a plugin never chooses that persisted identity.
-- Define `effect/coordinate`, `effect/reactivate`, and `effect/verifyReady` as the generic Consumer
+- Define `effect/coordinate`, `effect/reactivate`, and `effect/verify_ready` as the generic Consumer
   adapter boundary.
 
 ## Non-responsibilities
@@ -105,7 +105,7 @@ After exact Resource verification, `effect/reactivate` releases that barrier. If
 replaces an Agent instance, Ora detaches its live ACP sessions so the ordinary `session/load` path
 re-establishes them before their next prompt.
 
-`effect/verifyReady` receives `targetId`, `generation`, `consumerRevisionId`, and
+`effect/verify_ready` receives `targetId`, `generation`, `consumerRevisionId`, and
 `projectionDigest`. Its proof advances Target readiness only when all four values match the current
 projection. Coordination receipts do not imply readiness for the Target's other Resources.
 

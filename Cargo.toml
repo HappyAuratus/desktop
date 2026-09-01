@@ -18,6 +18,7 @@ members = [
     "crates/plugin-manifest",
     "crates/plugin-lifecycle",
     "crates/plugin-manager",
+    "crates/plugin-protocol",
     "crates/plugin-runtime",
     "crates/plugin-registry",
     "crates/process",
@@ -95,6 +96,7 @@ ora-plugin-config = { path = "crates/plugin-config" }
 ora-plugin-manifest = { path = "crates/plugin-manifest" }
 ora-plugin-lifecycle = { path = "crates/plugin-lifecycle" }
 ora-plugin-manager = { path = "crates/plugin-manager" }
+ora-plugin-protocol = { path = "crates/plugin-protocol" }
 ora-plugin-registry = { path = "crates/plugin-registry" }
 ora-plugin-runtime = { path = "crates/plugin-runtime" }
 ora-process = { path = "crates/process" }

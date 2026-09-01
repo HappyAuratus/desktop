@@ -1,25 +1,7 @@
-export const JSON_RPC_FRAME_TYPE = 0x01;
-export const MAX_FRAME_LENGTH = 16 * 1024 * 1024;
+import { JSON_RPC_FRAME_TYPE, MAX_FRAME_LENGTH } from "./constants.ts";
+import type { JsonValue } from "./json.ts";
 
-export type JsonValue = null | boolean | number | string | JsonValue[] | {
-  [key: string]: JsonValue;
-};
-
-export type RequestId = number | string;
-
-export interface JsonRpcRequest {
-  jsonrpc: "2.0";
-  id: RequestId;
-  method: string;
-  params?: JsonValue;
-}
-
-export interface JsonRpcNotification {
-  jsonrpc: "2.0";
-  method: string;
-  params?: JsonValue;
-}
-
+/** Byte streams used by one plugin protocol process. */
 export interface PluginTransport {
   readable: ReadableStream<Uint8Array>;
   writable: WritableStream<Uint8Array>;
@@ -46,9 +28,7 @@ export async function* decodeFrames(
   readable: ReadableStream<Uint8Array>,
 ): AsyncGenerator<unknown> {
   let buffer = new Uint8Array();
-  // ReadableStream's async iterator is a Deno runtime extension the `dom` lib does not type;
-  // acquiring a reader keeps the decode loop type-safe under every lib configuration while
-  // preserving the streaming semantics the protocol depends on.
+  // Acquiring a reader keeps this portable to DOM stream typings that omit async iteration.
   const reader = readable.getReader();
   try {
     while (true) {
@@ -83,7 +63,6 @@ export async function* decodeFrames(
       }
     }
   } finally {
-    // Releasing the reader unlocks the stream for any upstream cancellation path.
     reader.releaseLock();
   }
 

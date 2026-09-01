@@ -134,7 +134,7 @@ async fn parses_effect_resource_registration() {
             "jsonrpc": "2.0",
             "method": "ora/register",
             "params": {
-                "methods": ["effect/coordinate", "effect/reactivate", "effect/verifyReady"],
+                "methods": ["effect/coordinate", "effect/reactivate", "effect/verify_ready"],
                 "effectResources": [{
                     "workspaceRelativePath": ".agents/skills",
                     "materializationFormat": "skill_directory.v1",

@@ -9,7 +9,7 @@ import {
   encodeFrame,
   type JsonValue,
   type PluginTransport,
-} from "../src/protocol.ts";
+} from "../src/protocol/index.ts";
 
 /** Compares JSON-compatible values without a Node compatibility dependency. */
 function assertEquals(actual: unknown, expected: unknown): void {
@@ -90,10 +90,10 @@ Deno.test("serves the whole agent contract over one run loop", async () => {
       methods: [
         "agent/start",
         "agent/stop",
-        "agent/listModels",
+        "agent/list_models",
         "effect/coordinate",
         "effect/reactivate",
-        "effect/verifyReady",
+        "effect/verify_ready",
       ],
       emits: ["agent/acp"],
       effectResources: [{
@@ -124,7 +124,7 @@ Deno.test("serves the whole agent contract over one run loop", async () => {
   await harness.send({
     jsonrpc: "2.0",
     id: 2,
-    method: "agent/listModels",
+    method: "agent/list_models",
     params: {},
   });
   assertEquals((await harness.responses.next()).value, {
@@ -169,7 +169,7 @@ Deno.test("serves the whole agent contract over one run loop", async () => {
   await harness.send({
     jsonrpc: "2.0",
     id: 6,
-    method: "effect/verifyReady",
+    method: "effect/verify_ready",
     params: readiness,
   });
   assertEquals((await harness.responses.next()).value, {

@@ -36,7 +36,7 @@ fn complete_registration() -> PluginRegistration {
         methods: HashSet::from([
             "agent/start".to_string(),
             "agent/stop".to_string(),
-            "agent/listModels".to_string(),
+            "agent/list_models".to_string(),
         ]),
         emits: HashSet::from(["agent/acp".to_string()]),
         effect_resources: Vec::new(),
@@ -54,7 +54,7 @@ fn accepts_a_complete_agent_contract() {
 fn rejects_a_registration_missing_control_methods() {
     let mut registration = complete_registration();
     registration.methods.remove("agent/stop");
-    registration.methods.remove("agent/listModels");
+    registration.methods.remove("agent/list_models");
 
     let error = verify_agent_contract(&registration).unwrap_err();
 
@@ -67,7 +67,7 @@ fn rejects_a_registration_missing_control_methods() {
             methods.sort_unstable();
             methods
         }),
-        Some(vec!["agent/listModels", "agent/stop"])
+        Some(vec!["agent/list_models", "agent/stop"])
     );
 }
 
@@ -98,7 +98,7 @@ fn rejects_a_surface_without_effect_control_methods() {
     assert_eq!(
         verify_agent_contract(&registration),
         Err(PluginAgentError::ContractIncomplete(
-            "missing Effect methods effect/coordinate, effect/reactivate, effect/verifyReady"
+            "missing Effect methods effect/coordinate, effect/reactivate, effect/verify_ready"
                 .to_string()
         ))
     );
@@ -134,7 +134,7 @@ fn registration_declaring(format: &str) -> PluginRegistration {
     registration.methods.insert("effect/reactivate".to_string());
     registration
         .methods
-        .insert("effect/verifyReady".to_string());
+        .insert("effect/verify_ready".to_string());
     registration.effect_resources = vec![PluginEffectResource {
         workspace_relative_path: ".opencode/skills".to_string(),
         materialization_format: format.to_string(),

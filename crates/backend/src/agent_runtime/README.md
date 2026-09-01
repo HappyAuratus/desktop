@@ -12,7 +12,7 @@ Every agent comes from an installed [agent plugin](plugin_agent/README.md) that 
 - Cancelling the active prompt is session-scoped control: it reaches the owning prompt even when the caller is only following through `loadSession`, records a cancelled turn, and keeps the actor available for another prompt. Cancelling a load stream alone still detaches only that view.
 - Sessions targeting the same agent share its process and connection; sessions targeting different agents or different actors can progress concurrently.
 - Prompts preserve the public ACP `ContentBlock` sequence, so one turn can contain text, images, audio, and linked or embedded resources instead of being reduced to plain text.
-- Model discovery calls each plugin's bounded `agent/listModels` independently and returns only successful groups.
+- Model discovery calls each plugin's bounded `agent/list_models` independently and returns only successful groups.
 - Agents that advertise models before any session exists publish them once per connection generation, so a reconnect is what refreshes the list. An agent that only exposes models through ACP session config options advertises none here; its models arrive after a session exists instead.
 - Each plugin resolves and launches its own agent executable; this module never searches `PATH` or spawns a CLI directly. The plugin classifies why it could not: a CLI absent from this machine is its own `agent_not_installed` report and stays retryable, while a bundled executable its package carries but cannot run is `agent_unusable` and is terminal, because no retry changes a package.
 - Session cwd for main-Workspace chats and isolated worktree tasks is resolved against the bootstrap path base, not live process cwd.

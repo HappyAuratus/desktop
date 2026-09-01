@@ -82,5 +82,5 @@ the validated digest and fingerprint but does not read package directories throu
 Resource adapter.
 
 Plugin registration exposes `effectResources`. Agent Consumers implement `effect/coordinate`,
-`effect/reactivate`, and `effect/verifyReady`; those versioned payloads remain behind the
+`effect/reactivate`, and `effect/verify_ready`; those versioned payloads remain behind the
 `ConsumerAdapter` boundary and do not add Agent-specific phases to Effect Core.

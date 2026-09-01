@@ -35,6 +35,16 @@ use std::sync::{Arc, Mutex as StdMutex, PoisonError};
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD as BASE64;
 use ora_logging::ora_warn;
+pub use ora_plugin_protocol::{
+    CHILDPROCESS_CLOSE_STDIN_METHOD, CHILDPROCESS_KILL_METHOD, CHILDPROCESS_SPAWN_METHOD,
+    CHILDPROCESS_WRITE_METHOD,
+};
+use ora_plugin_protocol::{
+    CHILDPROCESS_EXIT_METHOD, CHILDPROCESS_STDERR_METHOD, CHILDPROCESS_STDOUT_METHOD,
+    ChildProcessErrorKind, ChildProcessExit, ChildProcessIdParams, ChildProcessOutput,
+    ChildProcessSpawnParams, ChildProcessSpawnResult, ChildProcessWriteParams,
+    MAX_STORAGE_FILE_BYTES,
+};
 use ora_plugin_runtime::{
     HostRequestError, HostRequestHandler, PluginRuntime as ProcessPluginRuntime,
 };
@@ -45,81 +55,17 @@ use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use tokio::sync::{mpsc, watch};
 use tokio::task::JoinHandle;
 
-/// Spawns one child process; returns `{ processId, pid }`.
-pub const CHILDPROCESS_SPAWN_METHOD: &str = "ora/childprocess/spawn";
-/// Writes bytes to one spawned process's stdin.
-pub const CHILDPROCESS_WRITE_METHOD: &str = "ora/childprocess/write";
-/// Signals EOF on one spawned process's stdin without killing it.
-pub const CHILDPROCESS_CLOSE_STDIN_METHOD: &str = "ora/childprocess/closeStdin";
-/// Requests best-effort tree-wide termination of one spawned process.
-pub const CHILDPROCESS_KILL_METHOD: &str = "ora/childprocess/kill";
-
-/// Host-pushed notification carrying one chunk of a spawned process's stdout.
-const CHILDPROCESS_STDOUT_METHOD: &str = "ora/childprocess/stdout";
-/// Host-pushed notification carrying one chunk of a spawned process's stderr.
-const CHILDPROCESS_STDERR_METHOD: &str = "ora/childprocess/stderr";
-/// Host-pushed notification announcing that a spawned process has exited.
-const CHILDPROCESS_EXIT_METHOD: &str = "ora/childprocess/exit";
-
-const INVALID_PARAMS_CODE: i64 = -32602;
-const NOT_FOUND_CODE: i64 = -32004;
-const IO_CODE: i64 = -32000;
-
 /// Chunk size used when pumping a spawned process's stdout or stderr into notifications.
 const READ_CHUNK_BYTES: usize = 32 * 1024;
 
 /// Upper bound on one `write` request's decoded payload, mirroring
-/// [`crate::storage::MAX_STORAGE_FILE_BYTES`] so a plugin cannot force unbounded host memory
+/// [`ora_plugin_protocol::MAX_STORAGE_FILE_BYTES`] so a plugin cannot force unbounded host memory
 /// growth by streaming an oversized chunk to a spawned process's stdin.
-pub(crate) const MAX_WRITE_BYTES: usize = 8 * 1024 * 1024;
+pub(crate) const MAX_WRITE_BYTES: usize = MAX_STORAGE_FILE_BYTES as usize;
 
 /// Longest base64 string that can decode to `MAX_WRITE_BYTES`, checked before `BASE64.decode`
 /// allocates so an oversized payload is rejected without ever being decoded.
 const MAX_WRITE_BASE64_LEN: usize = MAX_WRITE_BYTES.div_ceil(3) * 4;
-
-/// Stable classification of a child-process failure, serialized as `data.kind`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum ChildProcessErrorKind {
-    /// The request params are malformed.
-    InvalidParams,
-    /// `command` parsed but was empty.
-    InvalidCommand,
-    /// `packageCommand` names a path this plugin's package does not carry at all.
-    PackageCommandMissing,
-    /// `packageCommand` names something the package carries but cannot run as an executable.
-    InvalidPackageCommand,
-    /// `processId` does not name a process this handler is tracking.
-    NotFound,
-    /// Spawn failed because the OS could not resolve the executable.
-    ProgramNotFound,
-    /// Any other spawn, write, or kill failure.
-    Io,
-}
-
-impl ChildProcessErrorKind {
-    fn as_str(self) -> &'static str {
-        match self {
-            Self::InvalidParams => "invalid_params",
-            Self::InvalidCommand => "invalid_command",
-            Self::PackageCommandMissing => "package_command_missing",
-            Self::InvalidPackageCommand => "invalid_package_command",
-            Self::NotFound => "not_found",
-            Self::ProgramNotFound => "program_not_found",
-            Self::Io => "io",
-        }
-    }
-
-    fn code(self) -> i64 {
-        match self {
-            Self::InvalidParams
-            | Self::InvalidCommand
-            | Self::PackageCommandMissing
-            | Self::InvalidPackageCommand => INVALID_PARAMS_CODE,
-            Self::NotFound => NOT_FOUND_CODE,
-            Self::ProgramNotFound | Self::Io => IO_CODE,
-        }
-    }
-}
 
 /// One failed child-process call before it is rendered as a JSON-RPC error.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -397,20 +343,18 @@ where
 
         tokio::spawn(watch_exit(self.clone(), process_id.clone(), process));
 
-        Ok(json!({ "processId": process_id, "pid": pid }))
+        Ok(json!(ChildProcessSpawnResult { process_id, pid }))
     }
 
     async fn handle_write(&self, params: Value) -> Result<Value, HostRequestError> {
-        let process_id = required_process_id(&params)?;
-        let bytes_base64 = params
-            .get("bytesBase64")
-            .and_then(Value::as_str)
-            .ok_or_else(|| {
-                ChildProcessError::new(
-                    ChildProcessErrorKind::InvalidParams,
-                    "missing string bytesBase64",
-                )
-            })?;
+        let request: ChildProcessWriteParams = serde_json::from_value(params).map_err(|error| {
+            ChildProcessError::new(
+                ChildProcessErrorKind::InvalidParams,
+                format!("invalid write params: {error}"),
+            )
+        })?;
+        let process_id = request.process_id;
+        let bytes_base64 = request.bytes_base64;
         if bytes_base64.len() > MAX_WRITE_BASE64_LEN {
             return Err(ChildProcessError::new(
                 ChildProcessErrorKind::InvalidParams,
@@ -418,7 +362,7 @@ where
             )
             .into());
         }
-        let bytes = BASE64.decode(bytes_base64).map_err(|error| {
+        let bytes = BASE64.decode(&bytes_base64).map_err(|error| {
             ChildProcessError::new(
                 ChildProcessErrorKind::InvalidParams,
                 format!("bytesBase64 is not valid base64: {error}"),
@@ -528,9 +472,9 @@ async fn pump_output<S, R>(
             Ok(length) => {
                 host.push(
                     method,
-                    json!({
-                        "processId": process_id,
-                        "bytesBase64": BASE64.encode(&buffer[..length]),
+                    json!(ChildProcessOutput {
+                        process_id: process_id.clone(),
+                        bytes_base64: BASE64.encode(&buffer[..length]),
                     }),
                 )
                 .await;
@@ -568,7 +512,11 @@ where
     let (code, signal) = exit_fields(status.as_ref());
     host.push(
         CHILDPROCESS_EXIT_METHOD,
-        json!({ "processId": process_id, "code": code, "signal": signal }),
+        json!(ChildProcessExit {
+            process_id,
+            code,
+            signal,
+        }),
     )
     .await;
 }
@@ -608,71 +556,19 @@ struct SpawnParams {
 /// Parses and validates the `spawn` params, rejecting anything not shaped like the documented
 /// `{ command | packageCommand, args?, cwd?, env? }`.
 fn parse_spawn_params(params: &Value) -> Result<SpawnParams, ChildProcessError> {
-    let object = params.as_object().ok_or_else(|| {
-        ChildProcessError::new(
-            ChildProcessErrorKind::InvalidParams,
-            "spawn params must be an object",
-        )
-    })?;
-    let program = parse_spawn_program(object)?;
-    let args = match object.get("args") {
-        None | Some(Value::Null) => Vec::new(),
-        Some(Value::Array(items)) => items
-            .iter()
-            .map(|item| {
-                item.as_str().map(str::to_owned).ok_or_else(|| {
-                    ChildProcessError::new(
-                        ChildProcessErrorKind::InvalidParams,
-                        "args must be strings",
-                    )
-                })
-            })
-            .collect::<Result<Vec<_>, _>>()?,
-        Some(_) => {
-            return Err(ChildProcessError::new(
+    let request: ChildProcessSpawnParams =
+        serde_json::from_value(params.clone()).map_err(|error| {
+            ChildProcessError::new(
                 ChildProcessErrorKind::InvalidParams,
-                "args must be an array of strings",
-            ));
-        }
-    };
-    let cwd = match object.get("cwd") {
-        None | Some(Value::Null) => None,
-        Some(Value::String(value)) => Some(PathBuf::from(value)),
-        Some(_) => {
-            return Err(ChildProcessError::new(
-                ChildProcessErrorKind::InvalidParams,
-                "cwd must be a string",
-            ));
-        }
-    };
-    let env = match object.get("env") {
-        None | Some(Value::Null) => Vec::new(),
-        Some(Value::Object(entries)) => entries
-            .iter()
-            .map(|(key, value)| {
-                value
-                    .as_str()
-                    .map(|value| (key.clone(), value.to_owned()))
-                    .ok_or_else(|| {
-                        ChildProcessError::new(
-                            ChildProcessErrorKind::InvalidParams,
-                            "env values must be strings",
-                        )
-                    })
-            })
-            .collect::<Result<Vec<_>, _>>()?,
-        Some(_) => {
-            return Err(ChildProcessError::new(
-                ChildProcessErrorKind::InvalidParams,
-                "env must be an object of strings",
-            ));
-        }
-    };
+                format!("invalid spawn params: {error}"),
+            )
+        })?;
+    let program = parse_spawn_program(request.command, request.package_command)?;
     Ok(SpawnParams {
         program,
-        args,
-        cwd,
-        env,
+        args: request.args,
+        cwd: request.cwd.map(PathBuf::from),
+        env: request.env.into_iter().collect(),
     })
 }
 
@@ -682,10 +578,9 @@ fn parse_spawn_params(params: &Value) -> Result<SpawnParams, ChildProcessError> 
 /// `command` and a `packageCommand` are indistinguishable as strings, so letting one field serve
 /// both meanings would make the callsite decide by accident which directory resolves it.
 fn parse_spawn_program(
-    object: &serde_json::Map<String, Value>,
+    command: Option<String>,
+    package_command: Option<String>,
 ) -> Result<SpawnProgram, ChildProcessError> {
-    let command = optional_string(object, "command")?;
-    let package_command = optional_string(object, "packageCommand")?;
     match (command, package_command) {
         (Some(_), Some(_)) => Err(ChildProcessError::new(
             ChildProcessErrorKind::InvalidParams,
@@ -702,12 +597,12 @@ fn parse_spawn_program(
                     "command must not be empty",
                 ));
             }
-            Ok(SpawnProgram::Host(command.to_owned()))
+            Ok(SpawnProgram::Host(command))
         }
         // Portable parsing is what makes the value safe to join: it rejects parent traversal,
         // rooted paths, drive and UNC prefixes, reserved device names, and NUL on every host, so
         // the same package behaves identically wherever it is installed.
-        (None, Some(package_command)) => PortableRelativePath::parse(package_command)
+        (None, Some(package_command)) => PortableRelativePath::parse(&package_command)
             .map(SpawnProgram::Package)
             .map_err(|error| {
                 ChildProcessError::new(
@@ -718,31 +613,14 @@ fn parse_spawn_program(
     }
 }
 
-/// Reads one optional string field, treating an explicit null as absent.
-fn optional_string<'a>(
-    object: &'a serde_json::Map<String, Value>,
-    field: &str,
-) -> Result<Option<&'a str>, ChildProcessError> {
-    match object.get(field) {
-        None | Some(Value::Null) => Ok(None),
-        Some(Value::String(value)) => Ok(Some(value)),
-        Some(_) => Err(ChildProcessError::new(
-            ChildProcessErrorKind::InvalidParams,
-            format!("{field} must be a string"),
-        )),
-    }
-}
-
 /// Extracts and validates the `processId` param shared by `write`, `closeStdin`, and `kill`.
 fn required_process_id(params: &Value) -> Result<String, ChildProcessError> {
-    params
-        .get("processId")
-        .and_then(Value::as_str)
-        .map(str::to_owned)
-        .ok_or_else(|| {
+    serde_json::from_value::<ChildProcessIdParams>(params.clone())
+        .map(|request| request.process_id)
+        .map_err(|error| {
             ChildProcessError::new(
                 ChildProcessErrorKind::InvalidParams,
-                "missing string processId",
+                format!("invalid process params: {error}"),
             )
         })
 }

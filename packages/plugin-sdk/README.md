@@ -143,7 +143,7 @@ current process. `ui.plugin` exposes the underlying `Plugin`.
 ## Agent plugins
 
 `defineAgent` builds a plugin that serves Ora's agent contract — `agent/start`,
-`agent/stop`, `agent/listModels`, and the `agent/acp` notification in both
+`agent/stop`, `agent/list_models`, and the `agent/acp` notification in both
 directions. Ora validates that whole contract when the handshake completes and
 refuses a plugin whose declaration is incomplete, so the helper registers all of
 it up front.

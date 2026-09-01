@@ -47,4 +47,4 @@ See [AGENTS.md](AGENTS.md) for code conventions. Common commands:
 - `task test` — full lint and test suite for frontend and Rust workspace
   packages (long-running)
 - `task lint` — all lint tasks
-- `task export-contracts` — regenerate the TypeScript contract package from Rust
+- `task export-contracts` — regenerate frontend contracts and plugin protocol bindings from Rust

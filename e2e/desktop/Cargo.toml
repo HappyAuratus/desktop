@@ -18,12 +18,14 @@ bench = false
 workspace = true
 
 [dependencies]
+agent-client-protocol-schema = { workspace = true }
 chrono-tz = { workspace = true }
 ora-backend = { workspace = true }
 ora-contracts = { workspace = true }
 ora-db = { workspace = true }
+ora-plugin-protocol = { workspace = true }
 pretty_assertions = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
 tempfile = { workspace = true }
-tokio = { workspace = true, features = ["macros", "rt-multi-thread", "time"] }
+tokio = { workspace = true, features = ["io-std", "io-util", "macros", "rt-multi-thread", "time"] }

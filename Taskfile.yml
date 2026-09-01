@@ -36,7 +36,7 @@ tasks:
   ###################################################
 
   export-contracts:
-    desc: Regenerate TypeScript contracts and the frontend SDK package
+    desc: Regenerate frontend contracts and the plugin protocol bindings
     cmds:
       - cargo xtask export-contracts
       - pnpm --filter @ora/contracts generate:error-schema

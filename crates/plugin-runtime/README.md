@@ -30,7 +30,7 @@ A plugin declares both traffic directions once, in its `ora/register` notificati
       "agent/start",
       "effect/coordinate",
       "effect/reactivate",
-      "effect/verifyReady",
+      "effect/verify_ready",
     ],
     "emits": ["agent/acp"],
     "effectResources": [

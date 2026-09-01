@@ -4,15 +4,27 @@ import {
   type Plugin,
   PluginMethodError,
 } from "./plugin.ts";
-import type { JsonValue } from "./protocol.ts";
+import {
+  AGENT_METHODS,
+  AGENT_NOT_INSTALLED,
+  AGENT_UNUSABLE,
+  type AgentEffectCoordinationContext,
+  type AgentEffectReadinessContext,
+  type AgentListModelsResult,
+  type AgentModel as WireAgentModel,
+  type AgentStartContext,
+  type AgentStartResult,
+  EFFECT_METHODS,
+  INVALID_PARAMS,
+  type JsonValue,
+  SUPPORTED_ACP_VERSION,
+} from "./protocol/index.ts";
 
-const AGENT_START = "agent/start";
-const AGENT_STOP = "agent/stop";
-const AGENT_LIST_MODELS = "agent/listModels";
-const AGENT_ACP = "agent/acp";
-const EFFECT_COORDINATE = "effect/coordinate";
-const EFFECT_REACTIVATE = "effect/reactivate";
-const EFFECT_VERIFY_READY = "effect/verifyReady";
+export type {
+  AgentEffectCoordinationContext,
+  AgentEffectReadinessContext,
+  AgentStartContext,
+};
 
 /**
  * The error code that tells Ora the agent CLI is absent from this machine.
@@ -20,7 +32,7 @@ const EFFECT_VERIFY_READY = "effect/verifyReady";
  * Ora treats it as an expected local configuration: the connection retries quietly instead of
  * reporting a fault, so use it only when the agent genuinely is not installed.
  */
-export const AGENT_NOT_INSTALLED = -32001;
+export { AGENT_NOT_INSTALLED };
 
 /**
  * The error code that tells Ora the agent this package ships cannot run on this machine.
@@ -30,39 +42,15 @@ export const AGENT_NOT_INSTALLED = -32001;
  * agent. Use it when the executable this package carries is broken, missing its dependencies, or
  * built for another target — never when a CLI is merely absent from PATH.
  */
-export const AGENT_UNUSABLE = -32002;
+export { AGENT_UNUSABLE };
 
 /** Describes one model the agent offers before any session exists. */
-export interface AgentModel {
-  id: string;
-  displayName: string;
+export type AgentModel = Omit<WireAgentModel, "default"> & {
   default?: boolean;
-}
-
-/** Carries the host context handed to an agent when it starts. */
-export interface AgentStartContext {
-  /** Neutral working directory the agent should start in. */
-  cwd: string;
-  /** Version of the Ora host that launched this plugin. */
-  hostVersion: string;
-}
+};
 
 /** Sends one ACP frame from the agent back to the host. */
 export type AcpSender = (frame: JsonValue) => Promise<void>;
-
-/** Exact Target and Resource set Ora sends around one mutation attempt. */
-export interface AgentEffectCoordinationContext {
-  targetId: string;
-  resourceIds: string[];
-}
-
-/** Exact immutable projection whose readiness the Agent must confirm. */
-export interface AgentEffectReadinessContext {
-  targetId: string;
-  generation: number;
-  consumerRevisionId: string;
-  projectionDigest: string;
-}
 
 /** Defines Agent-consumed Resources and its coordination/readiness adapter methods. */
 export interface AgentEffectDefinition {
@@ -107,40 +95,50 @@ export interface AgentDefinition {
  */
 export function defineAgent(definition: AgentDefinition): Plugin {
   const plugin = createPlugin();
-  const send: AcpSender = (frame) => plugin.notify(AGENT_ACP, frame);
+  const send: AcpSender = (frame) => plugin.notify(AGENT_METHODS.acp, frame);
 
-  plugin.declareEmit(AGENT_ACP);
-  plugin.registerMethod(AGENT_START, async (input) => {
+  plugin.declareEmit(AGENT_METHODS.acp);
+  plugin.registerMethod(AGENT_METHODS.start, async (input) => {
     await definition.start(parseStartContext(input), send);
     // ACP is the only protocol Ora carries today; the field exists so a plugin that translates a
     // private protocol can declare it later without changing the notification channel.
-    return { protocol: "acp", acpVersion: 1 };
+    return {
+      protocol: "acp",
+      acpVersion: SUPPORTED_ACP_VERSION,
+    } satisfies AgentStartResult;
   });
-  plugin.registerMethod(AGENT_STOP, async () => {
+  plugin.registerMethod(AGENT_METHODS.stop, async () => {
     await definition.stop();
     return {};
   });
-  plugin.registerMethod(AGENT_LIST_MODELS, async () => ({
-    models: (await definition.listModels()).map((model) => ({
-      id: model.id,
-      displayName: model.displayName,
-      default: model.default ?? false,
-    })),
-  }));
-  plugin.onNotification(AGENT_ACP, (params) => definition.onAcp(params));
+  plugin.registerMethod(AGENT_METHODS.listModels, async () =>
+    ({
+      models: (await definition.listModels()).map((model) => ({
+        id: model.id,
+        displayName: model.displayName,
+        default: model.default ?? false,
+      })),
+    }) satisfies AgentListModelsResult);
+  plugin.onNotification(
+    AGENT_METHODS.acp,
+    (params) => definition.onAcp(params),
+  );
   const effects = definition.effects;
   if (effects !== undefined) {
     for (const resource of effects.resources) {
       plugin.declareEffectResource(resource);
     }
-    plugin.registerMethod(EFFECT_COORDINATE, (input) =>
-      effects.coordinate(parseCoordinationContext(input))
+    plugin.registerMethod(
+      EFFECT_METHODS.coordinate,
+      (input) => effects.coordinate(parseCoordinationContext(input)),
     );
-    plugin.registerMethod(EFFECT_REACTIVATE, (input) =>
-      effects.reactivate(parseCoordinationContext(input))
+    plugin.registerMethod(
+      EFFECT_METHODS.reactivate,
+      (input) => effects.reactivate(parseCoordinationContext(input)),
     );
-    plugin.registerMethod(EFFECT_VERIFY_READY, (input) =>
-      effects.verifyReady(parseReadinessContext(input))
+    plugin.registerMethod(
+      EFFECT_METHODS.verifyReady,
+      (input) => effects.verifyReady(parseReadinessContext(input)),
     );
   }
 
@@ -158,7 +156,7 @@ function parseCoordinationContext(
     !input.resourceIds.every((resource) => typeof resource === "string")
   ) {
     throw new PluginMethodError(
-      -32602,
+      INVALID_PARAMS,
       "Effect coordination requires targetId and resourceIds",
     );
   }
@@ -179,8 +177,8 @@ function parseReadinessContext(input: JsonValue): AgentEffectReadinessContext {
     typeof input.projectionDigest !== "string"
   ) {
     throw new PluginMethodError(
-      -32602,
-      "effect/verifyReady requires exact Target projection identity",
+      INVALID_PARAMS,
+      `${EFFECT_METHODS.verifyReady} requires exact Target projection identity`,
     );
   }
   return {
@@ -198,7 +196,7 @@ function parseStartContext(input: JsonValue): AgentStartContext {
     typeof input.cwd !== "string" || typeof input.hostVersion !== "string"
   ) {
     throw new PluginMethodError(
-      -32602,
+      INVALID_PARAMS,
       "agent/start requires a cwd and hostVersion",
     );
   }

@@ -23,6 +23,7 @@ pub fn run_export_contracts(workspace_root: &Path) -> Result<(), Box<dyn std::er
         &contracts_source_directory.join("endpoints.ts"),
         &render_endpoints_module(&endpoints),
     )?;
+    crate::export_plugin_protocol::run(workspace_root)?;
 
     Ok(())
 }

@@ -2,21 +2,18 @@ use std::path::Path;
 use std::time::Duration;
 
 use ora_logging::ora_warn;
-use ora_plugin_runtime::PluginEffectCoordination;
+use ora_plugin_protocol::{
+    AGENT_LIST_MODELS_METHOD, AGENT_NOT_INSTALLED_CODE, AGENT_START_METHOD, AGENT_STOP_METHOD,
+    AGENT_UNUSABLE_CODE, AgentListModelsResult, AgentModel, AgentProtocol, AgentStartContext,
+    AgentStartResult, EFFECT_COORDINATE_METHOD, EFFECT_REACTIVATE_METHOD,
+    EFFECT_VERIFY_READY_METHOD, PluginEffectCoordination, SUPPORTED_ACP_VERSION,
+};
 use ora_plugin_runtime::{PluginRegistration, PluginRuntime, PluginRuntimeError};
-use serde::{Deserialize, Serialize};
 use serde_json::json;
 use thiserror::Error;
 use tokio::time::timeout;
 
-/// The method a plugin must serve to bring its agent up.
-pub(super) const AGENT_START_METHOD: &str = "agent/start";
-/// The method a plugin must serve to bring its agent down while staying alive itself.
-pub(super) const AGENT_STOP_METHOD: &str = "agent/stop";
-/// The method a plugin must serve to list selectable models outside any session.
-pub(super) const AGENT_LIST_MODELS_METHOD: &str = "agent/listModels";
-/// The notification method that carries ACP frames in both directions.
-pub(crate) const AGENT_ACP_METHOD: &str = "agent/acp";
+pub(crate) use ora_plugin_protocol::AGENT_ACP_METHOD;
 
 /// How long a plugin has to confirm it stopped its agent.
 ///
@@ -24,23 +21,6 @@ pub(crate) const AGENT_ACP_METHOD: &str = "agent/acp";
 /// cancellation grace, because teardown must never be the reason shutdown stalls: the plugin
 /// process is ended immediately afterwards whether or not it answered.
 const AGENT_STOP_TIMEOUT: Duration = Duration::from_secs(2);
-
-/// The error code a plugin returns when the agent it fronts is not installed on this machine.
-///
-/// This is an expected local configuration rather than a fault, so the supervisor retries it
-/// silently; every other code is a genuine startup failure worth logging.
-const AGENT_NOT_INSTALLED_CODE: i64 = -32001;
-
-/// The error code a plugin returns when the agent it ships cannot run on this machine at all.
-///
-/// It exists so a plugin can separate "the user has not installed the CLI yet", which the user can
-/// fix while Ora keeps running and which is therefore retried forever, from "the executable this
-/// package carries is unusable", which fails identically on every attempt. Only the second gives
-/// up, so a broken package surfaces once instead of being retried behind a quiet
-/// [`PluginAgentError::AgentNotInstalled`]. The plugin's own message is kept rather than replaced
-/// by a fixed one: giving up means this is the only report the failure ever produces, and only the
-/// plugin knows which of its programs failed and how.
-const AGENT_UNUSABLE_CODE: i64 = -32002;
 
 /// Reports why one agent plugin could not be brought up or queried.
 #[derive(Debug, Error, Clone, PartialEq, Eq)]
@@ -71,53 +51,11 @@ impl From<PluginRuntimeError> for PluginAgentError {
     }
 }
 
-/// Parameters handed to a plugin when the host asks it to bring its agent up.
-#[derive(Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-struct AgentStartParams<'a> {
-    cwd: &'a Path,
-    host_version: &'a str,
-}
-
-/// The plugin's confirmation that its agent is ready to receive ACP frames.
-#[derive(Debug, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "camelCase")]
-struct AgentStartResult {
-    protocol: AgentProtocol,
-    acp_version: u32,
-}
-
-/// The wire protocol a plugin speaks on the ACP channel.
-///
-/// Only ACP exists today; the field is on the wire so a future translating plugin can declare a
-/// different protocol without changing the notification channel's shape.
-#[derive(Debug, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "lowercase")]
-enum AgentProtocol {
-    Acp,
-}
-
-/// The ACP major version this host speaks over the plugin channel.
-const SUPPORTED_ACP_VERSION: u32 = 1;
-
 /// Describes one model an agent plugin offers before any session exists.
 ///
 /// This is deliberately separate from ACP session config options, which only exist after
 /// `session/new`: the agent and model pickers must render before any session is created.
-#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
-#[serde(rename_all = "camelCase")]
-pub(crate) struct PluginAgentModel {
-    pub id: String,
-    pub display_name: String,
-    #[serde(default)]
-    pub default: bool,
-}
-
-/// Carries the model list one plugin advertises.
-#[derive(Debug, Deserialize, PartialEq, Eq)]
-struct ListModelsResult {
-    models: Vec<PluginAgentModel>,
-}
+pub(crate) type PluginAgentModel = AgentModel;
 
 /// Rejects a plugin whose registration does not cover the whole agent contract.
 ///
@@ -152,9 +90,9 @@ pub(super) fn verify_agent_contract(
         .any(|resource| resource.coordination == PluginEffectCoordination::QuiesceBeforeMutation);
     if requires_restart_coordination {
         let missing_effect_methods = [
-            super::effect::COORDINATE_METHOD,
-            super::effect::REACTIVATE_METHOD,
-            super::effect::VERIFY_READY_METHOD,
+            EFFECT_COORDINATE_METHOD,
+            EFFECT_REACTIVATE_METHOD,
+            EFFECT_VERIFY_READY_METHOD,
         ]
         .into_iter()
         .filter(|method| !registration.methods.contains(*method))
@@ -175,8 +113,11 @@ pub(super) async fn start_agent(
     cwd: &Path,
     host_version: &str,
 ) -> Result<(), PluginAgentError> {
-    let params = serde_json::to_value(AgentStartParams { cwd, host_version })
-        .map_err(|error| PluginAgentError::Failed(error.to_string()))?;
+    let params = serde_json::to_value(AgentStartContext {
+        cwd: cwd.to_path_buf(),
+        host_version: host_version.to_string(),
+    })
+    .map_err(|error| PluginAgentError::Failed(error.to_string()))?;
     let result = runtime.invoke(AGENT_START_METHOD, params).await?;
     let result: AgentStartResult = serde_json::from_value(result).map_err(|error| {
         PluginAgentError::Failed(format!("invalid {AGENT_START_METHOD} result: {error}"))
@@ -222,7 +163,7 @@ pub(crate) async fn list_models(
     runtime: &PluginRuntime,
 ) -> Result<Vec<PluginAgentModel>, PluginAgentError> {
     let result = runtime.invoke(AGENT_LIST_MODELS_METHOD, json!({})).await?;
-    let result: ListModelsResult = serde_json::from_value(result).map_err(|error| {
+    let result: AgentListModelsResult = serde_json::from_value(result).map_err(|error| {
         PluginAgentError::Failed(format!(
             "invalid {AGENT_LIST_MODELS_METHOD} result: {error}"
         ))

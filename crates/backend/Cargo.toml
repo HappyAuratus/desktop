@@ -27,6 +27,7 @@ ora-plugin-config = { workspace = true }
 ora-plugin-manifest = { workspace = true }
 ora-plugin-lifecycle = { workspace = true }
 ora-plugin-manager = { workspace = true }
+ora-plugin-protocol = { workspace = true }
 ora-plugin-runtime = { workspace = true }
 ora-plugin-registry = { workspace = true }
 ora-process = { workspace = true }

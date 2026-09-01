@@ -7,18 +7,17 @@ use ora_effect::{
     CoordinationRequirement, EffectKind, EffectTarget, FilesystemResourceTemplate,
     MaterializationContract, MaterializationFormat, ResourcePath, TargetProjection,
 };
+use ora_plugin_protocol::{
+    AgentEffectCoordinationContext, AgentEffectReadinessContext, EFFECT_COORDINATE_METHOD,
+    EFFECT_REACTIVATE_METHOD, EFFECT_VERIFY_READY_METHOD,
+};
 use ora_plugin_runtime::{
     PluginEffectCoordination, PluginRegistration, PluginRuntime, PluginRuntimeError,
 };
-use serde::Serialize;
 use serde_json::Value;
 use std::collections::{BTreeMap, BTreeSet};
 use std::future::Future;
 use thiserror::Error;
-
-pub(super) const COORDINATE_METHOD: &str = "effect/coordinate";
-pub(super) const REACTIVATE_METHOD: &str = "effect/reactivate";
-pub(super) const VERIFY_READY_METHOD: &str = "effect/verifyReady";
 
 /// Reports an invalid declaration or failed Consumer adapter invocation.
 #[derive(Clone, Debug, Error, Eq, PartialEq)]
@@ -104,29 +103,13 @@ pub(crate) fn registered_consumer_declaration(
     }))
 }
 
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-struct CoordinationParams<'a> {
-    target_id: &'a str,
-    resource_ids: Vec<&'a str>,
-}
-
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-struct ReadinessParams<'a> {
-    target_id: &'a str,
-    generation: u64,
-    consumer_revision_id: &'a str,
-    projection_digest: &'a str,
-}
-
 /// Establishes the plugin-owned safe-to-mutate barrier for the complete Resource set.
 pub(crate) async fn coordinate(
     runtime: &PluginRuntime,
     target: &EffectTarget,
     plan: &CoordinationPlan,
 ) -> Result<AdapterReceipt, AgentEffectError> {
-    invoke_coordination(runtime, COORDINATE_METHOD, target, plan).await
+    invoke_coordination(runtime, EFFECT_COORDINATE_METHOD, target, plan).await
 }
 
 /// Reactivates a plugin Target after every Resource mutation has been verified.
@@ -135,7 +118,7 @@ pub(crate) async fn reactivate(
     target: &EffectTarget,
     plan: &CoordinationPlan,
 ) -> Result<AdapterReceipt, AgentEffectError> {
-    invoke_coordination(runtime, REACTIVATE_METHOD, target, plan).await
+    invoke_coordination(runtime, EFFECT_REACTIVATE_METHOD, target, plan).await
 }
 
 /// Obtains exact readiness proof for one immutable Target projection.
@@ -144,15 +127,15 @@ pub(crate) async fn verify_ready(
     target: &EffectTarget,
     projection: &TargetProjection,
 ) -> Result<AdapterReceipt, AgentEffectError> {
-    let params = serde_json::to_value(ReadinessParams {
-        target_id: target.identity.as_str(),
+    let params = serde_json::to_value(AgentEffectReadinessContext {
+        target_id: target.identity.as_str().to_string(),
         generation: projection.generation.value(),
-        consumer_revision_id: target.consumer_revision.as_str(),
-        projection_digest: projection.digest.digest().as_str(),
+        consumer_revision_id: target.consumer_revision.as_str().to_string(),
+        projection_digest: projection.digest.digest().as_str().to_string(),
     })
     .map_err(|error| AgentEffectError::Ipc(error.to_string()))?;
     let proof = runtime
-        .invoke(VERIFY_READY_METHOD, params)
+        .invoke(EFFECT_VERIFY_READY_METHOD, params)
         .await
         .map_err(|error| AgentEffectError::Ipc(error.to_string()))?;
     Ok(AdapterReceipt {
@@ -168,12 +151,13 @@ async fn invoke_coordination<Runtime: AgentEffectRuntime>(
     target: &EffectTarget,
     plan: &CoordinationPlan,
 ) -> Result<AdapterReceipt, AgentEffectError> {
-    let params = serde_json::to_value(CoordinationParams {
-        target_id: target.identity.as_str(),
+    let params = serde_json::to_value(AgentEffectCoordinationContext {
+        target_id: target.identity.as_str().to_string(),
         resource_ids: plan
             .resources
             .iter()
             .map(ora_effect::EffectResourceId::as_str)
+            .map(str::to_string)
             .collect(),
     })
     .map_err(|error| AgentEffectError::Ipc(error.to_string()))?;
