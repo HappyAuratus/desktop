@@ -536,14 +536,9 @@ where
                 CoordinationReceiptState::Reactivated,
             )?;
             receipts.push(receipt);
-            self.repository.record_attempt_progress(
-                claim,
-                &attempt,
-                &operations,
-                &receipts,
-                now,
-            )?;
         }
+        // Reactivation is an all-participant barrier. Persisting a partial receipt set while the
+        // Attempt is still Verified would violate the repository's exact barrier invariant.
         attempt.mark_activated()?;
         self.repository
             .record_attempt_progress(claim, &attempt, &operations, &receipts, now)?;

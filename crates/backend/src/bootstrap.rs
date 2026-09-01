@@ -233,7 +233,7 @@ impl Backend {
                 sessions_root.clone(),
                 repository_gates,
                 clock,
-                effect_reconcile,
+                effect_reconcile.clone(),
             )),
             workspace_diff: Arc::new(WorkspaceDiffApi::new(
                 pool.clone(),
@@ -244,7 +244,12 @@ impl Backend {
             session: Arc::new(SessionApi::new(pool.clone())),
             agent_runtime,
             plugin,
-            skill: Arc::new(SkillApi::new(pool.clone(), skills_root.clone(), clock)),
+            skill: Arc::new(SkillApi::new(
+                pool.clone(),
+                skills_root.clone(),
+                clock,
+                effect_reconcile,
+            )),
             agent: Arc::new(AgentApi::new(pool.clone(), clock)),
             workflow: Arc::new(WorkflowApi::new(pool.clone(), clock)),
             workflow_run: Arc::new(WorkflowRunApi::new(pool.clone(), skills_root, clock)),

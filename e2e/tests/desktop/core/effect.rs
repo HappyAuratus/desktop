@@ -2,30 +2,117 @@
 
 mod tests {
     use crate::setup::DesktopTestSetup;
-    use ora_db::{DatabaseBootstrapper, DatabaseLocation, default_migration_catalog};
+    use ora_backend::Backend;
+    use ora_contracts::{
+        AgentStatus, CommitSkillImportRequest, CreateProjectRequest, DeleteSkillRequest,
+        GetAgentRuntimeStatusRequest, GetSkillImportSessionRequest, ListSkillsRequest,
+        PrepareSkillImportRequest, SkillImportSessionStatus, SkillImportSource,
+    };
     use pretty_assertions::assert_eq;
+    use std::fs;
+    use std::io;
+    use std::path::Path;
+    use std::time::{Duration, Instant};
 
-    /// Verifies one E2E case uses isolated Backend paths and a file-backed database.
+    const AGENT_REF: &str = "ora-space.opencode";
+    const EFFECT_TIMEOUT: Duration = Duration::from_secs(5);
+    const POLL_INTERVAL: Duration = Duration::from_millis(10);
+
+    /// Verifies imported Skills promptly converge into an OpenCode Workspace and disappear after
+    /// deletion without waiting for the Effect worker's periodic scan.
     #[test]
-    fn uses_isolated_file_backed_backend_paths() -> Result<(), Box<dyn std::error::Error>> {
+    fn imported_skill_converges_into_workspace_and_is_removed_after_deletion()
+    -> Result<(), Box<dyn std::error::Error>> {
         let setup = DesktopTestSetup::new()?;
-        let root = setup.root().to_path_buf();
-        let paths = setup.backend_paths();
-        let database_path = paths.app_data_directory.join("ora.sqlite3");
-        let catalog = default_migration_catalog()?;
-        let _pool = DatabaseBootstrapper::system()
-            .bootstrap_repository_pool(&DatabaseLocation::path(&database_path), &catalog)?;
-        let expected_app_data_directory = root.join("app_data");
-        let expected_home_directory = root.join("home");
+        install_fake_opencode_plugin(&setup.backend_paths().home_directory)?;
+        let mut backend_paths = setup.backend_paths().clone();
+        backend_paths.deno_path = env!("CARGO_BIN_EXE_fake-agent").into();
+        let backend = Backend::open(backend_paths)?;
+        wait_until("fake OpenCode agent did not become ready", || {
+            backend
+                .get_agent_runtime_status(GetAgentRuntimeStatusRequest {})
+                .is_ok_and(|response| {
+                    response.statuses.iter().any(|runtime| {
+                        runtime.agent_ref == AGENT_REF && runtime.status == AgentStatus::Ready
+                    })
+                })
+        })?;
 
-        assert_eq!(
-            (
-                &paths.app_data_directory,
-                &paths.home_directory,
-                database_path.is_file(),
-            ),
-            (&expected_app_data_directory, &expected_home_directory, true,),
-        );
+        let workspace = setup.root().join("workspace");
+        fs::create_dir_all(&workspace)?;
+        backend.create_project(CreateProjectRequest {
+            name: "Effect E2E".to_string(),
+            main_workspace_path: workspace.to_string_lossy().into_owned(),
+        })?;
+
+        let import_source = setup.root().join("import").join("review");
+        fs::create_dir_all(&import_source)?;
+        fs::write(
+            import_source.join("SKILL.md"),
+            "---\nname: review\ndescription: Reviews changes\n---\n# Review\n",
+        )?;
+        let prepared = backend.prepare_skill_import(PrepareSkillImportRequest {
+            source: SkillImportSource::Folder {
+                path: import_source.to_string_lossy().into_owned(),
+            },
+        })?;
+        let session_id = prepared.session.session_id;
+        backend.commit_skill_import(CommitSkillImportRequest {
+            session_id: session_id.clone(),
+            decisions: Vec::new(),
+        })?;
+        wait_until("Skill import did not complete", || {
+            backend
+                .get_skill_import(GetSkillImportSessionRequest {
+                    session_id: session_id.clone(),
+                })
+                .is_ok_and(|response| {
+                    response.session.status == SkillImportSessionStatus::Completed
+                })
+        })?;
+
+        let materialized_skill = workspace.join(".opencode").join("skills").join("review");
+        wait_until("imported Skill was not promptly materialized", || {
+            materialized_skill.join("SKILL.md").is_file()
+        })?;
+        let skills = backend.list_skills(ListSkillsRequest {})?.skills;
+        assert_eq!(skills.len(), 1);
+        backend.delete_skill(DeleteSkillRequest {
+            skill_id: skills[0].id.clone(),
+        })?;
+        wait_until("deleted Skill was not promptly removed", || {
+            !materialized_skill.exists()
+        })?;
+
         Ok(())
+    }
+
+    /// Installs the package metadata that makes the E2E fake process discoverable as OpenCode.
+    fn install_fake_opencode_plugin(home_directory: &Path) -> io::Result<()> {
+        let package_root = home_directory
+            .join("plugins")
+            .join("installed")
+            .join("official")
+            .join(AGENT_REF)
+            .join("1.0.0");
+        fs::create_dir_all(&package_root)?;
+        fs::write(package_root.join("main.js"), "export {};\n")?;
+        fs::write(
+            package_root.join("orax.toml"),
+            "resolver = 1\nidentifier = \"ora-space.opencode\"\nnamespace = \"official\"\nkind = \"agent\"\nversion = \"1.0.0\"\ndescription = \"OpenCode E2E agent\"\n",
+        )
+    }
+
+    /// Polls an asynchronous external observation until it becomes true or the prompt deadline
+    /// proves the Effect worker was not notified.
+    fn wait_until(message: &str, mut condition: impl FnMut() -> bool) -> io::Result<()> {
+        let deadline = Instant::now() + EFFECT_TIMEOUT;
+        while Instant::now() < deadline {
+            if condition() {
+                return Ok(());
+            }
+            std::thread::sleep(POLL_INTERVAL);
+        }
+        Err(io::Error::new(io::ErrorKind::TimedOut, message))
     }
 }
