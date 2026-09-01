@@ -1,0 +1,19 @@
+[package]
+name = "ora-desktop-tests"
+version.workspace = true
+edition.workspace = true
+publish = false
+
+[[test]]
+name = "desktop"
+path = "tests/desktop/main.rs"
+
+[lints]
+workspace = true
+
+[dev-dependencies]
+chrono-tz = { workspace = true }
+ora-backend = { workspace = true }
+ora-db = { workspace = true }
+pretty_assertions = { workspace = true }
+tempfile = { workspace = true }

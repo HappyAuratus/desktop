@@ -30,7 +30,8 @@ members = [
     "crates/test-support",
     "crates/utils",
     "crates/user-config",
-    "e2e/desktop",
+    "e2e/fake-agent",
+    "e2e",
     "xtask",
 ]
 default-members = [
@@ -61,7 +62,8 @@ default-members = [
     "crates/test-support",
     "crates/utils",
     "crates/user-config",
-    "e2e/desktop",
+    "e2e/fake-agent",
+    "e2e",
     "xtask",
 ]
 resolver = "2"

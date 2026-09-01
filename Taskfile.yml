@@ -158,7 +158,7 @@ tasks:
       CARGO_INCREMENTAL: "0"
     silent: true
     cmds:
-      - cargo clippy --package ora-desktop-tests -- -D warnings
+      - cargo clippy --package ora-desktop-tests --tests -- -D warnings
 
   test:
     desc: Run all frontend and Rust workspace checks (may take a long time)

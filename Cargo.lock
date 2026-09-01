@@ -3238,17 +3238,11 @@ dependencies = [
 name = "ora-desktop-tests"
 version = "0.0.0"
 dependencies = [
- "agent-client-protocol-schema",
  "chrono-tz",
  "ora-backend",
- "ora-contracts",
  "ora-db",
- "ora-plugin-protocol",
  "pretty_assertions",
- "serde",
- "serde_json",
  "tempfile",
- "tokio",
 ]
 
 [[package]]
@@ -3287,6 +3281,17 @@ dependencies = [
  "serde",
  "serde_json",
  "thiserror 2.0.20",
+]
+
+[[package]]
+name = "ora-fake-agent"
+version = "0.0.0"
+dependencies = [
+ "agent-client-protocol-schema",
+ "ora-plugin-protocol",
+ "serde",
+ "serde_json",
+ "tokio",
 ]
 
 [[package]]

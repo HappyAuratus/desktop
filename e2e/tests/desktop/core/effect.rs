@@ -1,6 +1,5 @@
 //! Integration coverage for Workspace-scoped Effect convergence.
 
-#[cfg(test)]
 mod tests {
     use crate::setup::DesktopTestSetup;
     use ora_db::{DatabaseBootstrapper, DatabaseLocation, default_migration_catalog};
