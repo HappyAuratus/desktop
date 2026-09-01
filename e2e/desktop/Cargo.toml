@@ -10,7 +10,7 @@ path = "src/lib.rs"
 
 [[bin]]
 name = "fake-agent"
-path = "src/fake_agent.rs"
+path = "src/bin/fake_agent.rs"
 test = false
 bench = false
 
