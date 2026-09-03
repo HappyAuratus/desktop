@@ -29,6 +29,7 @@ the reconciler reloads and replans after Resource claims close the race with oth
 
 The crate does not depend on SQLite, Tauri, a concrete Agent runtime, or Skill package parsing.
 Built-in Consumer- and Resource-specific data is represented by closed versioned payload enums in
-this crate, but interpreted only by its integration crate. Adding a built-in Effect kind therefore
-extends both the wire enum and its integration planner; it does not add kind-specific branches to
-the generic status, claim, watermark, or recovery state machines.
+this crate, but interpreted only by its integration crate. MCP is Session Runtime Input, not an
+Effect kind: adding a built-in Effect kind therefore extends both the wire enum and its
+integration planner; it does not add kind-specific branches to the generic status, claim,
+watermark, or recovery state machines.

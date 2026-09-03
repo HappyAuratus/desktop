@@ -17,7 +17,7 @@ use crate::workflow::run::{
     ConcreteWorkflowRunControl, ConcreteWorkflowRunEngine, build_workflow_run_engine,
 };
 use crate::workspace_diff::WorkspaceDiffApi;
-use ora_application::{ApplicationError, Clock, WorkflowRunEngineRepository};
+use ora_application::{ApplicationError, Clock, EffectService, WorkflowRunEngineRepository};
 use ora_contracts::*;
 use ora_contracts::{EmptyErrorParams, PublicError};
 use ora_db::SqliteWorkflowRunEngineRepository;
@@ -180,6 +180,10 @@ impl Backend {
             })
             .map_err(BackendBootstrapError::AgentRuntime)?,
         );
+        plugin.set_mcp_wakeup({
+            let runtime = agent_runtime.clone();
+            Arc::new(move || runtime.notify_mcp_desired_changed())
+        });
         // Build the run engine before the crash sweep so recovery can resume stalled runs.
         let workflow_run_assembly = build_workflow_run_engine(
             agent_runtime.clone(),
@@ -303,6 +307,16 @@ impl Backend {
         self.plugin.reset_configuration(request)
     }
 
+    /// Returns one Effect Target selected by opaque id or Workspace plus Agent identity.
+    pub fn get_effect_target_status(
+        &self,
+        request: GetEffectTargetStatusRequest,
+    ) -> Result<GetEffectTargetStatusResponse, BackendError> {
+        EffectService::new(ora_db::SqliteEffectRepository::new(self.pool.clone()))
+            .get_target_status(request)
+            .map_err(|error| BackendError::internal("failed to load Effect Target status", error))
+    }
+
     /// Returns the cached marketplace registry index used to populate plugin discovery.
     pub fn list_available_plugins(
         &self,
@@ -364,11 +378,7 @@ impl Backend {
         &self,
         request: ScanPluginsRequest,
     ) -> Result<ScanPluginsResponse, BackendError> {
-        let response = self
-            .plugin
-            .scan(request)
-            .await
-            .map_err(BackendError::from)?;
+        let response = self.plugin.scan(request).await?;
         self.agent_runtime.sync_plugin_agents();
         Ok(response)
     }
@@ -1972,6 +1982,7 @@ mod tests {
 
         let saved = backend
             .save_plugin_configuration(SavePluginConfigurationRequest {
+                preserve_setting_ids: Vec::new(),
                 plugin_id: PLUGIN_ID.to_string(),
                 expected_revision: configuration.revision,
                 declaration_fingerprint: configuration.declaration_fingerprint.clone(),
@@ -2130,6 +2141,7 @@ mod tests {
             .configuration;
         backend
             .save_plugin_configuration(SavePluginConfigurationRequest {
+                preserve_setting_ids: Vec::new(),
                 plugin_id: PLUGIN_ID.to_string(),
                 expected_revision: configuration.revision,
                 declaration_fingerprint: configuration.declaration_fingerprint.clone(),
@@ -2218,6 +2230,7 @@ mod tests {
         }
         backend
             .save_plugin_configuration(SavePluginConfigurationRequest {
+                preserve_setting_ids: Vec::new(),
                 plugin_id: PLUGIN_ID.to_string(),
                 expected_revision: configuration.revision,
                 declaration_fingerprint: configuration.declaration_fingerprint.clone(),

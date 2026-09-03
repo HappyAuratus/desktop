@@ -36,6 +36,7 @@ ora-scheduler = { workspace = true }
 ora-skill-package = { workspace = true }
 ora-utils = { workspace = true, features = ["http-reqwest"] }
 ora-user-config = { workspace = true }
+semver = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
 similar = { workspace = true }

@@ -95,11 +95,12 @@ export function PluginConfigurationEditor({
       resetting={configuration.reset.isPending}
       onBack={onBack}
       onNavigationGuardChange={onNavigationGuardChange}
-      onSave={async (values) => {
+      onSave={async (values, preserveSettingIds) => {
         const response = await configuration.save.mutateAsync({
           expectedRevision: details.revision,
           declarationFingerprint: details.declarationFingerprint,
           values,
+          preserveSettingIds,
         });
         setSavedRevision(response.configuration.revision);
         return response.configuration;
@@ -150,6 +151,7 @@ function LoadedConfigurationEditor({
   ) => void;
   onSave: (
     values: Record<string, PluginSettingValue>,
+    preserveSettingIds: string[],
   ) => Promise<PluginConfigurationDetails>;
   onReset: () => Promise<PluginConfigurationDetails>;
   onReload: () => Promise<PluginConfigurationDetails>;
@@ -172,8 +174,13 @@ function LoadedConfigurationEditor({
 
   const save = async () => {
     const values: Record<string, PluginSettingValue> = {};
+    const preserveSettingIds: string[] = [];
     for (const field of details.settings) {
       const draft = drafts[field.declaration.id];
+      if (field.redacted && !draft?.override) {
+        preserveSettingIds.push(field.declaration.id);
+        continue;
+      }
       if (draft === undefined || !draft.override) continue;
       if (field.declaration.type === "number") {
         const text = String(draft.value ?? "");
@@ -197,7 +204,7 @@ function LoadedConfigurationEditor({
     }
     setFieldError(null);
     try {
-      const saved = await onSave(values);
+      const saved = await onSave(values, preserveSettingIds);
       setDrafts(draftsFrom(saved));
       return true;
     } catch (error) {
@@ -342,6 +349,12 @@ function LoadedConfigurationEditor({
                       );
                   }}
                   aria-label={field.declaration.title}
+                  type={field.redacted ? "password" : undefined}
+                  placeholder={
+                    field.redacted && field.source === "stored"
+                      ? t("settings.plugins.configuration.configuredSecret")
+                      : undefined
+                  }
                   inputMode={
                     field.declaration.type === "number" ? "decimal" : undefined
                   }
@@ -536,6 +549,7 @@ function ConfigurationBreadcrumb({
 }
 
 function draftFrom(field: PluginSettingDetails): Draft {
+  if (field.redacted) return { override: false, value: null };
   if (field.storedValue !== null)
     return { override: true, value: displayValue(field.storedValue) };
   return { override: false, value: displayValue(field.effectiveValue) };

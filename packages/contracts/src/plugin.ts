@@ -359,6 +359,10 @@ export type PluginSettingDetails = {
   declaration: PluginSettingDeclaration;
   storedValue: PluginSettingValue | null;
   effectiveValue: PluginSettingValue | null;
+  /**
+   * True when the host deliberately withholds a value used by an MCP process.
+   */
+  redacted: boolean;
   source: PluginSettingValueSource;
   valueErrorCode: string | null;
 };
@@ -425,6 +429,10 @@ export type SavePluginConfigurationRequest = {
   expectedRevision: bigint;
   declarationFingerprint: string;
   values: { [key in string]: PluginSettingValue };
+  /**
+   * Host-redacted stored values that an unchanged editor must retain.
+   */
+  preserveSettingIds: Array<string>;
 };
 
 /**

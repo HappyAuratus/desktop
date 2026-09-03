@@ -31,9 +31,9 @@ pub use operation::{
     ArtifactRole, ArtifactState, AuditGeneration, AuditInitiator, AuditScope, CoordinationPlan,
     CoordinationReceipt, CoordinationReceiptState, EffectAuditEvent, EffectMutation,
     EffectOperation, EffectOperationIntent, ExactPlannedState, ExactPreviousState,
-    FilesystemOperationPlan, OperationArtifact, OperationProgress, OperationTransitionError,
-    ReconcileAttempt, ReconcileAttemptIntent, ReconcileAttemptPhase, VersionedAdapterPlan,
-    VersionedResourceLocator, VersionedSafeAuditPayload,
+    FilesystemOperationPlan, JsonMergeOperationPlan, OperationArtifact, OperationProgress,
+    OperationTransitionError, ReconcileAttempt, ReconcileAttemptIntent, ReconcileAttemptPhase,
+    VersionedAdapterPlan, VersionedResourceLocator, VersionedSafeAuditPayload,
 };
 pub use planner::{
     EffectPlanner, PlannedMutation, PlannedResourceChange, PlannerError, PlanningResult,
@@ -65,7 +65,8 @@ pub use status::{
 pub use target::{
     CapabilitySet, Consumer, ConsumerDeclaration, ConsumerLifecycle, ConsumerRevision,
     CoordinationContract, CoordinationRequirement, DeclarationError, EffectResource, EffectScope,
-    EffectScopeLifecycle, EffectTarget, FilesystemDirectoryDescriptor, FilesystemResourceTemplate,
-    MaterializationContract, MaterializationFormat, ResourceLifecycle, ResourcePath,
-    TargetDeclaration, TargetLifecycle, TargetResourceBinding, VersionedResourceDescriptor,
+    EffectScopeLifecycle, EffectTarget, FilesystemDirectoryDescriptor, FilesystemFileDescriptor,
+    FilesystemResourceTemplate, MaterializationContract, MaterializationFormat, ResourceLifecycle,
+    ResourcePath, TargetDeclaration, TargetLifecycle, TargetResourceBinding,
+    VersionedResourceDescriptor,
 };

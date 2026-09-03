@@ -29,6 +29,7 @@ use title_acquisition::TitleAcquisition;
 
 use crate::clock::SystemClock;
 use crate::plugin::PluginApi;
+use crate::session_setup::{AgentSessionBarriers, BarrierReason, LiveMcpState, SessionMcpHost};
 use crate::task::resolve_workspace_cwd;
 use crate::{BackendError, ErrorClassification};
 use agent_client_protocol_schema::v1::AvailableCommand;
@@ -86,6 +87,9 @@ pub(crate) trait ReplacedAgentSessions: Send + Sync + 'static {
     /// would let a caller pass an address where an agent name belongs, which compiles, reads
     /// correctly, and silently matches no session at all.
     fn detach_sessions_for_replaced_plugin(&self, plugin_id: &PluginId);
+
+    /// Shared Agent Session Barrier that serializes Effect mutation with MCP refresh.
+    fn session_barriers(&self) -> Arc<AgentSessionBarriers>;
 }
 
 impl ReplacedAgentSessions for AgentRuntimeManager {
@@ -95,6 +99,13 @@ impl ReplacedAgentSessions for AgentRuntimeManager {
     /// Ora session and carries no agent index. Delivery is best effort: an actor that already
     /// ended cannot be holding a stale channel either.
     fn detach_sessions_for_replaced_plugin(&self, plugin_id: &PluginId) {
+        let barrier = self.session_barriers().for_plugin(plugin_id);
+        let _replacement = barrier.try_acquire(BarrierReason::AgentReplacement);
+        ora_debug!(
+            plugin_id = %plugin_id,
+            barrier_held = barrier.is_held(),
+            "detaching sessions after agent process replacement",
+        );
         let Some(agent) = self.inner.connections.agent_for_plugin(plugin_id) else {
             // Only an agent-contributing package can have had sessions to lose, so a package that
             // resolves to no agent identity is not a failure — but it is worth saying, because the
@@ -124,6 +135,10 @@ impl ReplacedAgentSessions for AgentRuntimeManager {
             });
         }
     }
+
+    fn session_barriers(&self) -> Arc<AgentSessionBarriers> {
+        self.inner.barriers.clone()
+    }
 }
 
 /// Coordinates one serialized actor per Ora session on its selected supervised CLI connection.
@@ -141,6 +156,8 @@ struct ManagerInner {
     next_operation_id: AtomicU64,
     connections: ConnectionSupervisors,
     sessions_root: PathBuf,
+    session_mcp: SessionMcpHost,
+    barriers: Arc<AgentSessionBarriers>,
     clock: SystemClock,
     scheduler: Scheduler,
     app_events: AppEventPublisher,
@@ -161,6 +178,7 @@ pub(super) enum RuntimeCommand {
     AgentProcessReplaced {
         agent: AgentRef,
     },
+    McpDesiredMaybeChanged,
     Load {
         operation_id: u64,
         events: mpsc::Sender<Result<LoadSessionEvent, BackendError>>,
@@ -219,6 +237,9 @@ struct RuntimeActor {
     app_events: AppEventPublisher,
     title_acquisition: TitleAcquisition,
     command_sender: mpsc::WeakUnboundedSender<RuntimeCommand>,
+    session_mcp: SessionMcpHost,
+    barriers: Arc<AgentSessionBarriers>,
+    live_mcp: LiveMcpState,
     #[cfg(test)]
     exit_probe: Option<oneshot::Sender<()>>,
 }
@@ -268,6 +289,8 @@ impl AgentRuntimeManager {
             app_events,
         } = setup;
         reconcile_running_sessions(&pool, clock)?;
+        let session_mcp = SessionMcpHost::from_plugin_api(plugin_host.clone());
+        let barriers = Arc::new(AgentSessionBarriers::new());
         let connections =
             ConnectionSupervisors::start(plugin_host, pool.clone(), home_directory, clock);
         Ok(Self {
@@ -279,6 +302,8 @@ impl AgentRuntimeManager {
                 next_operation_id: AtomicU64::new(1),
                 connections,
                 sessions_root,
+                session_mcp,
+                barriers,
                 clock,
                 scheduler,
                 app_events,
@@ -322,6 +347,7 @@ impl AgentRuntimeManager {
             channel,
             available_commands,
             config_options,
+            mcp_revision,
         } = self
             .create_provider_session(&session_id, &agent_ref, &cwd, request.model.as_deref())
             .await?;
@@ -366,6 +392,7 @@ impl AgentRuntimeManager {
                     recorder: opened.recorder,
                     handoff_pending: false,
                     title_acquisition,
+                    live_mcp: LiveMcpState::Active(mcp_revision),
                 },
             )?;
             Ok::<_, BackendError>(StartSessionResponse {
@@ -399,7 +426,20 @@ impl AgentRuntimeManager {
         }
     }
 
-    /// Brings the supervised agent set in line with the plugin packages installed right now.
+    /// Wakes every Live Session so it re-reads the current Desired MCP revision.
+    ///
+    /// The notification is level-triggered and secret-free. Stopped Sessions ignore it; idle
+    /// Sessions refresh immediately; busy Sessions mark refresh as owed work.
+    pub(crate) fn notify_mcp_desired_changed(&self) {
+        let Ok(actors) = self.inner.actors.read() else {
+            return;
+        };
+        for handle in actors.values() {
+            let _ = handle.commands.send(RuntimeCommand::McpDesiredMaybeChanged);
+        }
+    }
+
+    /// Reconciles supervised agent connections with the currently installed plugin set.
     ///
     /// Every plugin operation that changes which packages exist calls this, so a plugin installed
     /// or removed while Ora runs is reflected in the agent picker and in session routing without a
@@ -578,6 +618,7 @@ impl AgentRuntimeManager {
             channel,
             available_commands,
             config_options,
+            mcp_revision,
             ..
         } = self
             .create_provider_session(&session.id, &target, &cwd, request.model.as_deref())
@@ -603,6 +644,7 @@ impl AgentRuntimeManager {
                     // The new agent knows nothing; the next prompt carries the transcript.
                     handoff_pending: true,
                     title_acquisition: TitleAcquisition::locked(),
+                    live_mcp: LiveMcpState::Active(mcp_revision),
                 },
             )?;
             Ok::<_, BackendError>(SwitchSessionAgentResponse {
@@ -1046,6 +1088,7 @@ impl AgentRuntimeManager {
                 recorder: opened.recorder,
                 handoff_pending,
                 title_acquisition: TitleAcquisition::disabled(),
+                live_mcp: LiveMcpState::Inactive,
             },
         )
     }
@@ -1093,6 +1136,9 @@ impl AgentRuntimeManager {
                 app_events: self.inner.app_events.clone(),
                 title_acquisition: setup.title_acquisition,
                 command_sender: commands.downgrade(),
+                session_mcp: self.inner.session_mcp.clone(),
+                barriers: self.inner.barriers.clone(),
+                live_mcp: setup.live_mcp,
                 #[cfg(test)]
                 exit_probe: None,
             }
@@ -1131,6 +1177,7 @@ struct ActorSetup {
     recorder: SessionRecorder,
     handoff_pending: bool,
     title_acquisition: TitleAcquisition,
+    live_mcp: LiveMcpState,
 }
 
 /// Builds the refusal returned while a session's history cannot be extended.

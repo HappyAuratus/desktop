@@ -130,6 +130,10 @@ export function createContractsClient(
       listModels: (request, options) =>
         executeOperation("listAgentModels", request, transport, options),
     },
+    effect: {
+      getTargetStatus: (request, options) =>
+        executeOperation("getEffectTargetStatus", request, transport, options),
+    },
     skill: {
       create: (request, options) =>
         executeOperation("createSkill", request, transport, options),

@@ -160,6 +160,75 @@ fn retiring_target_projects_no_desired_contribution_but_keeps_cleanup_binding() 
 }
 
 #[test]
+fn skill_planner_ignores_non_skill_resource_bindings() {
+    let (target, consumer_revision, mut declaration, skill_resource) =
+        target_facts(TargetLifecycle::Active);
+    let other_resource = EffectResource {
+        identity: EffectResourceId::new("resource-other"),
+        scope: scope(),
+        resource_key: ResourceKey::parse("filesystem-file:.opencode/opencode.json")
+            .expect("resource key"),
+        adapter: ResourceAdapterIdentity::parse("ora/json-file-merge").expect("adapter identity"),
+        descriptor: VersionedResourceDescriptor::FilesystemFileV1(FilesystemFileDescriptor {
+            workspace_root: PathBuf::from("/workspace"),
+            relative_path: ResourcePath::parse(".opencode/opencode.json").expect("config path"),
+            ownership_relative_path: ResourcePath::parse(".opencode/.ora-managed.json")
+                .expect("sidecar path"),
+        }),
+        format: MaterializationFormat::parse("ora/other-file.v1").expect("format"),
+        lifecycle: ResourceLifecycle::Active,
+    };
+    declaration.bindings.insert(
+        other_resource.identity.clone(),
+        TargetResourceBinding {
+            target: target.identity.clone(),
+            resource: other_resource.identity.clone(),
+            materialization_contract: MaterializationContract {
+                kind: "ora/other-file".to_string(),
+                version: 1,
+            },
+            accepts: CapabilityRequirement::default(),
+            coordination: CoordinationRequirement::Uninterrupted,
+        },
+    );
+    let (skill_desired, skill_revision) = desired_skill();
+    let desired_state =
+        DesiredState::normalized(scope(), Generation::new(1), [skill_desired.clone()])
+            .expect("desired state");
+    let PlanningResult::Projected(projection) = SkillPlanner
+        .project_target(TargetPlanningInput {
+            desired: &desired_state,
+            target: &target,
+            consumer_revision: &consumer_revision,
+            declaration: &declaration,
+            resources: &BTreeMap::from([
+                (skill_resource.identity.clone(), skill_resource.clone()),
+                (other_resource.identity.clone(), other_resource),
+            ]),
+            revisions: &BTreeMap::from([(skill_revision.identity.clone(), skill_revision)]),
+        })
+        .expect("target projection")
+    else {
+        panic!("Skill projection must remain valid beside an unused Resource binding");
+    };
+
+    assert_eq!(
+        (
+            projection.desired_effects,
+            projection
+                .resource_requirements
+                .keys()
+                .cloned()
+                .collect::<Vec<_>>(),
+        ),
+        (
+            BTreeSet::from([skill_desired.identity]),
+            vec![skill_resource.identity],
+        )
+    );
+}
+
+#[test]
 fn unowned_observed_item_is_preserved_and_never_becomes_a_mutation() {
     let resource = resource();
     let native_identity = NativeResourceIdentity::parse("foreign")
@@ -308,6 +377,7 @@ fn shared_resource_rejects_incompatible_materialization_contracts() {
 #[test]
 fn identical_physical_declarations_share_a_resource_key_without_sharing_targets() {
     let template = FilesystemResourceTemplate {
+        ownership_relative_path: None,
         relative_path: ResourcePath::parse(".agents/skills")
             .unwrap_or_else(|error| panic!("resource path: {error}")),
         materialization_format: MaterializationFormat::skill_directory_v1(),

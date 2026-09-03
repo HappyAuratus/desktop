@@ -43,7 +43,7 @@ use ora_plugin_registry::{RegistryEntry, RegistryError, RegistryIndex, RegistryS
 use ora_utils::http::{ProgressCallback, ProxyConfig, ReqwestDownloader};
 use ora_utils::url::canonical_repository_url;
 use std::collections::{BTreeMap, HashSet};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, OnceLock, PoisonError};
 use std::time::Duration;
 use tokio::sync::{broadcast, mpsc};
@@ -171,7 +171,7 @@ pub(crate) struct PluginApi {
     notifications: BroadcastNotificationSink,
     pub(crate) configuration: ConfigurationService,
     skill_repository: SqliteSkillRepository,
-    effect_repository: SqliteEffectRepository,
+    pub(crate) effect_repository: SqliteEffectRepository,
     workspace_repository: SqliteWorkspaceRepository,
     agent_effect_declarations: Mutex<BTreeMap<PluginId, ConsumerDeclaration>>,
     /// Set once the Effect worker exists, which is after this API the worker itself borrows.
@@ -179,6 +179,8 @@ pub(crate) struct PluginApi {
     /// Its absence only costs latency: a declaration change is already durable before the wake
     /// would fire, so the worker's periodic scan still converges the surface.
     effect_reconcile: OnceLock<EffectWorkerHandle>,
+    /// Secret-free wakeup that asks live Sessions to re-read Desired MCP.
+    mcp_wakeup: OnceLock<Arc<dyn Fn() + Send + Sync>>,
     clock: SystemClock,
 }
 
@@ -234,6 +236,7 @@ impl PluginApi {
             workspace_repository: SqliteWorkspaceRepository::new(pool),
             agent_effect_declarations: Mutex::new(BTreeMap::new()),
             effect_reconcile: OnceLock::new(),
+            mcp_wakeup: OnceLock::new(),
             clock,
         })
     }
@@ -246,6 +249,30 @@ impl PluginApi {
         let _ = self.effect_reconcile.set(handle);
     }
 
+    /// Wakes the shared worker after an already-durable source or declaration transition.
+    pub(crate) fn notify_effect_reconcile(&self) {
+        if let Some(reconcile) = self.effect_reconcile.get() {
+            reconcile.notify();
+        }
+    }
+
+    /// Connects the Session runtime wakeup once the agent runtime exists.
+    pub(crate) fn set_mcp_wakeup(&self, wakeup: Arc<dyn Fn() + Send + Sync>) {
+        let _ = self.mcp_wakeup.set(wakeup);
+    }
+
+    /// Asks every Live Session to re-read Desired MCP without carrying Setting values.
+    pub(crate) fn notify_mcp_desired_changed(&self) {
+        if let Some(wakeup) = self.mcp_wakeup.get() {
+            wakeup();
+        }
+    }
+
+    /// Returns the plugin data root used to rediscover installed packages.
+    pub(crate) fn home_directory(&self) -> &Path {
+        &self.home_directory
+    }
+
     /// Rebuilds catalog projections for every Skill plugin already installed on disk.
     pub(crate) fn sync_installed_skills(&self) -> Result<(), BackendError> {
         let manager = PluginManager::discover(&self.home_directory);
@@ -256,6 +283,7 @@ impl PluginApi {
         }
         Ok(())
     }
+
     /// Returns the cached marketplace registry index, excluding listings from disabled sources.
     pub(crate) fn list_available_plugins(
         &self,
@@ -519,8 +547,14 @@ impl PluginApi {
     pub(crate) async fn scan(
         &self,
         request: ScanPluginsRequest,
-    ) -> Result<ScanPluginsResponse, PluginLifecycleError> {
-        self.lifecycle.scan_plugins(request).await
+    ) -> Result<ScanPluginsResponse, BackendError> {
+        let response = self
+            .lifecycle
+            .scan_plugins(request)
+            .await
+            .map_err(BackendError::from)?;
+        self.notify_mcp_desired_changed();
+        Ok(response)
     }
 
     /// Starts one installed plugin and returns its immediate starting state.
@@ -639,6 +673,7 @@ impl PluginApi {
             .remove_plugin_skills(&plugin_id, self.clock.now_timestamp_millis())
             .map_err(|error| BackendError::internal("failed to remove plugin Skills", error))?;
         self.replace_agent_effect_declaration(plugin_id, None)?;
+        self.notify_mcp_desired_changed();
         Ok(response)
     }
     /// Installs a marketplace plugin by resolving its release manifest from the synced sources and
@@ -886,6 +921,7 @@ impl PluginApi {
         if let Err(error) = self.lifecycle.scan_plugins(ScanPluginsRequest {}).await {
             ora_warn!(plugin_id = %plugin_id, %error, "installed the package but failed to refresh the installed-plugin snapshot");
         }
+        self.notify_mcp_desired_changed();
         // A second Hook with the same bare command still makes PATH resolution ambiguous, so the
         // typed outcome carries the colliding identity instead of looking like an ordinary success.
         if let Some(conflict) = self.detect_hook_command_conflict(plugin_id) {

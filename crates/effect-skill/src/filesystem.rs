@@ -67,16 +67,20 @@ impl SkillDirectoryResourceAdapter {
         prepared_at: LocalTimestamp,
     ) -> Result<PreparedOperation, SkillDirectoryError> {
         let resource_root = resource_root(resource)?;
-        let VersionedResourceDescriptor::FilesystemDirectoryV1(descriptor) = &resource.descriptor;
+        let VersionedResourceDescriptor::FilesystemDirectoryV1(descriptor) = &resource.descriptor
+        else {
+            return Err(SkillDirectoryError::UnsupportedResourceDescriptor);
+        };
         let operation_id = EffectOperationId::random();
         let operation_root = resource_root
             .join(OPERATIONS_DIR_NAME)
             .join(operation_id.as_str());
         let staging_path = operation_root.join("staging");
         let backup_path = operation_root.join("backup");
-        let source_root = mutation.input.as_ref().map(
-            |VersionedMaterializationInput::SkillDirectoryV1(input)| input.package_root.clone(),
-        );
+        let source_root = mutation.input.as_ref().map(|input| {
+            let VersionedMaterializationInput::SkillDirectoryV1(input) = input;
+            input.package_root.clone()
+        });
         let payload = VersionedAdapterPlan::FilesystemDirectoryV1(FilesystemOperationPlan {
             workspace_root: descriptor.workspace_root.clone(),
             resource_relative_path: descriptor.relative_path.clone(),
@@ -194,7 +198,9 @@ impl SkillDirectoryResourceAdapter {
         self,
         operation: &EffectOperation,
     ) -> Result<ApplyReceipt, SkillDirectoryError> {
-        let VersionedAdapterPlan::FilesystemDirectoryV1(plan) = operation.payload();
+        let VersionedAdapterPlan::FilesystemDirectoryV1(plan) = operation.payload() else {
+            return Err(SkillDirectoryError::UnsupportedAdapterPlan);
+        };
         ensure_operation_paths_are_scoped(plan)?;
         let resolved_root = resolve_declared_root(
             &plan.workspace_root,
@@ -286,7 +292,9 @@ impl SkillDirectoryResourceAdapter {
         self,
         operation: &EffectOperation,
     ) -> Result<VerificationReceipt, SkillDirectoryError> {
-        let VersionedAdapterPlan::FilesystemDirectoryV1(plan) = operation.payload();
+        let VersionedAdapterPlan::FilesystemDirectoryV1(plan) = operation.payload() else {
+            return Err(SkillDirectoryError::UnsupportedAdapterPlan);
+        };
         if !state_matches_planned(operation, plan)? {
             return Err(SkillDirectoryError::VerificationFailed {
                 operation: operation.identity().clone(),
@@ -389,6 +397,10 @@ impl ResourceAdapter for SkillDirectoryResourceAdapter {
 pub enum SkillDirectoryError {
     #[error(transparent)]
     Operation(#[from] ora_effect::OperationTransitionError),
+    #[error("Skill adapter received a non-directory Resource descriptor")]
+    UnsupportedResourceDescriptor,
+    #[error("Skill adapter received a non-directory operation plan")]
+    UnsupportedAdapterPlan,
     #[error("Workspace root is unavailable: {path:?}")]
     WorkspaceUnavailable {
         path: PathBuf,

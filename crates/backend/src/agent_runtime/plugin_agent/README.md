@@ -19,8 +19,10 @@ sees a `RuntimeConnection` and cannot tell which kind of provider produced it.
   carries its own timeout because a plugin may start a one-shot process to answer it.
 - Relay ACP messages in both directions as `agent/acp` notifications.
 - Ask the plugin to stop its agent before the lifecycle ends the plugin's process tree.
-- Convert registered Workspace-relative Skill locators into host-owned Effect Resources. The
-  canonical Plugin ID is the consumer identity; a plugin never chooses that persisted identity.
+- Convert registered Workspace-relative Skill locators into host-owned Effect
+  Resources. MCP is not an Effect Resource: configured MCP plugins are delivered
+  through ACP `session/new` and `session/load` `mcpServers`. The canonical Plugin
+  ID is the consumer identity; a plugin never chooses that persisted identity.
 - Define `effect/coordinate`, `effect/reactivate`, and `effect/verify_ready` as the generic Consumer
   adapter boundary.
 
@@ -121,6 +123,10 @@ The worker also converges declarations in the opposite direction. Registration p
 Consumer with existing Workspaces immediately, and every worker pass pairs the current declaration
 snapshot with Workspaces created later. This level-triggered pairing prevents a one-shot process
 event from leaving a Workspace without its Target.
+
+MCP is not projected into Workspace files and is not injected as `ORA_MCP_*`
+environment variables. Session MCP setup lives in `session_setup` and is
+described in [Session MCP](../../../../../docs/session-mcp.md).
 
 ## Sandboxing
 

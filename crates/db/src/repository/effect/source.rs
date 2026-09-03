@@ -147,15 +147,16 @@ pub(crate) fn seed_scope_sources(
     changed_scopes: &mut BTreeSet<String>,
 ) -> Result<(), DatabaseError> {
     let scope_id = scope.storage_key();
-    let parameters = effect_json(&ValidatedEffectParameters::Skill(SkillParameters::default()))?;
     let selector = effect_json(&TargetSelector::default())?;
+    let skill_parameters =
+        effect_json(&ValidatedEffectParameters::Skill(SkillParameters::default()))?;
     let inserted = connection.execute(
         "INSERT INTO effect_desired_effects (
              id, scope_id, revision_id, parameters_kind, parameters_version, parameters_json,
              selector_version, selector_json, created_at, updated_at
          )
          SELECT lower(hex(randomblob(16))), ?1, sources.published_revision_id,
-                'skill', 1, ?2, 1, ?3, ?4, ?4
+                ?6, 1, ?2, 1, ?3, ?4, ?4
          FROM effect_sources sources
          WHERE sources.effect_kind = ?5 AND sources.lifecycle = 'active'
            AND sources.publication_state = 'published'
@@ -166,10 +167,11 @@ pub(crate) fn seed_scope_sources(
            )",
         params![
             &scope_id,
-            parameters,
+            skill_parameters,
             selector,
             updated_at,
             EffectKind::skill().as_str(),
+            "skill",
         ],
     )?;
     if inserted > 0 {
@@ -293,7 +295,7 @@ pub(super) fn wake_scope_targets(
 }
 
 /// Inserts one stable Desired Effect for a newly published source into every active Scope.
-fn install_source_in_all_scopes(
+pub(super) fn install_source_in_all_scopes(
     connection: &Connection,
     source_id: &str,
     revision_id: &str,
@@ -356,7 +358,7 @@ fn find_source(
 }
 
 /// Collects every Scope whose current Desired State refers to one source.
-fn collect_referencing_scopes(
+pub(super) fn collect_referencing_scopes(
     connection: &Connection,
     source_id: &str,
     scopes: &mut BTreeSet<String>,

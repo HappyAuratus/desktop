@@ -17,6 +17,7 @@ mod proxy;
 mod request_lifecycle;
 mod session;
 mod session_history;
+mod session_setup;
 mod skill;
 mod skill_reconciliation;
 mod source_boundary;
@@ -34,5 +35,7 @@ pub use request_lifecycle::{RequestIdGenerator, RequestLifecycle, UuidRequestIdG
 pub use skill_reconciliation::SkillStorageReconciliationError;
 pub use user_config::BackendPreferredLogLevelStore;
 
+#[cfg(test)]
+mod local_agent_package_tests;
 #[cfg(test)]
 mod plugin_install_tests;

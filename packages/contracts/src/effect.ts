@@ -115,7 +115,14 @@ export type GetEffectStateRequest = { workspaceId: string };
 
 export type GetEffectStateResponse = { state: EffectStateDto };
 
-export type GetEffectTargetStatusRequest = { targetId: string };
+export type GetEffectTargetStatusRequest = {
+  "selector": "target";
+  targetId: string;
+} | {
+  "selector": "workspace_agent";
+  workspaceId: string;
+  agentPluginId: string;
+};
 
 export type GetEffectTargetStatusResponse = {
   status: EffectTargetStatusDto | null;

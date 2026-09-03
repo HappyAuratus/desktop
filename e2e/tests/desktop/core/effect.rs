@@ -17,9 +17,9 @@ mod tests {
 
     const AGENT_NAMESPACE: &str = "official";
     const AGENT_NAME: &str = "ora-space.opencode";
-    // Keep this below the worker's 30-second periodic scan so success still proves that the
-    // durable change woke reconciliation, while leaving enough headroom for contended CI hosts.
-    const EFFECT_TIMEOUT: Duration = Duration::from_secs(5);
+    // Keep the deadline below the worker's 30-second periodic scan so this test still proves the
+    // direct wake path, while allowing slower CI process scheduling and plugin IPC.
+    const EFFECT_TIMEOUT: Duration = Duration::from_secs(15);
     const POLL_INTERVAL: Duration = Duration::from_millis(10);
 
     /// Verifies imported Skills promptly converge into an OpenCode Workspace and disappear after

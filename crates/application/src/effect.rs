@@ -111,11 +111,22 @@ where
         &self,
         request: GetEffectTargetStatusRequest,
     ) -> Result<GetEffectTargetStatusResponse, EffectApplicationError> {
-        let status = self
-            .repository
-            .load_target_status(&EffectTargetId::new(request.target_id))
-            .map_err(EffectApplicationError::Repository)?
-            .map(|(status, conditions)| map_target_status(status, conditions));
+        let status = match request {
+            GetEffectTargetStatusRequest::Target { target_id } => self
+                .repository
+                .load_target_status(&EffectTargetId::new(target_id)),
+            GetEffectTargetStatusRequest::WorkspaceAgent {
+                workspace_id,
+                agent_plugin_id,
+            } => {
+                let consumer = ConsumerIdentity::new(ConsumerKind::agent_plugin(), agent_plugin_id)
+                    .map_err(|_| EffectApplicationError::InvalidDesiredState)?;
+                self.repository
+                    .load_consumer_target_status(&workspace_scope(workspace_id), &consumer)
+            }
+        }
+        .map_err(EffectApplicationError::Repository)?
+        .map(|(status, conditions)| map_target_status(status, conditions));
         Ok(GetEffectTargetStatusResponse { status })
     }
 

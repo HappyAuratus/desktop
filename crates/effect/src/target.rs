@@ -167,11 +167,20 @@ pub struct FilesystemDirectoryDescriptor {
     pub relative_path: ResourcePath,
 }
 
+/// A validated Workspace-relative shared file interpreted by a merge adapter.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct FilesystemFileDescriptor {
+    pub workspace_root: PathBuf,
+    pub relative_path: ResourcePath,
+    pub ownership_relative_path: ResourcePath,
+}
+
 /// Closed set of versioned Resource descriptors that Core stores but does not interpret.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(tag = "kind", content = "descriptor", rename_all = "snake_case")]
 pub enum VersionedResourceDescriptor {
     FilesystemDirectoryV1(FilesystemDirectoryDescriptor),
+    FilesystemFileV1(FilesystemFileDescriptor),
 }
 
 /// Lifecycle of one independently mutable external Resource.
@@ -275,15 +284,18 @@ pub struct FilesystemResourceTemplate {
     pub materialization_contract: MaterializationContract,
     pub accepts: CapabilityRequirement,
     pub coordination: CoordinationRequirement,
+    pub ownership_relative_path: Option<ResourcePath>,
 }
 
 impl FilesystemResourceTemplate {
     /// Produces the adapter-normalized physical key used to merge shared declarations in a Scope.
     pub fn resource_key(&self) -> ResourceKey {
-        ResourceKey::from_normalized(format!(
-            "filesystem-directory:{}",
-            self.relative_path.as_str()
-        ))
+        let resource_kind = if self.ownership_relative_path.is_some() {
+            "filesystem-file"
+        } else {
+            "filesystem-directory"
+        };
+        ResourceKey::from_normalized(format!("{resource_kind}:{}", self.relative_path.as_str()))
     }
 }
 

@@ -141,6 +141,8 @@ pub struct PluginSettingDetails {
     pub declaration: PluginSettingDeclaration,
     pub stored_value: Option<PluginSettingValue>,
     pub effective_value: Option<PluginSettingValue>,
+    /// True when the host deliberately withholds a value used by an MCP process.
+    pub redacted: bool,
     pub source: PluginSettingValueSource,
     pub value_error_code: Option<String>,
 }
@@ -575,6 +577,8 @@ pub struct SavePluginConfigurationRequest {
     pub expected_revision: u64,
     pub declaration_fingerprint: String,
     pub values: BTreeMap<String, PluginSettingValue>,
+    /// Host-redacted stored values that an unchanged editor must retain.
+    pub preserve_setting_ids: Vec<String>,
 }
 
 /// Returns the authoritative post-save editor snapshot and list summary.

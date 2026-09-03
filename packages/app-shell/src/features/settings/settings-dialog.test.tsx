@@ -168,6 +168,7 @@ describe("SettingsDialog developer options", () => {
           },
           storedValue: null,
           effectiveValue: null,
+          redacted: false,
           source: "absent",
           valueErrorCode: null,
         },

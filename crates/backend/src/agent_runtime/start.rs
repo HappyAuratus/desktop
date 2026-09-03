@@ -5,6 +5,9 @@ use super::routing::SessionChannel;
 use super::support::{map_acp_error, runtime_internal};
 use super::{AgentRuntimeManager, SESSION_SETUP_TIMEOUT, collect_setup_commands};
 use crate::BackendError;
+use crate::session_setup::{
+    AgentSessionMcpCapabilities, SessionMcpHost, SessionMcpRevision, SessionSetup,
+};
 use agent_client_protocol_schema::v1::{
     AGENT_METHOD_NAMES, AvailableCommand, CloseSessionRequest, CloseSessionResponse,
     DeleteSessionRequest, DeleteSessionResponse, NewSessionRequest, NewSessionResponse,
@@ -35,6 +38,8 @@ pub(super) struct PendingProviderSession {
     pub(super) channel: SessionChannel,
     pub(super) available_commands: Vec<AvailableCommand>,
     pub(super) config_options: Vec<SessionConfigOption>,
+    /// Secret-free identity of the MCP Snapshot sent with this `session/new`.
+    pub(super) mcp_revision: SessionMcpRevision,
 }
 
 /// Owns a provider session that no Ora record points at yet.
@@ -83,6 +88,7 @@ impl AgentRuntimeManager {
     ) -> Result<PendingProviderSession, BackendError> {
         create_provider_session(
             &self.inner.connections,
+            &self.inner.session_mcp,
             ora_session_id,
             agent_ref,
             cwd,
@@ -95,6 +101,7 @@ impl AgentRuntimeManager {
 /// Performs one authoritative provider handshake and applies a pre-session model intent.
 async fn create_provider_session(
     connections: &ConnectionSupervisors,
+    session_mcp: &SessionMcpHost,
     ora_session_id: &SessionId,
     agent_ref: &AgentRef,
     cwd: &Path,
@@ -102,12 +109,22 @@ async fn create_provider_session(
 ) -> Result<PendingProviderSession, BackendError> {
     let supervisor = connections.for_agent(agent_ref)?;
     let connection = supervisor.current()?;
-    let _setup = supervisor.begin_session_setup();
+    let setup = SessionSetup::resolve(
+        session_mcp,
+        cwd,
+        AgentSessionMcpCapabilities::new(
+            connection.load_session_supported,
+            connection.http_mcp_supported,
+        ),
+    )
+    .map_err(crate::session_setup::SessionMcpError::into_backend)?;
+    let mcp_revision = setup.mcp.revision().clone();
+    let _setup_registration = supervisor.begin_session_setup();
     let response = timeout(
         SESSION_SETUP_TIMEOUT,
         connection.client.request::<_, NewSessionResponse>(
             AGENT_METHOD_NAMES.session_new,
-            &NewSessionRequest::new(cwd),
+            &NewSessionRequest::new(cwd).mcp_servers(setup.mcp.into_servers()),
         ),
     )
     .await
@@ -155,6 +172,7 @@ async fn create_provider_session(
         channel,
         available_commands,
         config_options,
+        mcp_revision,
     })
 }
 
