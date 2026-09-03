@@ -273,7 +273,7 @@ describe("WorkspaceSidebar", () => {
     );
     await user.click(
       await screen.findByRole("button", {
-        name: /新建工作树任务|New worktree task/,
+        name: /新建工作树|New worktree/,
       }),
     );
 
@@ -662,7 +662,7 @@ describe("WorkspaceSidebar", () => {
     );
     await user.click(
       await screen.findByRole("button", {
-        name: /新建工作树任务|New worktree task/,
+        name: /新建工作树|New worktree/,
       }),
     );
 
