@@ -1545,6 +1545,64 @@ describe("WorkspaceView", () => {
     ]);
   });
 
+  it("moves a session off an unavailable agent with the next message", async () => {
+    const user = userEvent.setup();
+    const state = createMockClientState();
+    seedSwitchableSession(state);
+    state.sessions[0]!.agentRef = "ora-space.opencode";
+    state.installedPlugins = state.installedPlugins.filter(
+      (plugin) => plugin.id !== AGENT_REF.opencode,
+    );
+    state.agentRuntimeStatuses = state.agentRuntimeStatuses.filter(
+      (status) => status.agentRef !== AGENT_REF.opencode,
+    );
+    const { client, switched, prompted } = createSwitchTargetClient(state);
+    client.session.load = async function* (request) {
+      if (request.sessionId === "s1") {
+        throw new Error("ora-space.opencode is not installed");
+      }
+      yield { type: "completed" };
+    };
+    const Wrapper = createHookWrapper(
+      client,
+      createTestQueryClient(),
+      createChatStore(client.session),
+    );
+    useWorkspaceSelectionStore.getState().selectSession("s1", "t1", "p1");
+
+    render(
+      <Wrapper>
+        <AppI18nProvider>
+          <PlatformProvider adapter={createStubPlatform()}>
+            <TooltipProvider>
+              <WorkspaceView userName="Eric" />
+            </TooltipProvider>
+          </PlatformProvider>
+        </AppI18nProvider>
+      </Wrapper>,
+    );
+
+    expect(await screen.findByRole("alert")).toHaveAttribute(
+      "data-agent-availability",
+      "uninstalled",
+    );
+    await user.click(
+      await screen.findByRole("button", { name: /选择模型|Select model/ }),
+    );
+    await user.click(
+      await screen.findByRole("menuitem", { name: "Claude Code" }),
+    );
+    await user.keyboard("{Escape}");
+    await user.type(await screen.findByRole("textbox"), "hello");
+    await user.keyboard("{Enter}");
+
+    await waitFor(() => expect(prompted).toEqual(["s1"]));
+    expect(switched).toEqual([
+      { sessionId: "s1", agentRef: AGENT_REF.claude, model: null },
+    ]);
+    expect(state.sessions[0]?.agentRef).toBe(AGENT_REF.claude);
+  });
+
   it("sends without rebinding when the picker returns to the session's own agent", async () => {
     const user = userEvent.setup();
     const state = createMockClientState();

@@ -1259,9 +1259,8 @@ export const translationResources = {
     "chat.modelSelector.noAgentPackage": "从插件市场安装 Agent",
     "chat.agentUnavailable.title": "当前 Agent 不可用",
     "chat.agentUnavailable.uninstalled":
-      "提供该 Agent 的插件已被卸载，重新安装后才能继续这段对话。",
+      "当前 Agent 不可用，请切换 Agent 继续对话。",
     "chat.agentUnavailable.failed": "{{plugin}} 插件启动失败：{{reason}}",
-    "chat.agentUnavailable.goToMarketplace": "前往插件市场",
     "chat.historyDegraded.title": "会话记录已中断",
     "chat.historyDegraded.resume": "恢复记录",
     "chat.historyNotice.title": "会话历史不完整",
@@ -2856,10 +2855,9 @@ export const translationResources = {
       "Install an agent from the plugin marketplace",
     "chat.agentUnavailable.title": "This session's agent is unavailable",
     "chat.agentUnavailable.uninstalled":
-      "The plugin that provided this agent was uninstalled. Reinstall it to continue this conversation.",
+      "This session's agent is unavailable. Switch agents to continue the conversation.",
     "chat.agentUnavailable.failed":
       "The {{plugin}} plugin failed to start: {{reason}}",
-    "chat.agentUnavailable.goToMarketplace": "Go to the plugin marketplace",
     "chat.historyDegraded.title": "This session's history stopped recording",
     "chat.historyDegraded.resume": "Resume history",
     "chat.historyNotice.title": "This session's history is incomplete",
