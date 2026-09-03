@@ -740,6 +740,44 @@ describe("WorkspaceSidebar", () => {
     );
   });
 
+  it("starts a new task under a worktree on double-click", async () => {
+    const user = userEvent.setup();
+    renderSidebar(workspaceWithOneSession());
+
+    await waitFor(() => expect(treeRow(TASK.title)).not.toBeNull());
+    await user.dblClick(screen.getByText(TASK.title));
+
+    expect(useWorkspaceSelectionStore.getState().selection).toMatchObject({
+      projectId: PROJECT.id,
+      taskId: TASK.id,
+      sessionId: null,
+      workflowRunId: null,
+    });
+    expect(useWorkspaceSelectionStore.getState().selection.draftId).toEqual(
+      expect.any(String),
+    );
+    await waitFor(() => expect(treeRow(NEW_SESSION_LABEL)).not.toBeNull());
+  });
+
+  it("starts a new task under a project on double-click", async () => {
+    const user = userEvent.setup();
+    renderSidebar(workspaceWithOneSession());
+
+    await waitFor(() => expect(treeRow(PROJECT.name)).not.toBeNull());
+    await user.dblClick(screen.getByText(PROJECT.name));
+
+    expect(useWorkspaceSelectionStore.getState().selection).toMatchObject({
+      projectId: PROJECT.id,
+      taskId: null,
+      sessionId: null,
+      workflowRunId: null,
+    });
+    expect(useWorkspaceSelectionStore.getState().selection.draftId).toEqual(
+      expect.any(String),
+    );
+    await waitFor(() => expect(treeRow(NEW_SESSION_LABEL)).not.toBeNull());
+  });
+
   it("shows an archive control on session rows instead of the overflow menu", async () => {
     renderSidebar(workspaceWithOneSession());
 

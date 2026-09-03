@@ -164,7 +164,7 @@ export const translationResources = {
     "sidebar.rename": "重命名",
     "sidebar.renameTooLong": "标题最多 255 个字符。",
     "sidebar.archive": "归档",
-    "sidebar.archiveSoon": "归档即将推出",
+    "sidebar.archiveSoon": "归档功能即将推出，可右键该行并选择「删除」",
     "sidebar.console": "控制台",
     "sidebar.openActions": "打开操作菜单",
     "sidebar.navigation": "主导航",
@@ -1661,7 +1661,8 @@ export const translationResources = {
     "sidebar.rename": "Rename",
     "sidebar.renameTooLong": "Title can be at most 255 characters.",
     "sidebar.archive": "Archive",
-    "sidebar.archiveSoon": "Archive is coming soon",
+    "sidebar.archiveSoon":
+      "Archive is coming soon. Right-click the row and choose Delete.",
     "sidebar.console": "Console",
     "sidebar.openActions": "Open actions",
     "sidebar.navigation": "Main navigation",
