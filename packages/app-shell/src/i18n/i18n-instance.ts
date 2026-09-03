@@ -120,6 +120,9 @@ export const translationResources = {
     "errors.workflow_node_not_awaiting_input":
       "该节点当前不在等待人工输入，无法完成。",
     "errors.unknown": "发生未知错误。请提供请求编号 {{requestId}} 以便排查。",
+    "errors.downloadLogs": "下载日志",
+    "errors.logsDownloaded": "今日日志已下载。",
+    "errors.logsDownloadFailed": "日志下载失败，请稍后重试。",
     "errors.transport.tauri_invoke_failure": "桌面命令调用失败。",
     "errors.transport.malformed_response": "Ora 返回了无法识别的响应。",
     "errors.transport.stream_queue_overflow": "数据流消费速度过慢。",
@@ -1612,6 +1615,9 @@ export const translationResources = {
       "This node is not awaiting input and cannot be completed.",
     "errors.unknown":
       "An unknown error occurred. Provide request ID {{requestId}} for support.",
+    "errors.downloadLogs": "Download logs",
+    "errors.logsDownloaded": "Today's logs were downloaded.",
+    "errors.logsDownloadFailed": "Could not download logs. Try again later.",
     "errors.transport.tauri_invoke_failure": "The Desktop command failed.",
     "errors.transport.malformed_response":
       "Ora returned an unrecognized response.",
