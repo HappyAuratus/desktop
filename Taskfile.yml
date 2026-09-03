@@ -234,6 +234,7 @@ tasks:
       VSLANG: "1033"
     cmds:
       - task: build:reaper
+      - cargo xtask reconcile-migrations "{{.ROOT_DIR}}/.data"
       - pnpm --filter @ora/desktop tauri dev
 
   logdy:

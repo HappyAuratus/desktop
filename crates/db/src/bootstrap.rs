@@ -5,7 +5,18 @@ use crate::{
     TimestampSource, migration,
 };
 
-/// Coordinates opening SQLite connections and reconciling them with the migration catalog.
+/// Explicitly reconciles migration SQL drift for tooling that intentionally permits rollback.
+pub fn reconcile_migration_history(
+    location: &DatabaseLocation,
+    catalog: &MigrationCatalog,
+) -> Result<(), DatabaseError> {
+    let pool = RepositoryPool::new(location)?;
+    pool.with_connection_mut(|connection| {
+        migration::reconcile_database(connection, catalog, &SystemTimestampSource)
+    })
+}
+
+/// Coordinates opening SQLite connections and applying missing migration versions.
 #[derive(Debug)]
 pub struct DatabaseBootstrapper<T> {
     timestamp_source: T,
@@ -27,7 +38,7 @@ where
         Self { timestamp_source }
     }
 
-    /// Opens a repository pool and reconciles its database with the target migration prefix.
+    /// Opens a repository pool and applies target migration versions that are not yet recorded.
     pub fn bootstrap_repository_pool(
         &self,
         location: &DatabaseLocation,
@@ -51,7 +62,7 @@ where
         ora_info!(message = "opened database", operation = "database_open");
 
         if let Err(error) = pool.with_connection_mut(|connection| {
-            migration::reconcile_database(connection, catalog, &self.timestamp_source)
+            migration::apply_pending_migrations(connection, catalog, &self.timestamp_source)
         }) {
             ora_error!(
                 message = "database bootstrap failed",

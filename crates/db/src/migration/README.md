@@ -1,6 +1,6 @@
 # Database Migration Module
 
-This module owns Ora's linear, reversible SQLite schema history and reconciles a database to an explicit target prefix. Its public interface is the validated catalog plus `reconcile_database`; SQL snapshot comparison and suffix rebuilding remain internal. Concrete schema definitions live in the private [`schema`](schema/) module, which is the single migration registry consumed by the catalog.
+This module owns Ora's linear, reversible SQLite schema history. Application bootstrap applies only missing migration versions. Explicit development tooling may reconcile a database to an exact target prefix, including SQL snapshot comparison and suffix rebuilding. Concrete schema definitions live in the private [`schema`](schema/) module, which is the single migration registry consumed by the catalog.
 
 ## Catalog invariants
 
@@ -40,7 +40,14 @@ This module owns Ora's linear, reversible SQLite schema history and reconciles a
   `<plugin_namespace>/<plugin_identifier>` identity. Installed plugin Sources are always available;
   Workspace selection remains independent of whether a plugin process is currently running.
 
-## Reconciliation
+## Application bootstrap
+
+Application bootstrap validates the applied version sequence and applies only the missing target
+tail. It intentionally does not compare persisted SQL snapshots and never executes `down` SQL.
+This keeps a packaged application from destructively rebuilding user data when a previously
+published migration definition differs.
+
+## Explicit development reconciliation
 
 `reconcile_database` first verifies that every applied version belongs to the catalog and occupies the expected position. Unknown, skipped, or reordered versions are hard errors.
 
@@ -49,6 +56,10 @@ It then compares the persisted SQL snapshots with current migration definitions 
 Ordinary target shortening uses the same persisted rollback snapshots. Ordinary target growth applies only the missing tail. Each migration step and its bookkeeping update run in one SQLite transaction, so a failing statement cannot leave that step's schema and row out of sync. Earlier successful rollback steps remain committed if a later rewritten `up` fails.
 
 An applied version absent from the catalog is an error. Reconciliation is otherwise idempotent when the database already matches the target.
+
+The public `reconcile_migration_history` interface opens and reconciles a database for explicit
+tooling. `cargo xtask reconcile-migrations DATA_DIRECTORY` calls it before `task run:desktop`
+starts the application; packaged application startup never calls this interface.
 
 The prototype catalog describes only the current schema. It does not carry migrations for retired tables or columns, and the bookkeeping table is intentionally not compatible with databases created before SQL snapshots were introduced. Development databases may be recreated; no compatibility bridge is provided.
 

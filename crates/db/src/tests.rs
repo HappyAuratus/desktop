@@ -177,7 +177,7 @@ fn unchanged_migration_content_is_a_no_op() {
         MigrationCatalog::new(vec![table_migration("0001", "alpha")]).expect("build catalog");
 
     bootstrap_file_database(&database_path, &catalog, 100).expect("apply catalog");
-    bootstrap_file_database(&database_path, &catalog, 200).expect("reconcile unchanged catalog");
+    reconcile_file_database(&database_path, &catalog, 200).expect("reconcile unchanged catalog");
 
     let connection = Connection::open(&database_path).expect("open database");
     assert_eq!(
@@ -203,12 +203,35 @@ fn differing_execution_time_does_not_rebuild_schema() {
         )
         .expect("change timestamp metadata");
     drop(connection);
-    bootstrap_file_database(&database_path, &catalog, 200).expect("reconcile catalog");
+    reconcile_file_database(&database_path, &catalog, 200).expect("reconcile catalog");
 
     let connection = Connection::open(&database_path).expect("open database");
     assert_eq!(
         load_applied_migrations(&connection),
         vec![applied_from(&catalog, "0001", 777)]
+    );
+}
+
+/// Verifies application bootstrap never rebuilds an applied migration whose SQL snapshot changed.
+#[test]
+fn bootstrap_ignores_changed_migration_sql() {
+    let temp_dir = TempDir::new().expect("create temporary directory");
+    let database_path = temp_dir.path().join("bootstrap-drift.sqlite3");
+    let old_catalog = MigrationCatalog::new(vec![table_migration("0001", "old_alpha")])
+        .expect("build old catalog");
+    let rewritten_catalog = MigrationCatalog::new(vec![table_migration("0001", "new_alpha")])
+        .expect("build rewritten catalog");
+
+    bootstrap_file_database(&database_path, &old_catalog, 100).expect("apply old catalog");
+    bootstrap_file_database(&database_path, &rewritten_catalog, 200)
+        .expect("bootstrap without drift reconciliation");
+
+    let connection = Connection::open(&database_path).expect("open database");
+    assert_eq!(table_exists(&connection, "old_alpha"), true);
+    assert_eq!(table_exists(&connection, "new_alpha"), false);
+    assert_eq!(
+        load_applied_migrations(&connection),
+        vec![applied_from(&old_catalog, "0001", 100)]
     );
 }
 
@@ -231,7 +254,7 @@ fn changed_down_sql_rebuilds_the_migration() {
     .expect("build rewritten catalog");
 
     bootstrap_file_database(&database_path, &old_catalog, 100).expect("apply old catalog");
-    bootstrap_file_database(&database_path, &rewritten_catalog, 200)
+    reconcile_file_database(&database_path, &rewritten_catalog, 200)
         .expect("rebuild changed rollback");
 
     let connection = Connection::open(&database_path).expect("open database");
@@ -267,7 +290,7 @@ fn rebuilds_changed_latest_migration_with_persisted_down_sql() {
     .expect("build rewritten catalog");
 
     bootstrap_file_database(&database_path, &old_catalog, 100).expect("apply old catalog");
-    bootstrap_file_database(&database_path, &rewritten_catalog, 200)
+    reconcile_file_database(&database_path, &rewritten_catalog, 200)
         .expect("rebuild latest migration");
 
     let connection = Connection::open(&database_path).expect("open database");
@@ -301,7 +324,7 @@ fn rebuilds_the_entire_suffix_after_earlier_sql_changes() {
     .expect("build rewritten catalog");
 
     bootstrap_file_database(&database_path, &old_catalog, 100).expect("apply old catalog");
-    bootstrap_file_database(&database_path, &rewritten_catalog, 200).expect("rebuild suffix");
+    reconcile_file_database(&database_path, &rewritten_catalog, 200).expect("rebuild suffix");
 
     let connection = Connection::open(&database_path).expect("open database");
     assert_eq!(table_exists(&connection, "old_beta"), false);
@@ -336,7 +359,7 @@ fn failed_down_transaction_preserves_the_applied_migration() {
 
     bootstrap_file_database(&database_path, &full, 100).expect("apply full catalog");
     let error =
-        bootstrap_file_database(&database_path, &prefix, 200).expect_err("rollback must fail");
+        reconcile_file_database(&database_path, &prefix, 200).expect_err("rollback must fail");
 
     assert_migration_step_failed(&error, "0002", MigrationDirection::Down);
     let connection = Connection::open(&database_path).expect("open database");
@@ -365,7 +388,7 @@ fn failed_rebuild_up_stays_at_the_rolled_back_state() {
     .expect("build rewritten catalog");
 
     bootstrap_file_database(&database_path, &old_catalog, 100).expect("apply old catalog");
-    let error = bootstrap_file_database(&database_path, &rewritten_catalog, 200)
+    let error = reconcile_file_database(&database_path, &rewritten_catalog, 200)
         .expect_err("rewritten up must fail");
 
     assert_migration_step_failed(&error, "0002", MigrationDirection::Up);
@@ -389,7 +412,7 @@ fn shorter_target_rolls_back_the_applied_tail() {
         .expect("build prefix catalog");
 
     bootstrap_file_database(&database_path, &full, 100).expect("apply full catalog");
-    bootstrap_file_database(&database_path, &prefix, 200).expect("roll back tail");
+    reconcile_file_database(&database_path, &prefix, 200).expect("roll back tail");
 
     let connection = Connection::open(&database_path).expect("open database");
     assert_eq!(table_exists(&connection, "alpha"), true);
@@ -490,7 +513,7 @@ fn rebuilds_multiple_changed_migrations_in_directional_order() {
     .expect("build rewritten catalog");
 
     bootstrap_file_database(&database_path, &old_catalog, 100).expect("apply old catalog");
-    bootstrap_file_database(&database_path, &rewritten_catalog, 200)
+    reconcile_file_database(&database_path, &rewritten_catalog, 200)
         .expect("rebuild changed suffix");
 
     let connection = Connection::open(&database_path).expect("open database");
@@ -552,6 +575,22 @@ fn bootstrap_file_database(
         DatabaseBootstrapper::new(FixedTimestampSource { now })
             .bootstrap_repository_pool(&DatabaseLocation::path(path), catalog)
             .map(|_| ())
+    })
+}
+
+/// Runs explicit migration drift reconciliation with a deterministic timestamp.
+fn reconcile_file_database(
+    path: &Path,
+    catalog: &MigrationCatalog,
+    now: i64,
+) -> Result<(), DatabaseError> {
+    with_trace_logging(|| {
+        let mut connection = Connection::open(path)?;
+        crate::migration::reconcile_database(
+            &mut connection,
+            catalog,
+            &FixedTimestampSource { now },
+        )
     })
 }
 

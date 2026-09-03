@@ -7248,6 +7248,7 @@ name = "xtask"
 version = "0.0.0"
 dependencies = [
  "ora-contracts",
+ "ora-db",
  "ora-plugin-protocol",
  "pretty_assertions",
  "serde_json",

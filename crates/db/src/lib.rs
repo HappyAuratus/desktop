@@ -14,7 +14,7 @@ mod repository_tests;
 #[cfg(test)]
 mod tests;
 
-pub use bootstrap::DatabaseBootstrapper;
+pub use bootstrap::{DatabaseBootstrapper, reconcile_migration_history};
 pub use error::{DatabaseError, MigrationDirection};
 pub use location::DatabaseLocation;
 pub use migration::{AppliedMigration, Migration, MigrationCatalog, default_migration_catalog};

@@ -14,7 +14,50 @@ CREATE TABLE IF NOT EXISTS migrations (
 );
 "#;
 
-/// Reconciles a SQLite connection with the catalog's target prefix by applying or rolling back migrations.
+/// Applies only migration versions missing from the database without inspecting SQL snapshot drift.
+pub fn apply_pending_migrations<T>(
+    connection: &mut Connection,
+    catalog: &MigrationCatalog,
+    timestamp_source: &T,
+) -> Result<(), DatabaseError>
+where
+    T: TimestampSource,
+{
+    ensure_migrations_table(connection)?;
+
+    let applied_migrations = load_applied_migrations(connection)?;
+    validate_applied_history(&applied_migrations, catalog)?;
+    let pending_up_count = catalog
+        .target_versions()
+        .len()
+        .saturating_sub(applied_migrations.len());
+
+    ora_info!(
+        message = "evaluated pending migrations",
+        operation = "migration_apply_pending",
+        applied_migration_count = applied_migrations.len(),
+        target_migration_count = catalog.target_versions().len(),
+        pending_up_count
+    );
+
+    apply_migration_suffix(
+        connection,
+        catalog,
+        timestamp_source,
+        applied_migrations.len(),
+    )?;
+
+    if pending_up_count == 0 {
+        ora_info!(
+            message = "database already contains every target migration version",
+            operation = "migration_apply_pending"
+        );
+    }
+
+    Ok(())
+}
+
+/// Reconciles SQL snapshot drift and target shortening by rebuilding the affected migration suffix.
 pub fn reconcile_database<T>(
     connection: &mut Connection,
     catalog: &MigrationCatalog,
@@ -69,60 +112,79 @@ where
         }
     }
 
-    if pending_up_count > 0 {
-        ora_info!(
-            message = "applying pending migrations",
-            operation = "migration_reconciliation",
-            apply_count = pending_up_count
-        );
-
-        for target_version in target_versions.iter().skip(reconciliation_start) {
-            let migration = catalog.migration(target_version).ok_or_else(|| {
-                ora_error!(
-                    message = "target migration version is missing from the catalog",
-                    operation = "migration_reconciliation",
-                    migration_version = (*target_version).to_string(),
-                    error.kind = "unknown_applied_migration_version",
-                    error.message = format!(
-                        "target migration version {} is missing from the catalog",
-                        target_version
-                    )
-                );
-
-                DatabaseError::UnknownAppliedMigrationVersion {
-                    version: (*target_version).to_string(),
-                }
-            })?;
-
-            let up_sql = migration.up_sql();
-            let down_sql = migration.down_sql();
-            execute_migration_step(
-                connection,
-                migration.version(),
-                &up_sql,
-                MigrationDirection::Up,
-                |transaction| {
-                    transaction.execute(
-                        "INSERT INTO migrations (version, up_sql, down_sql, executed_at) VALUES (?1, ?2, ?3, ?4)",
-                        params![
-                            migration.version(),
-                            up_sql,
-                            down_sql,
-                            timestamp_source.current_timestamp_millis()
-                        ],
-                    )?;
-
-                    Ok(())
-                },
-            )?;
-        }
-    }
+    apply_migration_suffix(connection, catalog, timestamp_source, reconciliation_start)?;
 
     if pending_up_count == 0 && pending_down_count == 0 {
         ora_info!(
             message = "database schema already matches the target migration prefix",
             operation = "migration_reconciliation"
         );
+    }
+
+    Ok(())
+}
+
+/// Applies the target suffix in order and records the exact SQL snapshots that were executed.
+fn apply_migration_suffix<T>(
+    connection: &mut Connection,
+    catalog: &MigrationCatalog,
+    timestamp_source: &T,
+    start: usize,
+) -> Result<(), DatabaseError>
+where
+    T: TimestampSource,
+{
+    let target_versions = catalog.target_versions();
+    let apply_count = target_versions.len().saturating_sub(start);
+    if apply_count == 0 {
+        return Ok(());
+    }
+
+    ora_info!(
+        message = "applying migration suffix",
+        operation = "migration_apply",
+        apply_count
+    );
+
+    for target_version in target_versions.iter().skip(start) {
+        let migration = catalog.migration(target_version).ok_or_else(|| {
+            ora_error!(
+                message = "target migration version is missing from the catalog",
+                operation = "migration_apply",
+                migration_version = (*target_version).to_string(),
+                error.kind = "unknown_applied_migration_version",
+                error.message = format!(
+                    "target migration version {} is missing from the catalog",
+                    target_version
+                )
+            );
+
+            DatabaseError::UnknownAppliedMigrationVersion {
+                version: (*target_version).to_string(),
+            }
+        })?;
+
+        let up_sql = migration.up_sql();
+        let down_sql = migration.down_sql();
+        execute_migration_step(
+            connection,
+            migration.version(),
+            &up_sql,
+            MigrationDirection::Up,
+            |transaction| {
+                transaction.execute(
+                    "INSERT INTO migrations (version, up_sql, down_sql, executed_at) VALUES (?1, ?2, ?3, ?4)",
+                    params![
+                        migration.version(),
+                        up_sql,
+                        down_sql,
+                        timestamp_source.current_timestamp_millis()
+                    ],
+                )?;
+
+                Ok(())
+            },
+        )?;
     }
 
     Ok(())

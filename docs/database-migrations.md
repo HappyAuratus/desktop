@@ -7,7 +7,7 @@ Ora keeps SQLite migration definitions in Rust code inside `ora-db` rather than 
 - Every migration has a unique, strictly increasing version such as `0001`.
 - Every migration provides both `up` and `down` statements.
 - The runner creates the `migrations` bookkeeping table with `version`, `up_sql`, `down_sql`, and `executed_at` before loading history.
-- Ordered statement lists are trimmed and joined into executable SQL snapshots. Both directions are persisted so either direction changing triggers reconciliation.
+- Ordered statement lists are trimmed and joined into executable SQL snapshots. Both directions are persisted so explicit development reconciliation can detect either direction changing.
 - `MigrationCatalog` validates these invariants when it is built, so a duplicate or out-of-order version fails before any statement runs.
 
 ## Shipped catalog
@@ -25,9 +25,16 @@ Ora keeps SQLite migration definitions in Rust code inside `ora-db` rather than 
 
 `default_migration_catalog()` returns all migrations with every version as the active target.
 
-## Reconciliation model
+## Application startup
 
-A catalog carries the full migration list plus an **active target prefix**, which must be a prefix of that list. Requiring a prefix keeps history linear and makes controlled rollback deterministic instead of branch-shaped. `DatabaseBootstrapper::bootstrap` reconciles a database against that target:
+`DatabaseBootstrapper` validates that applied versions form a known, ordered history, then applies
+only the missing target tail. It does not compare persisted SQL snapshots and never executes a
+rollback. Packaged application startup therefore cannot rebuild user data merely because an old
+migration definition changed.
+
+## Development reconciliation
+
+A catalog carries the full migration list plus an **active target prefix**, which must be a prefix of that list. Requiring a prefix keeps history linear and makes controlled rollback deterministic instead of branch-shaped. The explicit `reconcile_migration_history` tooling interface reconciles a database against that target:
 
 - Applied versions are validated against the complete catalog before any mutation. Unknown versions and versions in the wrong position remain hard errors; the runner never guesses, skips, or reorders history.
 - Persisted and current `up_sql` and `down_sql` are compared from the beginning of the shared target prefix. `executed_at` is metadata and does not affect equality.
@@ -35,6 +42,10 @@ A catalog carries the full migration list plus an **active target prefix**, whic
 - The runner then applies the current target suffix in ascending order and records fresh SQL snapshots and timestamps.
 - If content matches and the database is missing target versions, only the missing tail is applied. If the target is shorter, only the trailing applied versions are rolled back using their stored snapshots.
 - When versions and SQL snapshots already match the target, reconciliation is a no-op.
+
+`cargo xtask reconcile-migrations DATA_DIRECTORY` invokes this interface. `task run:desktop` runs
+that command against the repository `.data` directory immediately before starting Tauri, keeping
+automatic rollback and migration-rewrite support confined to local development.
 
 Each migration direction and its bookkeeping update run inside **one SQLite transaction**, so a failing `down` preserves that migration's schema and row, while a failing `up` never records the version. Rebuilding a suffix consists of multiple such steps: if a new `up` fails, already completed rollback steps remain committed and the database stays at that rolled-back prefix.
 
@@ -45,10 +56,10 @@ plugin marketplace schema remains intact.
 
 ## Operational logging
 
-`ora-db` emits structured `tracing` events during database bootstrap and reconciliation.
+`ora-db` emits structured events during database bootstrap and explicit reconciliation.
 
 - Database open and bootstrap lifecycle events carry an `operation` field (`database_open`, `database_bootstrap`).
-- The reconciliation decision event reports applied and target migration counts plus pending up and down counts; rollback and apply phases log their own counts.
+- Application bootstrap reports the pending `up` count. Explicit reconciliation reports applied and target migration counts plus pending `up` and `down` counts; rollback and apply phases log their own counts.
 - Migration step events include `migration_version` and `direction`.
 - Failures log at `ERROR` with `error.kind` and `error.message` before the original `DatabaseError` is returned to the caller.
 
