@@ -14,7 +14,7 @@ export interface AgentEntry {
    * is exactly what a session stores as its `agentRef` and what the backend keys its runtime by.
    */
   agentRef: string;
-  /** Name shown in the pickers, declared by the package's agent contribution. */
+  /** Plugin title shown in the pickers. */
   label: string;
   /** Inline SVG source for the package's brand mark, absent when it ships none. */
   logo: string | null;
@@ -37,7 +37,10 @@ export function useAgentCatalog(): AgentEntry[] {
           // Supervisors are keyed by the package's whole `namespace/name` address: two sources
           // may publish the same name, and the name alone would collapse them into one agent.
           agentRef: plugin.id,
-          label: plugin.agentDisplayName,
+          // The plugin title is the user-facing identity of the installed package. The agent
+          // contribution name may be an implementation identifier and should not be exposed in
+          // the selection list.
+          label: plugin.displayName,
           logo: plugin.logo,
         })),
     [plugins],

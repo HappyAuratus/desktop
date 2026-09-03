@@ -148,6 +148,26 @@ async function openAgentList(user: ReturnType<typeof userEvent.setup>) {
 }
 
 describe("ModelSelector agent availability", () => {
+  it("shows the agent plugin title instead of its contribution identifier", async () => {
+    const user = userEvent.setup();
+    renderModelSelector((state) => {
+      const plugin = state.installedPlugins.find(
+        (candidate) => candidate.id === AGENT_REF.opencode,
+      );
+      if (plugin?.kind === "agent") {
+        plugin.displayName = "OpenCode Plugin";
+        plugin.agentDisplayName = AGENT_REF.opencode;
+      }
+    });
+
+    const menu = await openAgentList(user);
+
+    await waitFor(() =>
+      expect(within(menu).getByText("OpenCode Plugin")).not.toBeNull(),
+    );
+    expect(within(menu).queryByText(AGENT_REF.opencode)).toBeNull();
+  });
+
   it("offers every agent the runtime reports reaching", async () => {
     const user = userEvent.setup();
     renderModelSelector();
