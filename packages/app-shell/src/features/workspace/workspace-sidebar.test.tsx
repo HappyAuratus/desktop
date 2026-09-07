@@ -154,7 +154,11 @@ function conversation(
 }
 
 /** A library workflow with a published snapshot — the only kind the sidebar picker lists. */
-function mockPublishedWorkflow(id: string, name: string): MockWorkflowRecord {
+function mockPublishedWorkflow(
+  id: string,
+  name: string,
+  version = "v1",
+): MockWorkflowRecord {
   return {
     workflow: {
       id,
@@ -176,7 +180,7 @@ function mockPublishedWorkflow(id: string, name: string): MockWorkflowRecord {
       {
         id: `${id}-pub`,
         workflowId: id,
-        version: "v1",
+        version,
         graph: "{}",
         createdAt: 0n,
         updatedAt: null,
@@ -838,6 +842,7 @@ describe("WorkspaceSidebar", () => {
         projectId: PROJECT.id,
         workflowId: "wf1",
         snapshotId: "snap1",
+        version: "v3",
         name: "Review bot",
         status: "pending",
         workspaceId: "workspace-p1",
@@ -848,6 +853,14 @@ describe("WorkspaceSidebar", () => {
     renderSidebar(state);
 
     await waitFor(() => expect(treeRow("Review bot")).not.toBeNull());
+    const versionMark = within(treeRow("Review bot")!).getByText("v3");
+    expect(versionMark).not.toBeNull();
+    // The version stays hidden until the row is hovered or keyboard-focused.
+    expect(versionMark.className).toContain("opacity-0");
+    expect(versionMark.className).toContain("group-hover/tree:opacity-100");
+    expect(versionMark.className).toContain(
+      "group-focus-within/tree:opacity-100",
+    );
     const runRow = treeRow("Review bot")!.closest(
       "div.group\\/tree",
     ) as HTMLElement;
@@ -864,6 +877,7 @@ describe("WorkspaceSidebar", () => {
         projectId: PROJECT.id,
         workflowId: "wf-task",
         snapshotId: "snap-task",
+        version: "v1",
         name: "Task workflow",
         status: "pending",
         workspaceId: TASK.workspaceId,
@@ -875,6 +889,7 @@ describe("WorkspaceSidebar", () => {
         projectId: PROJECT.id,
         workflowId: "wf-project",
         snapshotId: "snap-project",
+        version: "v2",
         name: "Project workflow",
         status: "pending",
         workspaceId: "workspace-p1",
@@ -941,7 +956,7 @@ describe("WorkspaceSidebar", () => {
     expect(
       screen.queryByRole("button", { name: "Unpublished draft" }),
     ).toBeNull();
-    await user.click(await screen.findByRole("button", { name: "Deploy bot" }));
+    await user.click(await screen.findByRole("button", { name: /Deploy bot/ }));
 
     expect(useUiStore.getState().dialog).toEqual({
       kind: "runWorkflow",
@@ -970,7 +985,7 @@ describe("WorkspaceSidebar", () => {
       }),
     );
     await user.click(
-      await screen.findByRole("button", { name: "Task review" }),
+      await screen.findByRole("button", { name: /Task review/ }),
     );
 
     expect(useUiStore.getState().dialog).toEqual({
@@ -1006,6 +1021,43 @@ describe("WorkspaceSidebar", () => {
         name: /搜索工作流模板|Search workflow templates/,
       }),
     ).toHaveFocus();
+  });
+
+  it("shows the published version on workflow templates and filters by it", async () => {
+    const user = userEvent.setup({ pointerEventsCheck: 0 });
+    const state = workspaceWithOneSession();
+    state.workflows = [
+      mockPublishedWorkflow("wf1", "Deploy bot", "v3"),
+      mockPublishedWorkflow("wf2", "Review bot", "v1"),
+    ];
+    renderSidebar(state);
+
+    await waitFor(() => expect(treeRow(PROJECT.name)).not.toBeNull());
+    await user.click(
+      await screen.findByRole("button", {
+        name: /在此项目中新建|Create in this project/,
+      }),
+    );
+    await user.hover(
+      await screen.findByRole("button", {
+        name: /运行工作流|Run workflow/,
+      }),
+    );
+    expect(
+      within(
+        await screen.findByRole("button", { name: /Deploy bot/ }),
+      ).getByText("v3"),
+    ).not.toBeNull();
+
+    await user.type(
+      await screen.findByRole("textbox", {
+        name: /搜索工作流模板|Search workflow templates/,
+      }),
+      "v3",
+    );
+
+    expect(screen.queryByRole("button", { name: /Review bot/ })).toBeNull();
+    expect(screen.getByRole("button", { name: /Deploy bot/ })).not.toBeNull();
   });
 
   it("renames a session from the context menu", async () => {
@@ -1286,6 +1338,7 @@ describe("WorkspaceSidebar", () => {
         projectId: PROJECT.id,
         workflowId: "wf1",
         snapshotId: "snap1",
+        version: "v1",
         name: "Review bot",
         status: "pending",
         workspaceId: "workspace-wt1",

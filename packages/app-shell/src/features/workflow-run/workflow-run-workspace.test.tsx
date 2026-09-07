@@ -141,6 +141,7 @@ function seedRun(graph = GRAPH) {
       projectId: "p1",
       workflowId: "workflow-a",
       snapshotId: "snap-1",
+      version: "v1",
       name: "审查流程 1",
       status: "pending",
       workspaceId: "workspace-run-1",

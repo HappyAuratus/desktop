@@ -14,6 +14,8 @@ export interface MockWorkflowRunRecord {
   projectId: string;
   workflowId: string;
   snapshotId: string;
+  /** Version label surfaced by list views; mock snapshots always resolve to this. */
+  version: string;
   name: string;
   status: "pending" | "running" | "succeeded" | "failed" | "cancelled";
   workspaceId: string;
@@ -79,6 +81,7 @@ export function workflowRunHandlers(
         workspaceId: req.workspaceId,
         workflowId: req.workflowId,
         snapshotId: run.snapshotId,
+        version: "v1",
         name: req.name ?? "",
         status: "pending",
         createdAt: now,
@@ -167,6 +170,7 @@ export function workflowRunHandlers(
           workspaceId: record.workspaceId,
           projectId: record.projectId,
           workflowId: record.workflowId,
+          version: record.version,
           status: record.status,
           startedAt: null,
           finishedAt: null,
@@ -182,6 +186,7 @@ export function workflowRunHandlers(
           workspaceId: record.workspaceId,
           projectId: record.projectId,
           workflowId: record.workflowId,
+          version: record.version,
           status: record.status,
           startedAt: null,
           finishedAt: null,
