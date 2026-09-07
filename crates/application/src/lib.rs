@@ -35,7 +35,7 @@ pub use skill::{
     FilesystemSkillStorage, GetSkillHandler, JOURNAL_DIR_NAME, JournalOp, JournalPhase,
     ListSkillsHandler, LocalSkillSourceRevision, STAGING_DIR_NAME, SkillIdGenerator,
     SkillRepository, SkillStorage, SkillStorageError, SwapHandle, TransactionJournal,
-    UpdateSkillHandler, UuidSkillIdGenerator, has_usable_package,
+    UpdateSkillHandler, UuidSkillIdGenerator, has_usable_package, skill_package_is_usable,
 };
 pub use skill_import::{
     DuplicateSkillName, NoopSkillImportProgressPublisher, SkillImportConfig, SkillImportError,
