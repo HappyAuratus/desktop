@@ -619,15 +619,18 @@ impl DesktopScheduledRunExecutor {
         worktree_path: &str,
         session_id: &SessionId,
     ) {
+        let settlement = SucceededRunSettlement {
+            run,
+            session_id,
+            worktree_path: Path::new(worktree_path),
+            now: self.clock.now_timestamp_millis(),
+        };
         if !settle_succeeded_run(
             &self.runs,
             &self.artifacts,
             self.tasks.sessions_root(),
             &self.events,
-            run,
-            session_id,
-            Path::new(worktree_path),
-            self.clock.now_timestamp_millis(),
+            settlement,
         ) {
             return;
         }
@@ -720,6 +723,14 @@ fn publish_finished(
     ));
 }
 
+/// Input required to settle one successfully completed run.
+struct SucceededRunSettlement<'a> {
+    run: &'a ScheduledRun,
+    session_id: &'a SessionId,
+    worktree_path: &'a Path,
+    now: i64,
+}
+
 /// Finishes a run whose turn ended normally: transition to `succeeded`, annotate the
 /// business verdict, collect the declared artifacts, then publish `RunFinished`. The
 /// verdict write and artifact collection sit after the terminal transition and before
@@ -730,17 +741,25 @@ fn settle_succeeded_run(
     artifacts: &ScheduledRunArtifactRuntime,
     sessions_root: &Path,
     events: &AppEventPublisher,
-    run: &ScheduledRun,
-    session_id: &SessionId,
-    worktree_path: &Path,
-    now: i64,
+    settlement: SucceededRunSettlement<'_>,
 ) -> bool {
-    if !transition(runs, run, ScheduledRunTransition::Succeed, now) {
+    if !transition(
+        runs,
+        settlement.run,
+        ScheduledRunTransition::Succeed,
+        settlement.now,
+    ) {
         return false;
     }
-    annotate_verdict(runs, sessions_root, run, session_id, now);
-    artifacts.collect(&run.id, worktree_path);
-    publish_finished(events, run, &ScheduledRunTransition::Succeed);
+    annotate_verdict(
+        runs,
+        sessions_root,
+        settlement.run,
+        settlement.session_id,
+        settlement.now,
+    );
+    artifacts.collect(&settlement.run.id, settlement.worktree_path);
+    publish_finished(events, settlement.run, &ScheduledRunTransition::Succeed);
     true
 }
 
@@ -978,7 +997,7 @@ mod tests {
     use tempfile::TempDir;
     use time::OffsetDateTime;
 
-    use super::{settle_succeeded_run, settle_terminal_run, transition};
+    use super::{SucceededRunSettlement, settle_succeeded_run, settle_terminal_run, transition};
 
     /// Runs one integration test on a current-thread runtime with trace logging scoped.
     fn run_integration(test: impl std::future::Future<Output = ()>) {
@@ -1164,10 +1183,12 @@ mod tests {
                     &fixture.artifacts,
                     &fixture.sessions_root,
                     &fixture.events,
-                    &fixture.run,
-                    &SessionId::new("session-1"),
-                    &fixture.worktree,
-                    3_000,
+                    SucceededRunSettlement {
+                        run: &fixture.run,
+                        session_id: &SessionId::new("session-1"),
+                        worktree_path: &fixture.worktree,
+                        now: 3_000,
+                    },
                 ),
                 "settle the succeeded run"
             );
