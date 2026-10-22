@@ -2,6 +2,54 @@
 use super::*;
 use tokio::{sync::mpsc, task::JoinSet};
 
+/// What a session tells its owner beyond its own result. A static Node's handshake proves its
+/// configured identity to the store; the Cloud adapter's sandbox sessions report the handshake to
+/// Cloud and stop a Workspace's clone step when the Node cannot tell an execution's outcome. Callbacks run on the session task and must not
+/// block it.
+pub(crate) trait SessionObserver: Send + Sync {
+    /// The handshake completed with this Node incarnation; the session is live from here on.
+    fn established(&self, node: &NodeRuntimeIdentity);
+    /// Records the negotiated capabilities before publishing the connected identity.
+    fn capabilities(
+        &self,
+        _capabilities: &[NodeCapability],
+        _model_adapter: Option<&ModelAdapterCapability>,
+    ) {
+    }
+    /// The Node still answers `Unknown` for an execution after this connection retransmitted its
+    /// original command once. It may be a retained uncertain attempt or a command the Node has not
+    /// admitted yet; the owner decides how long that may last.
+    fn unresolved(&self, execution: &ExecutionId);
+    /// Cloud refused this validated delivery terminal without issuing a receipt.
+    fn terminal_refused(&self, execution: &ExecutionId);
+    /// A real terminal takeover receipt, rather than a status hint, resolves a refusal.
+    fn terminal_accepted(&self, execution: &ExecutionId);
+    /// Refused terminals from an earlier transport connection still await their exact receipts.
+    fn refused_executions(&self) -> Vec<ExecutionId>;
+    /// The Node reported the execution as accepted, running or completed, which ends any earlier
+    /// unresolved report for it.
+    fn answered(&self, execution: &ExecutionId);
+}
+
+/// The observer of sessions nobody watches.
+pub(crate) struct Unobserved;
+
+impl SessionObserver for Unobserved {
+    fn established(&self, _node: &NodeRuntimeIdentity) {}
+
+    fn unresolved(&self, _execution: &ExecutionId) {}
+
+    fn answered(&self, _execution: &ExecutionId) {}
+
+    fn terminal_refused(&self, _execution: &ExecutionId) {}
+
+    fn terminal_accepted(&self, _execution: &ExecutionId) {}
+
+    fn refused_executions(&self) -> Vec<ExecutionId> {
+        Vec::new()
+    }
+}
+
 /// Effects returned to the connection owner after durable coordination.
 pub(super) enum Action {
     Send(Box<ControllerToNodeMessage>),
@@ -19,7 +67,7 @@ enum ExecutionControl {
     TerminalRefused {
         event: Box<RevisionResultMessage>,
         /// Retain Cloud's original verdict with the unresolved execution for diagnostics.
-        _detail: String,
+        detail: String,
     },
 }
 
@@ -180,7 +228,7 @@ async fn reconcile<S: CoordinationStore>(
             NodeToControllerMessage::ExecutionStatus(status) => Some(&status.execution_id),
             _ => None,
         };
-        if let Some(ExecutionControl::TerminalRefused { event, .. }) =
+        if let Some(ExecutionControl::TerminalRefused { event, detail }) =
             execution.and_then(|id| executions.get(id))
         {
             // Suppress only replays of the original binding. Conflicting bodies, producers or
@@ -203,6 +251,12 @@ async fn reconcile<S: CoordinationStore>(
                 _ => false,
             };
             if !matches {
+                ora_logging::ora_error!(
+                    execution_id = %event.execution_id.as_str(),
+                    operation_id = %event.operation_id.as_str(),
+                    cloud_refusal = %detail,
+                    "Conflicting terminal or status for refused delivery execution"
+                );
                 return Err(Error::Conflict);
             }
             continue;
@@ -216,7 +270,7 @@ async fn reconcile<S: CoordinationStore>(
                     event.execution_id.clone(),
                     ExecutionControl::TerminalRefused {
                         event: Box::new(event.clone()),
-                        _detail: detail,
+                        detail,
                     },
                 );
                 output

@@ -222,6 +222,11 @@ impl Node {
                 {
                     return;
                 }
+                if let NodeToControllerMessage::ExecutionStatus(status) = &event {
+                    self.timeline.push(Event::DeliveryHintSent {
+                        execution: status.execution_id.as_str().into(),
+                    });
+                }
             }
             let reply = tokio::select! {
                 frame = receiver.recv() => {

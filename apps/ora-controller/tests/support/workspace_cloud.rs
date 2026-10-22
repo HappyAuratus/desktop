@@ -96,6 +96,10 @@ pub enum Event {
     DeliveryStarted {
         execution: String,
     },
+    /// An explicitly injected status hint crossed the fake Node's WebSocket send boundary.
+    DeliveryHintSent {
+        execution: String,
+    },
     /// Cloud signed grants for exactly these requested checksums.
     GrantIssued {
         execution: String,
@@ -154,6 +158,10 @@ pub enum Event {
     },
     /// The fake Node's session with the Controller ended.
     SessionEnded,
+    /// A runtime still holding its lease explicitly returns it during shutdown.
+    LeaseReleased {
+        epoch: i64,
+    },
     /// The Node observed the Controller's deliberate control-channel close.
     ShutdownClose,
     /// A force-stop listing completed, including an empty one used to observe the next wake.
@@ -667,6 +675,9 @@ impl ControllerLeaseService for WorkspaceCloud {
         &self,
         request: Request<proto::ReleaseLeaseRequest>,
     ) -> Result<Response<proto::ReleaseLeaseResponse>, Status> {
+        self.timeline.push(Event::LeaseReleased {
+            epoch: request.get_ref().epoch,
+        });
         Ok(Response::new(proto::ReleaseLeaseResponse {
             lease: Some(proto::Lease {
                 holder_id: "owner".into(),

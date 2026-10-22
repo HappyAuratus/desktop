@@ -29,6 +29,8 @@ pub(super) struct DeliveryState {
     attempts: Vec<proto::TakeOverNodeEventRequest>,
     /// Durable event receipts, separate from execution results.
     receipts: HashMap<String, proto::TakeOverNodeEventRequest>,
+    /// Receipt-only commits deliberately omit the execution result returned by the fake.
+    receipt_only: HashSet<String>,
     /// Runs whose next committed response is lost in transit.
     lose_reply: HashSet<String>,
     /// Pending-list omissions let quiesce exercise the observer's independent responsibility.
@@ -149,7 +151,16 @@ impl WorkspaceCloud {
             .cloned()
     }
 
-    /// Loses a response after both the result and exact receipt were committed.
+    /// Keeps takeover success dependent on its exact receipt, without an execution-result hint.
+    pub fn receipt_only_revision(&self, run: &str) {
+        self.lock()
+            .agents
+            .deliveries
+            .receipt_only
+            .insert(run.into());
+    }
+
+    /// Loses a response after the exact receipt was committed.
     pub fn lose_revision_reply(&self, run: &str) {
         self.lock().agents.deliveries.lose_reply.insert(run.into());
     }
@@ -362,7 +373,22 @@ impl WorkspaceCloud {
         {
             return Err(conflict("receipt_conflict"));
         }
-        let record = self.store_result(&message.execution_id, message.result.clone())?;
+        let record = if self
+            .lock()
+            .agents
+            .deliveries
+            .receipt_only
+            .contains(&message.operation_id)
+        {
+            self.lock()
+                .clones
+                .iter()
+                .find(|record| record.execution_id == message.execution_id)
+                .cloned()
+                .ok_or_else(|| Status::not_found("not_found"))?
+        } else {
+            self.store_result(&message.execution_id, message.result.clone())?
+        };
         let lose_reply = {
             let mut state = self.lock();
             state

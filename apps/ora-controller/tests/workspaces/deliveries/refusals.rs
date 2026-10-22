@@ -79,18 +79,23 @@ async fn refused(world: &World) -> (ExecutionId, usize) {
     (execution, since)
 }
 
-/// With pending polling omitted, only the session observer can keep an unreceipted terminal busy.
-async fn unresolved(world: &World, execution: &ExecutionId) {
-    world.cloud.hide_delivery_pending(execution);
+/// Runs quiesce to completion so its actual idle decision is the observation barrier.
+async fn busy(world: &World) {
     let before = world.timeline.events().len();
     let stop = world.cloud.queue(proto::OperationKind::Stop);
     settled(world, &stop, proto::OperationState::Failed).await;
     let events = world.timeline.events()[before..].to_vec();
     assert!(
         events.contains(&Event::Idle { idle: false }),
-        "observer lost its refused execution: {events:#?}"
+        "quiesce accepted an unfinished delivery: {events:#?}"
     );
     assert!(!events.contains(&Event::SessionEnded));
+}
+
+/// With pending polling omitted, only the session observer can keep an unreceipted terminal busy.
+async fn unresolved(world: &World, execution: &ExecutionId) {
+    world.cloud.hide_delivery_pending(execution);
+    busy(world).await;
 }
 
 /// Same-connection duplicates and hints neither retry takeover nor acknowledge or redispatch it.
@@ -105,6 +110,8 @@ fn refused_terminal_isolated_on_live_session() {
             assert_eq!(registered.len(), 1);
             let original =
                 world.node.deliveries.data.lock().unwrap().outbox[execution.as_str()].clone();
+            let grants = world.cloud.issued_grants();
+            let received_grants = world.node.deliveries.grants();
             let hints = [
                 NodeToControllerMessage::RevisionResult(original.clone()),
                 status(
@@ -158,6 +165,15 @@ fn refused_terminal_isolated_on_live_session() {
             assert_eq!(world.cloud.revision_attempts("refused").len(), 1);
             assert_eq!(world.timeline.events().iter().filter(|event| matches!(event, Event::DeliveryStarted { execution: id } if id == execution.as_str())).count(), 1);
             assert_eq!(world.cloud.queried_revisions(), 0);
+            assert_eq!(world.cloud.issued_grants(), grants);
+            assert_eq!(world.node.deliveries.grants(), received_grants);
+            assert!(
+                !world.timeline.events()[since..]
+                    .iter()
+                    .any(|event| matches!(event,
+                Event::GrantIssued { execution: id, .. } | Event::GrantRefused { execution: id }
+                if id == execution.as_str()))
+            );
             let lines = recorder.0.lock().unwrap().clone();
             let warnings: Vec<_> = lines
                 .iter()
@@ -196,20 +212,38 @@ fn same_fact(first: &proto::TakeOverNodeEventRequest, replay: &proto::TakeOverNo
     assert_eq!(first, &replay);
 }
 
+#[derive(Clone, Copy)]
+enum Recovery {
+    Reconnect,
+    Restart,
+}
+
+#[derive(Clone, Copy)]
+enum Commit {
+    ResultAndReceipt,
+    ReceiptOnly,
+}
+
 /// Reconnection retries once, isolates another refusal, then ACKs only a committed receipt.
-async fn recover(world: &World, restart: bool) {
+async fn recover(world: &World, recovery: Recovery, commit: Commit) {
     let (execution, _) = refused(world).await;
     let original = world.cloud.revision_attempts("refused")[0].clone();
     let before = world.timeline.events().len();
-    if restart {
-        world.restart().await;
-    } else {
-        world.node.deliveries.data.lock().unwrap().pause_terminal = true;
-        world.node.disconnect.store(true, Ordering::SeqCst);
-        world
-            .timeline
-            .until(|events| events[before..].contains(&Event::SessionEnded))
-            .await;
+    world.node.deliveries.data.lock().unwrap().pause_terminal = true;
+    match recovery {
+        Recovery::Restart => {
+            world.restart().await;
+        }
+        Recovery::Reconnect => {
+            world.node.disconnect.store(true, Ordering::SeqCst);
+            world
+                .timeline
+                .until(|events| events[before..].contains(&Event::SessionEnded))
+                .await;
+        }
+    }
+    if matches!(recovery, Recovery::Reconnect) {
+        let hint_before = world.timeline.events().len();
         let unknown = status(world, &execution, ExecutionState::Unknown);
         world
             .node
@@ -219,13 +253,24 @@ async fn recover(world: &World, restart: bool) {
             .unwrap()
             .injected
             .push_back(unknown);
-        // The existing sandbox observer remembers refusal through a transport reconnect. A
-        // status hint received before replay must not redispatch the original delivery.
-        tokio::time::sleep(Duration::from_millis(/*millis*/ 200)).await;
-        assert_eq!(world.cloud.revision_attempts("refused").len(), 1);
-        assert_eq!(world.timeline.events().iter().filter(|event| matches!(event, Event::DeliveryStarted { execution: id } if id == execution.as_str())).count(), 1);
-        world.node.deliveries.data.lock().unwrap().pause_terminal = false;
+        world
+            .timeline
+            .until(|events| {
+                events[hint_before..].contains(&Event::DeliveryHintSent {
+                    execution: execution.as_str().into(),
+                })
+            })
+            .await;
     }
+    // Before replay a fresh process has no refusal marker. Cloud still lists the original
+    // execution: D5 changes the run, not its NULL execution result or termination timestamp.
+    // Quiesce must therefore report busy using real pending work, without any hidden record.
+    busy(world).await;
+    assert_eq!(world.cloud.revision_attempts("refused").len(), 1);
+    assert_eq!(world.cloud.revision_receipt(&execution), None);
+    assert_eq!(record(world, "refused").result, None);
+    assert_eq!(world.timeline.events().iter().filter(|event| matches!(event, Event::DeliveryStarted { execution: id } if id == execution.as_str())).count(), 1);
+    world.node.deliveries.data.lock().unwrap().pause_terminal = false;
     world
         .timeline
         .until(|_| world.cloud.revision_attempts("refused").len() >= 2)
@@ -234,6 +279,10 @@ async fn recover(world: &World, restart: bool) {
     isolated(world, &execution, since, /*attempts*/ 2).await;
     same_fact(&original, &world.cloud.revision_attempts("refused")[1]);
     unresolved(world, &execution).await;
+    match commit {
+        Commit::ResultAndReceipt => {}
+        Commit::ReceiptOnly => world.cloud.receipt_only_revision("refused"),
+    }
     world.cloud.terminal_fault("refused", None);
     world.cloud.lose_revision_reply("refused");
     world.node.disconnect.store(true, Ordering::SeqCst);
@@ -260,7 +309,9 @@ async fn recover(world: &World, restart: bool) {
         world.cloud.revision_receipt(&execution),
         Some(attempts[2].clone())
     );
-    assert_eq!(record(world, "refused").result, attempts[2].result);
+    if matches!(commit, Commit::ReceiptOnly) {
+        assert_eq!(record(world, "refused").result, None);
+    }
     assert!(
         !world
             .node
@@ -301,16 +352,89 @@ async fn recover(world: &World, restart: bool) {
 /// A real reconnect preserves the original outbox event and an awaiting-refusal observer marker.
 #[test]
 fn reconnect_replays_refused_terminal_before_ack() {
-    scenario("main", |world| async move {
-        recover(&world, /*restart*/ false).await;
-    });
+    for commit in [Commit::ResultAndReceipt, Commit::ReceiptOnly] {
+        scenario("main", |world| async move {
+            recover(&world, Recovery::Reconnect, commit).await;
+        });
+    }
 }
 
 /// A fresh Controller recovers from the retained Node event without any local refusal database.
 #[test]
 fn restart_replays_refused_terminal_before_ack() {
+    for commit in [Commit::ResultAndReceipt, Commit::ReceiptOnly] {
+        scenario("main", |world| async move {
+            recover(&world, Recovery::Restart, commit).await;
+        });
+    }
+}
+
+/// A replay awaiting Cloud commit retains the observer marker and cannot leak an early ACK.
+#[test]
+fn blocked_replay_keeps_refused_terminal_busy_until_receipt() {
     scenario("main", |world| async move {
-        recover(&world, /*restart*/ true).await;
+        let (execution, _) = refused(&world).await;
+        let original = world.cloud.revision_attempts("refused")[0].clone();
+        // Omit pending polling so only the already-refused observer can reject quiesce.
+        world.cloud.hide_delivery_pending(&execution);
+        world.cloud.terminal_fault("refused", None);
+        world.cloud.receipt_only_revision("refused");
+        world.cloud.block_agent("refused", true);
+        let before = world.timeline.events().len();
+        world.node.disconnect.store(true, Ordering::SeqCst);
+        world
+            .timeline
+            .until(|_| world.cloud.revision_attempts("refused").len() >= 2)
+            .await;
+        same_fact(&original, &world.cloud.revision_attempts("refused")[1]);
+        busy(&world).await;
+        assert_eq!(world.cloud.revision_receipt(&execution), None);
+        assert_eq!(record(&world, "refused").result, None);
+        assert!(
+            !world.timeline.events()[before..]
+                .iter()
+                .any(|event| matches!(event,
+            Event::DeliveryAck { execution: id, .. } if id == execution.as_str()))
+        );
+        assert!(
+            world
+                .node
+                .deliveries
+                .data
+                .lock()
+                .unwrap()
+                .outbox
+                .contains_key(execution.as_str())
+        );
+        world.cloud.block_agent("refused", false);
+        world
+            .timeline
+            .until(|events| {
+                events.contains(&Event::DeliveryAck {
+                    execution: execution.as_str().into(),
+                    sequence: 1,
+                })
+            })
+            .await;
+        assert_eq!(
+            world.cloud.revision_receipt(&execution),
+            Some(world.cloud.revision_attempts("refused")[1].clone())
+        );
+        assert_eq!(record(&world, "refused").result, None);
+        assert!(
+            !world
+                .node
+                .deliveries
+                .data
+                .lock()
+                .unwrap()
+                .outbox
+                .contains_key(execution.as_str())
+        );
+        let after_ack = world.timeline.events().len();
+        let stop = world.cloud.queue(proto::OperationKind::Stop);
+        settled(&world, &stop, proto::OperationState::Succeeded).await;
+        assert!(world.timeline.events()[after_ack..].contains(&Event::Idle { idle: true }));
     });
 }
 
@@ -352,19 +476,54 @@ fn non_refusal_errors_still_close_session() {
         tonic::Status::unavailable("delivery service unavailable"),
     ];
     for fault in faults {
-        scenario("main", |world| async move {
-            refused(&world).await;
-            let execution = delivering(&world, "negative").await;
-            world.cloud.terminal_fault("negative", Some(fault));
-            let before = world.timeline.events().len();
-            world.node.deliveries.complete(&execution);
-            world
-                .timeline
-                .until(|events| events[before..].contains(&Event::SessionEnded))
-                .await;
-            assert_eq!(world.cloud.revision_receipt(&execution), None);
-            assert_eq!(record(&world, "negative").result, None);
-            assert!(!world.timeline.events()[before..].iter().any(|event| matches!(event, Event::DeliveryAck { execution: id, .. } if id == execution.as_str())));
+        let code = format!("{:?}", fault.code());
+        let message = fault.message().to_owned();
+        let stale = fault.code() == tonic::Code::FailedPrecondition;
+        ora_logging::initialize_test_clock();
+        let recorder = Recorder::default();
+        ora_logging::with_recorded_trace_logging(recorder.clone(), || {
+            run_scenario("main", |world| async move {
+                refused(&world).await;
+                let execution = delivering(&world, "negative").await;
+                world.cloud.terminal_fault("negative", Some(fault));
+                let before = world.timeline.events().len();
+                let logged_before = recorder.0.lock().unwrap().len();
+                world.node.deliveries.complete(&execution);
+                world
+                    .timeline
+                    .until(|events| events[before..].contains(&Event::SessionEnded))
+                    .await;
+                assert_eq!(world.cloud.revision_receipt(&execution), None);
+                assert_eq!(record(&world, "negative").result, None);
+                assert!(!world.timeline.events()[before..].iter().any(|event| matches!(event, Event::DeliveryAck { execution: id, .. } if id == execution.as_str())));
+                world
+                    .timeline
+                    .until(|_| {
+                        recorder.0.lock().unwrap()[logged_before..]
+                            .iter()
+                            .any(|line| line.contains(&code) && line.contains(&message))
+                    })
+                    .await;
+                let lines = recorder.0.lock().unwrap()[logged_before..].to_vec();
+                assert!(
+                    lines
+                        .iter()
+                        .any(|line| line.contains(&code) && line.contains(&message)),
+                    "fatal status lost its original {code}/{message:?}: {lines:#?}"
+                );
+                if stale {
+                    // A completed shutdown is a definite boundary: a retained epoch would have
+                    // issued ReleaseLease. The stale verdict must already have discarded it.
+                    world.controller.stop().await;
+                    assert!(
+                        !world.timeline.events()[before..].contains(&Event::LeaseReleased {
+                            epoch: workspace_cloud::EPOCH,
+                        }),
+                        "stale terminal verdict retained the shared Controller lease"
+                    );
+                    world.controller.start().await;
+                }
+            });
         });
     }
     for invalid in ["node", "operation", "spec", "unknown"] {
@@ -567,7 +726,9 @@ fn ordinary_dispatch_conflict_keeps_work_queued() {
                 })
             })
             .await;
-        tokio::time::sleep(Duration::from_millis(/*millis*/ 1_200)).await;
+        // A completed quiesce round proves this live session can still drive normal work;
+        // no arbitrary delay is needed to observe the rejected registration.
+        busy(&world).await;
         assert!(
             !world
                 .cloud

@@ -236,4 +236,14 @@ impl<S: CoordinationStore> SessionObserver for StaticNode<'_, S> {
     fn unresolved(&self, _execution: &ExecutionId) {}
 
     fn answered(&self, _execution: &ExecutionId) {}
+
+    // Static Nodes serve tenant clones, not Workspace deliveries or quiesce. Their observer
+    // reports only the handshake; the sandbox observer owns retained delivery refusals.
+    fn terminal_refused(&self, _execution: &ExecutionId) {}
+
+    fn terminal_accepted(&self, _execution: &ExecutionId) {}
+
+    fn refused_executions(&self) -> Vec<ExecutionId> {
+        Vec::new()
+    }
 }

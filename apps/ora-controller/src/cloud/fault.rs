@@ -86,6 +86,8 @@ pub(super) fn classify(status: &Status) -> Verdict {
         .and_then(|rpc| {
             rpc.details
                 .iter()
+                // The pinned prost output has no Name implementation. Match the contract Any
+                // identity before decoding, for every Cloud caller that uses this classifier.
                 .filter(|any| {
                     any.type_url == "type.googleapis.com/ora.cloud.internal.v1.ErrorDetail"
                 })

@@ -136,6 +136,16 @@ impl CloudStore {
                 );
                 Error::TerminalTakeoverRefused(detail.to_string())
             }
+            fault::Verdict::Conflict(detail) => {
+                ora_logging::ora_warn!(
+                    execution_id = %event.execution_id.as_str(),
+                    grpc_code = ?detail.code,
+                    detail = detail.refined.map(|code| code.as_str_name()).unwrap_or_default(),
+                    cloud_message = %detail.message,
+                    "Cloud delivery terminal conflict closes the session"
+                );
+                self.settle(fault::Verdict::Conflict(detail))
+            }
             verdict => self.settle(verdict),
         })?;
         self.forget_checksums(&event.execution_id);
