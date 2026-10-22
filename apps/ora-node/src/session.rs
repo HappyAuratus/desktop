@@ -67,7 +67,7 @@ pub(crate) struct Shared<L, C, P, R> {
     /// Restores the prior Revision of a resumed session before its agent starts.
     restorer: R,
     /// Serves each running session's `ora-git` socket, when the Node can reach the Git Server.
-    ora_git: Option<Arc<dyn crate::ora_git::OraGitBroker>>,
+    ora_git: Option<crate::ora_git::Availability>,
     /// Wake handles of the sessions running in this process, by execution.
     live: Mutex<HashMap<ExecutionId, Arc<Notify>>>,
     stopping: tokio::sync::watch::Sender<bool>,
@@ -155,9 +155,9 @@ where
 const ADAPTER_TARGETS: [&str; 2] = ["x86_64-unknown-linux-gnu", "aarch64-unknown-linux-gnu"];
 
 impl<L, C, P, R> AgentSessions<L, C, P, R> {
-    /// Gives every session an `ora-git` socket served by `broker`. Composition calls it before
+    /// Gives every session an `ora-git` socket or its disabled reason. Composition calls it before
     /// any session starts, while it still holds the only handle.
-    pub(crate) fn with_ora_git(mut self, broker: Arc<dyn crate::ora_git::OraGitBroker>) -> Self {
+    pub(crate) fn with_ora_git(mut self, broker: crate::ora_git::Availability) -> Self {
         if let Some(shared) = Arc::get_mut(&mut self.shared) {
             shared.ora_git = Some(broker);
         }

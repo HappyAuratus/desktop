@@ -6,7 +6,7 @@
 任何凭据：它把几个固定动词之一变成一行 JSON 请求，发到会话的 Unix socket 上，由 Node 用自己的 git-access 身份执行。
 相关决策是
 [从 Git Server 快照 clone 与 ora-git](https://github.com/ora-space/specs/blob/main/decisions/node/repository/20261016-clone-from-git-server-snapshot-and-ora-git.md)
-（`approved`，端到端验收通过后改为 `implemented`）；
+（`implemented`）；
 Git Server 允许各执行写什么，见
 [快照 clone 输入与执行 ref 授权](https://github.com/ora-space/specs/blob/main/decisions/cloud/controller-integration/20261016-snapshot-clone-input-and-execution-ref-grants.md)。
 
@@ -16,10 +16,13 @@ Git Server 允许各执行写什么，见
 "agent": { "deno_path": "/opt/ora/bin/deno", "ready_timeout_ms": 30000, "ora_git_directory": "/run/ora-git" }
 ```
 
-- `agent.ora_git_directory` 启用 `ora-git`；没有它，或没有 `git_access`，会话就没有 socket。它必须是绝对路径，父目录只由
+- `agent.ora_git_directory` 请求启用 `ora-git`；没有它，或没有 `git_access`，会话就没有 socket。它必须是绝对路径，父目录只由
   可信属主控制；要么尚不存在（由 Node 创建），要么是归 Node 所有、其他人不能读写的目录；且不能与 Node home、host 目录、
   clone 根目录或 workload 目录重叠，否则 Node 拒绝启动。Node 把它保持为 `0711`（其他用户可以穿过但不能列出），启动时只删除
   以前的 Node 进程在其中按自己命名规则创建的 socket。
+- Node 只在 `process.workload_uid` 已配置且不同于 Node 有效 UID 时启用 `ora-git`。否则启动日志说明具体配置原因，
+  不创建服务或会话 socket，Node 和普通 Agent 会话继续运行。会话通过 `ORA_GIT_DISABLED_REASON` 收到原因；调用
+  `ora-git` 会在尝试访问 socket 之前以 `unavailable`（退出码 10）显示该原因。
 - Node 镜像把可执行文件安装在 workload `PATH` 上的 `/usr/local/bin/ora-git`，见 [容器镜像](../operations/container-images.zh.md)。
   socket 客户端只支持 Unix；为其他平台构建时，`ora-git` 回答 `internal`。
 
@@ -69,7 +72,7 @@ checkout 自己成功推送或拉取自己 Workspace 之后记录；`refs/remote
 
 ## 退出码
 
-失败时在 stderr 打印 `ora-git: <code>: <hint>`；提示只提及 ref 和提交。
+失败时在 stderr 打印 `ora-git: <code>: <hint>`；提示提及 ref、提交或导致禁用的配置字段。
 
 | 代码 | 退出码 | 含义 |
 |---|---|---|
@@ -81,5 +84,5 @@ checkout 自己成功推送或拉取自己 Workspace 之后记录；`refs/remote
 | `conflict` | 7 | Workspace 分支在本 checkout 上次看到之后移动过 |
 | `not_fast_forward` | 8 | 推送的提交不包含该分支最后已知的值 |
 | `denied` | 9 | Git Server 拒绝了请求或 Node 的 git-access 身份（401、403） |
-| `unavailable` | 10 | 无法访问 Git Server |
+| `unavailable` | 10 | 无法访问 Git Server，或 Node 因 `process.workload_uid` 未提供独立身份而禁用 ora-git |
 | `internal` | 11 | Node 本地失败；原因记在 Node 日志中 |

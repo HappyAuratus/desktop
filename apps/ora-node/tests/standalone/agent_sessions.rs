@@ -1,6 +1,7 @@
 //! Real service/actor composition, command ordering, shared leases and process restart behavior.
 use super::*;
 use pretty_assertions::assert_eq;
+use std::os::unix::fs::PermissionsExt;
 #[path = "agent_sessions/authority.rs"]
 mod authority;
 #[path = "agent_sessions/delivery.rs"]
@@ -170,15 +171,28 @@ fn session_commands_use_the_production_ledger_and_installer_catalog() {
     });
 }
 
-/// The real fixture invokes the CLI through the session socket, commits before pushing, and
-/// ignores markers in appended context.
+/// Real Agent CLI calls push with a separate UID, and explain refusal with a shared identity.
 #[test]
-fn echo_collaboration_markers_push_through_the_session_socket() {
+fn echo_collaboration_markers_respect_workload_identity() {
     ora_logging::with_trace_logging(|| {
-        let fixture = Fixture::new();
+        // SAFETY: geteuid only reads the test's identity. Root can exercise actual setuid;
+        // ordinary CI runners exercise the shared-identity refusal instead, without skipping.
+        let separate = unsafe { libc::geteuid() } == 0;
+        let fixture = if separate {
+            Fixture::with_workload_uid(/*uid*/ 1000)
+        } else {
+            Fixture::new()
+        };
         let server =
             GitServerFixture::new(fixture.path(), fixture.path().join("main").join(".git"));
         let config = configuration(&fixture, &server);
+        if separate {
+            fs::set_permissions(
+                &config.repository_root,
+                fs::Permissions::from_mode(/*mode*/ 0o711),
+            )
+            .unwrap();
+        }
         prepare(&fixture, &config, &server);
         let mut child = launch(&fixture, &config);
         let records = tokio::runtime::Builder::new_current_thread()
@@ -225,24 +239,37 @@ fn echo_collaboration_markers_push_through_the_session_socket() {
                 records
             });
         child.terminate();
+        let marker = if separate {
+            "[push: ok]"
+        } else {
+            "[push: unavailable]"
+        };
         assert!(
-            serde_json::to_string(&records)
-                .unwrap()
-                .contains("[push: ok]"),
+            serde_json::to_string(&records).unwrap().contains(marker),
             "{records:?}"
         );
         let branch = format!("refs/heads/workspaces/{}/main", https::WORKSPACE);
-        let commit = checkout_git(&server.repository, &["rev-parse", &branch]);
-        assert_eq!(
-            checkout_git(&server.repository, &["show", &format!("{commit}:echo.txt")]),
-            "[write] [commit] [push]"
-        );
-        assert_eq!(
-            checkout_git(
-                &server.repository,
-                &["show", "-s", "--format=%an <%ae>", &commit]
-            ),
-            "echo <echo@ora.invalid>"
-        );
+        if separate {
+            let commit = checkout_git(&server.repository, &["rev-parse", &branch]);
+            assert_eq!(
+                checkout_git(&server.repository, &["show", &format!("{commit}:echo.txt")]),
+                "[write] [commit] [push]"
+            );
+            assert_eq!(
+                checkout_git(
+                    &server.repository,
+                    &["show", "-s", "--format=%an <%ae>", &commit]
+                ),
+                "echo <echo@ora.invalid>"
+            );
+        } else {
+            assert_eq!(
+                checkout_git(&server.repository, &["for-each-ref", &branch]),
+                ""
+            );
+            let log = fs::read_to_string(fixture.path().join("agent-service.log")).unwrap();
+            assert!(log.contains("process.workload_uid is not set"), "{log}");
+            assert!(!fixture.path().join("ora-git").exists());
+        }
     });
 }

@@ -7,7 +7,7 @@ the platform Git Server. It never runs Git against the network and holds no cred
 a fixed set of verbs into a one-line JSON request on the session's Unix socket, and the Node runs the
 request with its own git-access identity. The decision is
 [clone from a Git Server snapshot and ora-git](https://github.com/ora-space/specs/blob/main/decisions/node/repository/20261016-clone-from-git-server-snapshot-and-ora-git.md)
-(`approved`; it becomes `implemented` after end-to-end acceptance); what the Git Server lets each execution write is in
+(`implemented`); what the Git Server lets each execution write is in
 [snapshot clone input and execution ref grants](https://github.com/ora-space/specs/blob/main/decisions/cloud/controller-integration/20261016-snapshot-clone-input-and-execution-ref-grants.md).
 
 ## Deployment
@@ -16,12 +16,16 @@ request with its own git-access identity. The decision is
 "agent": { "deno_path": "/opt/ora/bin/deno", "ready_timeout_ms": 30000, "ora_git_directory": "/run/ora-git" }
 ```
 
-- `agent.ora_git_directory` enables `ora-git`; without it, or without `git_access`, sessions get no
+- `agent.ora_git_directory` requests `ora-git`; without it, or without `git_access`, sessions get no
   socket. It must be an absolute path whose parent only trusted owners control, either missing (the
   Node creates it) or a Node-owned directory nobody else can read or write, and it must not overlap the
   Node home, the host directory, the clone root or the workload directory; the Node refuses to start
   otherwise. The Node keeps it at `0711` (traversable but not listable by others) and, when it starts,
   removes only the sockets an earlier Node process named there.
+- The Node enables `ora-git` only when `process.workload_uid` is set and differs from the Node's
+  effective UID. Otherwise it logs the specific configuration reason, creates no service or session
+  socket, and keeps running ordinary Agent sessions. Those sessions receive `ORA_GIT_DISABLED_REASON`;
+  invoking `ora-git` prints that reason as `unavailable` (exit 10), before attempting any socket access.
 - The Node image installs the binary at `/usr/local/bin/ora-git` on the workload `PATH`, see
   [Container images](../operations/container-images.md). The socket client is Unix-only; built for
   another platform, `ora-git` answers `internal`.
@@ -85,7 +89,7 @@ value.
 
 ## Exit codes
 
-Failures print `ora-git: <code>: <hint>` on stderr; hints name only refs and commits.
+Failures print `ora-git: <code>: <hint>` on stderr; hints name refs, commits or the disabling configuration field.
 
 | Code | Exit | Meaning |
 |---|---|---|
@@ -97,5 +101,5 @@ Failures print `ora-git: <code>: <hint>` on stderr; hints name only refs and com
 | `conflict` | 7 | The Workspace branch moved since this checkout last saw it |
 | `not_fast_forward` | 8 | The pushed commit does not contain the branch's last known value |
 | `denied` | 9 | The Git Server refused the request or the Node's git-access identity (401, 403) |
-| `unavailable` | 10 | The Git Server could not be reached |
+| `unavailable` | 10 | The Git Server could not be reached, or the Node disabled ora-git because `process.workload_uid` does not provide a separate identity |
 | `internal` | 11 | The Node failed locally; the cause is in the Node log |

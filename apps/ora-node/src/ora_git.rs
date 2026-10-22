@@ -7,7 +7,9 @@
 //! removed when the session leaves the runtime, and the Node removes the sockets a previous process
 //! left when it starts.
 
+mod availability;
 mod operations;
+pub(crate) use availability::Availability;
 
 use crate::Shutdown;
 use crate::git_server::GitServerAccess;

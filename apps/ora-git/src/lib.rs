@@ -13,6 +13,8 @@ use std::process::ExitCode;
 
 /// Environment variable holding the session's socket path.
 pub const SOCKET_ENV: &str = "ORA_GIT_SOCKET";
+/// Why the Node disabled `ora-git` for this session; no socket is published in that state.
+pub const DISABLED_ENV: &str = "ORA_GIT_DISABLED_REASON";
 /// Largest request line, newline included.
 pub const MAX_REQUEST_BYTES: usize = 4 * 1024;
 
@@ -95,6 +97,9 @@ pub fn run(args: &[String]) -> ExitCode {
     let result = Request::parse(args)
         .map_err(|message| (ErrorCode::Usage, message))
         .and_then(|request| {
+            if let Ok(reason) = std::env::var(DISABLED_ENV) {
+                return Err((ErrorCode::Unavailable, reason));
+            }
             let socket = std::env::var_os(SOCKET_ENV).ok_or_else(|| {
                 (
                     ErrorCode::NoSession,

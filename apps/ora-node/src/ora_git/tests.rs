@@ -14,6 +14,33 @@ use std::time::Duration;
 const WORKSPACE: &str = "4c3b2a19-0f8e-4d7c-9b6a-5f4e3d2c1b0a";
 const BINDING: &str = "9d8c7b6a-5f4e-4d3c-8b2a-1f0e9d8c7b6a";
 
+/// The session driver publishes a refusal reason and no socket while ordinary sessions can run.
+#[test]
+fn disabled_service_exports_reason_without_a_socket() {
+    ora_logging::initialize_test_clock();
+    ora_logging::with_trace_logging(|| {
+        let fixture = Fixture::new();
+        for owner in [None, Some(1000)] {
+            let service = Availability::for_workload(owner, /*node_uid*/ 1000, |_| {
+                panic!("disabled ora-git must not construct a service")
+            })
+            .unwrap();
+            let mut environment = std::collections::BTreeMap::new();
+            let socket = service
+                .open(fixture.session.clone(), &mut environment)
+                .unwrap();
+            let Availability::Disabled(reason) = service else {
+                panic!("ora-git was enabled")
+            };
+            assert!(socket.is_none());
+            assert_eq!(
+                environment,
+                std::collections::BTreeMap::from([(ora_git::DISABLED_ENV.to_owned(), reason)])
+            );
+        }
+    });
+}
+
 /// Real TLS/Git and SQLite behind the same service and socket used by Agent sessions.
 struct Fixture {
     _root: tempfile::TempDir,

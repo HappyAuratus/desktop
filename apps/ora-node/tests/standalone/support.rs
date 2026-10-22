@@ -23,6 +23,7 @@ static PROCESS_SLOTS: tokio::sync::Semaphore =
 
 pub struct Fixture {
     directory: tempfile::TempDir,
+    workload_uid: Option<u32>,
     host: ChildGuard,
     // Release only after the fixture's children and directory have been torn down.
     _process_slots: tokio::sync::SemaphorePermit<'static>,
@@ -68,6 +69,14 @@ impl Fixture {
         Self::with_process_slots(/*slots*/ 1)
     }
 
+    /// Uses a distinct workload identity when this fixture runs with Linux setuid authority.
+    pub fn with_workload_uid(uid: u32) -> Self {
+        let mut fixture = Self::new();
+        fs::set_permissions(fixture.path(), fs::Permissions::from_mode(/*mode*/ 0o711)).unwrap();
+        fixture.workload_uid = Some(uid);
+        fixture
+    }
+
     /// Isolates the command-deadline precondition from unrelated fixture process startup.
     pub fn for_command_deadline() -> Self {
         Self::with_process_slots(CONCURRENT_PROCESS_FIXTURES)
@@ -83,9 +92,15 @@ impl Fixture {
         // bootstrap. Its unchanged 500ms deadline then tests running Git, not admission delay.
         let process_slots = rt.block_on(PROCESS_SLOTS.acquire_many(slots)).unwrap();
         ora_logging::initialize_test_clock();
-        let parent = PathBuf::from(std::env::var_os("HOME").unwrap())
-            .canonicalize()
-            .unwrap();
+        // A root-run isolation test must be traversable by the workload user; /root is private.
+        // SAFETY: geteuid only reads the test process identity.
+        let parent = if unsafe { libc::geteuid() } == 0 {
+            PathBuf::from("/")
+        } else {
+            PathBuf::from(std::env::var_os("HOME").unwrap())
+                .canonicalize()
+                .unwrap()
+        };
         let directory = tempfile::Builder::new()
             .prefix("n")
             .permissions(fs::Permissions::from_mode(/*mode*/ 0o700))
@@ -120,6 +135,7 @@ impl Fixture {
         );
         let mut fixture = Self {
             directory,
+            workload_uid: None,
             host,
             _process_slots: process_slots,
         };
@@ -171,19 +187,23 @@ impl Fixture {
     /// Isolates Git configuration from the test runner and makes stop deadlines explicit.
     pub fn process(&self) -> ProcessConfig {
         ProcessConfig {
-            workload_uid: None,
+            workload_uid: self.workload_uid,
             host_directory: self.path().join("host"),
             expected_uid: self.uid(),
             git_program: self.path().join("git"),
-            environment: [
-                ("PATH".into(), "/usr/bin:/bin".into()),
-                (
-                    "HOME".into(),
-                    self.path().join("different-home").to_str().unwrap().into(),
-                ),
-                ("TEST_DIR".into(), self.path().to_str().unwrap().into()),
-            ]
-            .into(),
+            environment: if self.workload_uid.is_some() {
+                Default::default()
+            } else {
+                [
+                    ("PATH".into(), "/usr/bin:/bin".into()),
+                    (
+                        "HOME".into(),
+                        self.path().join("different-home").to_str().unwrap().into(),
+                    ),
+                    ("TEST_DIR".into(), self.path().to_str().unwrap().into()),
+                ]
+                .into()
+            },
             command_timeout_ms: 30_000,
             network_timeout_ms: 30_000,
             cleanup_timeout_ms: 3000,
