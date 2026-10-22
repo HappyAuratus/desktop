@@ -1,4 +1,4 @@
-use crate::ora_git::Availability;
+use crate::ora_git::{Availability, DisabledReason};
 use crate::{Node, Shutdown};
 use pretty_assertions::assert_eq;
 use std::io::{self, Write};
@@ -39,18 +39,16 @@ fn ora_git_is_disabled_without_workload_uid() -> Result<(), Box<dyn std::error::
         let Availability::Disabled(reason) = service else {
             panic!("ora-git was enabled")
         };
-        assert_eq!(
-            reason,
-            "ora-git is disabled: process.workload_uid is not set; it must differ from the Node effective UID"
-        );
+        assert_eq!(reason, DisabledReason::Unset);
         assert!(!root.path().join("sockets").exists());
         Ok(())
     })
 }
 
-/// Explicitly configuring the Node's UID is just as unsafe as omitting it.
+/// Injects the same UID directly: production ora_git() is preceded by process runtime validation.
 #[test]
-fn ora_git_is_disabled_for_the_node_uid() -> Result<(), Box<dyn std::error::Error>> {
+fn ora_git_identity_decision_is_disabled_for_the_node_uid() -> Result<(), Box<dyn std::error::Error>>
+{
     ora_logging::initialize_test_clock();
     ora_logging::with_trace_logging(|| {
         // SAFETY: geteuid only reads this process's identity.
@@ -59,12 +57,7 @@ fn ora_git_is_disabled_for_the_node_uid() -> Result<(), Box<dyn std::error::Erro
         let Availability::Disabled(reason) = service else {
             panic!("ora-git was enabled")
         };
-        assert_eq!(
-            reason,
-            format!(
-                "ora-git is disabled: process.workload_uid ({uid}) equals the Node effective UID; configure a separate workload UID"
-            )
-        );
+        assert_eq!(reason, DisabledReason::SharesNodeUid(uid));
         Ok(())
     })
 }
@@ -115,7 +108,7 @@ impl Write for Logs {
     }
 }
 
-/// Both refusal paths explain the config field in the startup log.
+/// Records the full reason field; the same-UID case injects the decision without production ora_git().
 #[test]
 fn ora_git_startup_logs_the_disabled_reason() -> Result<(), Box<dyn std::error::Error>> {
     ora_logging::initialize_test_clock();
@@ -142,8 +135,19 @@ fn ora_git_startup_logs_the_disabled_reason() -> Result<(), Box<dyn std::error::
             .map_err(|_| io::Error::other("log buffer poisoned"))?
             .clone(),
     )?;
-    assert!(text.contains("ora-git disabled"), "{text}");
-    assert!(text.contains("process.workload_uid is not set"), "{text}");
-    assert!(text.contains("equals the Node effective UID"), "{text}");
+    // SAFETY: geteuid only reads this process's identity.
+    let uid = unsafe { libc::geteuid() };
+    assert_eq!(
+        text.lines()
+            .filter(|line| line.contains("ora-git disabled"))
+            .filter_map(|line| line
+                .split_once("reason=")
+                .map(|(_, reason)| reason.to_owned()))
+            .collect::<Vec<_>>(),
+        vec![
+            DisabledReason::Unset.to_string(),
+            DisabledReason::SharesNodeUid(uid).to_string()
+        ]
+    );
     Ok(())
 }

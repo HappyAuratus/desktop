@@ -32,12 +32,55 @@ fn disabled_service_exports_reason_without_a_socket() {
             let Availability::Disabled(reason) = service else {
                 panic!("ora-git was enabled")
             };
-            assert!(socket.is_none());
             assert_eq!(
-                environment,
-                std::collections::BTreeMap::from([(ora_git::DISABLED_ENV.to_owned(), reason)])
+                (
+                    socket.map(|socket| socket.path().to_path_buf()),
+                    environment
+                ),
+                (
+                    None,
+                    std::collections::BTreeMap::from([(
+                        ora_git::DISABLED_ENV.to_owned(),
+                        reason.to_string()
+                    )])
+                )
             );
         }
+    });
+}
+
+/// An enabled broker publishes exactly the live session socket to the Agent.
+#[test]
+fn enabled_service_exports_only_the_live_socket() {
+    ora_logging::initialize_test_clock();
+    ora_logging::with_trace_logging(|| {
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        runtime.block_on(async {
+            let fixture = Fixture::new();
+            // SAFETY: geteuid only reads this process's identity. This exercises open,
+            // independently of the production configuration's separate-UID requirement.
+            assert_eq!(fixture.service.peer_uid, unsafe { libc::geteuid() });
+            let service = Availability::Enabled(Arc::new(Arc::clone(&fixture.service)));
+            let mut environment = std::collections::BTreeMap::new();
+            let socket = service
+                .open(fixture.session.clone(), &mut environment)
+                .unwrap()
+                .unwrap();
+            assert_eq!(
+                (environment, socket.path().exists()),
+                (
+                    std::collections::BTreeMap::from([(
+                        ora_git::SOCKET_ENV.to_owned(),
+                        socket.path().to_string_lossy().into_owned()
+                    )]),
+                    true
+                )
+            );
+            socket.close().await;
+        });
     });
 }
 

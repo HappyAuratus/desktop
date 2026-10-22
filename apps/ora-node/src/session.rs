@@ -66,7 +66,7 @@ pub(crate) struct Shared<L, C, P, R> {
     catalog: P,
     /// Restores the prior Revision of a resumed session before its agent starts.
     restorer: R,
-    /// Serves each running session's `ora-git` socket, when the Node can reach the Git Server.
+    /// Publishes each session's `ora-git` socket or the configuration reason it is disabled.
     ora_git: Option<crate::ora_git::Availability>,
     /// Wake handles of the sessions running in this process, by execution.
     live: Mutex<HashMap<ExecutionId, Arc<Notify>>>,

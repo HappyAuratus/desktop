@@ -422,7 +422,7 @@ fn ora_git(
             node: AsNode(host()?),
             access,
             repository_root: config.repository_root.clone(),
-            owner,
+            owner: Some(peer_uid),
             ledger,
             shutdown,
         })

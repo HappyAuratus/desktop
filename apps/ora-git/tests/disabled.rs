@@ -20,9 +20,9 @@ fn disabled_reason_is_an_explicit_cli_error() -> Result<(), Box<dyn std::error::
                 String::from_utf8(output.stderr)?
             ),
             (
-                Some(10),
+                Some(3),
                 Vec::new(),
-                format!("ora-git: unavailable: {reason}\n")
+                format!("ora-git: no_session: {reason}\n")
             ),
         );
     }

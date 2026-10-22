@@ -97,8 +97,8 @@ pub fn run(args: &[String]) -> ExitCode {
     let result = Request::parse(args)
         .map_err(|message| (ErrorCode::Usage, message))
         .and_then(|request| {
-            if let Ok(reason) = std::env::var(DISABLED_ENV) {
-                return Err((ErrorCode::Unavailable, reason));
+            if let Some(reason) = std::env::var_os(DISABLED_ENV) {
+                return Err((ErrorCode::NoSession, reason.to_string_lossy().into_owned()));
             }
             let socket = std::env::var_os(SOCKET_ENV).ok_or_else(|| {
                 (

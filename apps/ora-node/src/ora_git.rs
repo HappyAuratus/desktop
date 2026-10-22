@@ -10,6 +10,8 @@
 mod availability;
 mod operations;
 pub(crate) use availability::Availability;
+#[cfg(test)]
+pub(crate) use availability::DisabledReason;
 
 use crate::Shutdown;
 use crate::git_server::GitServerAccess;

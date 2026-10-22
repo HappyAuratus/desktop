@@ -1,11 +1,30 @@
 //! Session-facing availability: disabling Git access must not disable ordinary Agent sessions.
 
 use super::{OraGitBroker, OraGitSocket, SessionGit};
-use std::{collections::BTreeMap, io, sync::Arc};
+use std::{collections::BTreeMap, fmt, io, sync::Arc};
+
+/// The configuration prevents distinguishing a workload from the Node by peer UID.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum DisabledReason {
+    /// No separate workload identity was configured.
+    Unset,
+    /// The configured workload identity equals the Node's effective UID.
+    SharesNodeUid(u32),
+}
+
+impl fmt::Display for DisabledReason {
+    /// Explains the configuration change needed to enable the service.
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Unset => formatter.write_str("ora-git is disabled: process.workload_uid is not set; it must differ from the Node effective UID"),
+            Self::SharesNodeUid(uid) => write!(formatter, "ora-git is disabled: process.workload_uid ({uid}) equals the Node effective UID; configure a separate workload UID"),
+        }
+    }
+}
 
 /// A configured service either has an isolated workload identity or explains why it is disabled.
 pub(crate) enum Availability {
-    Disabled(String),
+    Disabled(DisabledReason),
     Enabled(Arc<dyn OraGitBroker>),
 }
 
@@ -17,8 +36,8 @@ impl Availability {
         enable: impl FnOnce(u32) -> Result<Arc<dyn OraGitBroker>, crate::Error>,
     ) -> Result<Self, crate::Error> {
         let reason = match workload_uid {
-            None => "ora-git is disabled: process.workload_uid is not set; it must differ from the Node effective UID".to_owned(),
-            Some(uid) if uid == node_uid => format!("ora-git is disabled: process.workload_uid ({uid}) equals the Node effective UID; configure a separate workload UID"),
+            None => DisabledReason::Unset,
+            Some(uid) if uid == node_uid => DisabledReason::SharesNodeUid(uid),
             Some(uid) => return enable(uid).map(Self::Enabled),
         };
         ora_logging::ora_warn!(reason = %reason, "ora-git disabled");
@@ -33,7 +52,7 @@ impl Availability {
     ) -> io::Result<Option<OraGitSocket>> {
         match self {
             Self::Disabled(reason) => {
-                environment.insert(ora_git::DISABLED_ENV.to_owned(), reason.clone());
+                environment.insert(ora_git::DISABLED_ENV.to_owned(), reason.to_string());
                 Ok(None)
             }
             Self::Enabled(broker) => {

@@ -71,7 +71,13 @@ impl Fixture {
 
     /// Uses a distinct workload identity when this fixture runs with Linux setuid authority.
     pub fn with_workload_uid(uid: u32) -> Self {
-        let mut fixture = Self::new();
+        // /root is private, so only the separate-UID fixture uses a traversable parent.
+        let directory = tempfile::Builder::new()
+            .prefix("n")
+            .permissions(fs::Permissions::from_mode(/*mode*/ 0o700))
+            .tempdir_in("/")
+            .unwrap();
+        let mut fixture = Self::with_directory(/*slots*/ 1, directory);
         fs::set_permissions(fixture.path(), fs::Permissions::from_mode(/*mode*/ 0o711)).unwrap();
         fixture.workload_uid = Some(uid);
         fixture
@@ -84,6 +90,19 @@ impl Fixture {
 
     /// Keeps normal fixtures concurrent while giving deadline tests an explicit scheduling boundary.
     fn with_process_slots(slots: u32) -> Self {
+        let parent = PathBuf::from(std::env::var_os("HOME").unwrap())
+            .canonicalize()
+            .unwrap();
+        let directory = tempfile::Builder::new()
+            .prefix("n")
+            .permissions(fs::Permissions::from_mode(/*mode*/ 0o700))
+            .tempdir_in(parent)
+            .unwrap();
+        Self::with_directory(slots, directory)
+    }
+
+    /// Bootstraps a fixture in the caller's explicitly selected temporary directory.
+    fn with_directory(slots: u32, directory: tempfile::TempDir) -> Self {
         let rt = tokio::runtime::Builder::new_current_thread()
             .enable_all()
             .build()
@@ -92,20 +111,6 @@ impl Fixture {
         // bootstrap. Its unchanged 500ms deadline then tests running Git, not admission delay.
         let process_slots = rt.block_on(PROCESS_SLOTS.acquire_many(slots)).unwrap();
         ora_logging::initialize_test_clock();
-        // A root-run isolation test must be traversable by the workload user; /root is private.
-        // SAFETY: geteuid only reads the test process identity.
-        let parent = if unsafe { libc::geteuid() } == 0 {
-            PathBuf::from("/")
-        } else {
-            PathBuf::from(std::env::var_os("HOME").unwrap())
-                .canonicalize()
-                .unwrap()
-        };
-        let directory = tempfile::Builder::new()
-            .prefix("n")
-            .permissions(fs::Permissions::from_mode(/*mode*/ 0o700))
-            .tempdir_in(parent)
-            .unwrap();
         let path = directory.path();
         for name in ["main", "trees", "different-home"] {
             fs::create_dir(path.join(name)).unwrap();

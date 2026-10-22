@@ -25,7 +25,7 @@ request with its own git-access identity. The decision is
 - The Node enables `ora-git` only when `process.workload_uid` is set and differs from the Node's
   effective UID. Otherwise it logs the specific configuration reason, creates no service or session
   socket, and keeps running ordinary Agent sessions. Those sessions receive `ORA_GIT_DISABLED_REASON`;
-  invoking `ora-git` prints that reason as `unavailable` (exit 10), before attempting any socket access.
+  invoking `ora-git` prints that reason as `no_session` (exit 3), before attempting any socket access.
 - The Node image installs the binary at `/usr/local/bin/ora-git` on the workload `PATH`, see
   [Container images](../operations/container-images.md). The socket client is Unix-only; built for
   another platform, `ora-git` answers `internal`.
@@ -101,5 +101,5 @@ Failures print `ora-git: <code>: <hint>` on stderr; hints name refs, commits or 
 | `conflict` | 7 | The Workspace branch moved since this checkout last saw it |
 | `not_fast_forward` | 8 | The pushed commit does not contain the branch's last known value |
 | `denied` | 9 | The Git Server refused the request or the Node's git-access identity (401, 403) |
-| `unavailable` | 10 | The Git Server could not be reached, or the Node disabled ora-git because `process.workload_uid` does not provide a separate identity |
+| `unavailable` | 10 | The Git Server could not be reached |
 | `internal` | 11 | The Node failed locally; the cause is in the Node log |
