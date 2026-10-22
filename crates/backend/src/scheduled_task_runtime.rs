@@ -3,7 +3,7 @@ use std::path::Path;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use agent_client_protocol_schema::v1::{ContentBlock, StopReason, TextContent};
+use agent_client_protocol_schema::v1::{ContentBlock, TextContent};
 use ora_application::{
     AdmitScheduledOccurrenceHandler, Clock, RecordOfflineMissedOccurrenceHandler,
     ScheduledArtifactStore, ScheduledOccurrenceResolution, ScheduledRunLifecycleRepository,
@@ -32,6 +32,13 @@ use super::calendar::{
     recent_scheduled_occurrences,
 };
 use super::worktree::ScheduledWorktreeJanitor;
+
+#[path = "scheduled_task_runtime_contracts.rs"]
+mod contracts;
+use contracts::{
+    contract_failure_reason, contract_miss_reason, contract_run_status,
+    scheduled_run_completion_transition,
+};
 
 const SCHEDULED_RUN_TIMEOUT: Duration = Duration::from_secs(60 * 60);
 
@@ -780,69 +787,6 @@ fn settle_terminal_run(
     }
     publish_finished(events, run, &terminal);
     true
-}
-
-fn scheduled_run_completion_transition(stop_reason: StopReason) -> ScheduledRunTransition {
-    match stop_reason {
-        StopReason::EndTurn => ScheduledRunTransition::Succeed,
-        StopReason::Cancelled => ScheduledRunTransition::Cancel,
-        StopReason::MaxTokens | StopReason::MaxTurnRequests | StopReason::Refusal => {
-            ScheduledRunTransition::Fail {
-                reason: ScheduledRunFailureReason::ExecutionError,
-            }
-        }
-        _ => ScheduledRunTransition::Fail {
-            reason: ScheduledRunFailureReason::ExecutionError,
-        },
-    }
-}
-
-fn contract_run_status(status: ScheduledRunStatus) -> ora_contracts::ScheduledRunStatus {
-    match status {
-        ScheduledRunStatus::Accepted => ora_contracts::ScheduledRunStatus::Accepted,
-        ScheduledRunStatus::Running => ora_contracts::ScheduledRunStatus::Running,
-        ScheduledRunStatus::Succeeded => ora_contracts::ScheduledRunStatus::Succeeded,
-        ScheduledRunStatus::Failed => ora_contracts::ScheduledRunStatus::Failed,
-        ScheduledRunStatus::Cancelled => ora_contracts::ScheduledRunStatus::Cancelled,
-        ScheduledRunStatus::SkippedBusy => ora_contracts::ScheduledRunStatus::SkippedBusy,
-        ScheduledRunStatus::SkippedCapacity => ora_contracts::ScheduledRunStatus::SkippedCapacity,
-    }
-}
-
-fn contract_failure_reason(
-    reason: ScheduledRunFailureReason,
-) -> ora_contracts::ScheduledRunFailureReason {
-    match reason {
-        ScheduledRunFailureReason::TargetUnavailable => {
-            ora_contracts::ScheduledRunFailureReason::TargetUnavailable
-        }
-        ScheduledRunFailureReason::ModelUnavailable => {
-            ora_contracts::ScheduledRunFailureReason::ModelUnavailable
-        }
-        ScheduledRunFailureReason::WorktreeFailed => {
-            ora_contracts::ScheduledRunFailureReason::WorktreeFailed
-        }
-        ScheduledRunFailureReason::ApprovalPolicyInvalid => {
-            ora_contracts::ScheduledRunFailureReason::ApprovalPolicyInvalid
-        }
-        ScheduledRunFailureReason::Timeout => ora_contracts::ScheduledRunFailureReason::Timeout,
-        ScheduledRunFailureReason::ExecutionError => {
-            ora_contracts::ScheduledRunFailureReason::ExecutionError
-        }
-    }
-}
-
-fn contract_miss_reason(
-    reason: ora_domain::ScheduledMissReason,
-) -> ora_contracts::ScheduledMissReason {
-    match reason {
-        ora_domain::ScheduledMissReason::AppNotRunning => {
-            ora_contracts::ScheduledMissReason::AppNotRunning
-        }
-        ora_domain::ScheduledMissReason::LateTrigger => {
-            ora_contracts::ScheduledMissReason::LateTrigger
-        }
-    }
 }
 
 #[cfg(test)]
