@@ -629,8 +629,8 @@ impl DesktopScheduledRunExecutor {
             &self.runs,
             &self.artifacts,
             self.tasks.sessions_root(),
-            &self.events,
             settlement,
+            |run, transition| publish_finished(&self.events, run, transition),
         ) {
             return;
         }
@@ -736,13 +736,16 @@ struct SucceededRunSettlement<'a> {
 /// verdict write and artifact collection sit after the terminal transition and before
 /// `RunFinished`, so a subscriber always observes the final verdict when it sees
 /// `RunFinished`. Returns whether the terminal transition was accepted.
-fn settle_succeeded_run(
+fn settle_succeeded_run<F>(
     runs: &SqliteScheduledRunRepository,
     artifacts: &ScheduledRunArtifactRuntime,
     sessions_root: &Path,
-    events: &AppEventPublisher,
     settlement: SucceededRunSettlement<'_>,
-) -> bool {
+    publish: F,
+) -> bool
+where
+    F: FnOnce(&ScheduledRun, &ScheduledRunTransition),
+{
     if !transition(
         runs,
         settlement.run,
@@ -759,7 +762,7 @@ fn settle_succeeded_run(
         settlement.now,
     );
     artifacts.collect(&settlement.run.id, settlement.worktree_path);
-    publish_finished(events, settlement.run, &ScheduledRunTransition::Succeed);
+    publish(settlement.run, &ScheduledRunTransition::Succeed);
     true
 }
 
@@ -997,7 +1000,10 @@ mod tests {
     use tempfile::TempDir;
     use time::OffsetDateTime;
 
-    use super::{SucceededRunSettlement, settle_succeeded_run, settle_terminal_run, transition};
+    use super::{
+        SucceededRunSettlement, publish_finished, settle_succeeded_run, settle_terminal_run,
+        transition,
+    };
 
     /// Runs one integration test on a current-thread runtime with trace logging scoped.
     fn run_integration(test: impl std::future::Future<Output = ()>) {
@@ -1176,21 +1182,30 @@ mod tests {
                 "QA_VERDICT: fail\nQA_DETAIL: critical defect",
             );
             let mut events = fixture.hub.subscribe();
+            let published_verdict = std::cell::RefCell::new(None);
 
             assert!(
                 settle_succeeded_run(
                     &fixture.runs,
                     &fixture.artifacts,
                     &fixture.sessions_root,
-                    &fixture.events,
                     SucceededRunSettlement {
                         run: &fixture.run,
                         session_id: &SessionId::new("session-1"),
                         worktree_path: &fixture.worktree,
                         now: 3_000,
                     },
+                    |run, transition| {
+                        *published_verdict.borrow_mut() = fixture.verdict();
+                        publish_finished(&fixture.events, run, transition);
+                    },
                 ),
                 "settle the succeeded run"
+            );
+            assert_eq!(
+                published_verdict.into_inner(),
+                Some(ScheduledRunVerdict::Fail),
+                "the verdict is durable when RunFinished is published"
             );
 
             // A fresh subscription first replays `Ready`; the next event is `RunFinished`.
