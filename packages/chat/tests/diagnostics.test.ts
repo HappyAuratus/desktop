@@ -1,8 +1,171 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import type * as acp from "@agentclientprotocol/sdk";
 import type { PromptSessionEvent } from "@ora/contracts";
 import { createChatStore, type ChatSessionClient } from "../src/index.ts";
 import { observeDiagnostics } from "../src/diagnostics.ts";
+import { childSessionSource } from "../src/item-metadata.ts";
+
+const validSource = { id: "child", parentID: "root", depth: 1 };
+const invalidSources = [
+  null,
+  {},
+  { ...validSource, id: " \t" },
+  { ...validSource, parentID: " \t" },
+  ...[0, -1, 1.5, "1", Number.MAX_SAFE_INTEGER + 1].map((depth) => ({
+    ...validSource,
+    depth,
+  })),
+  [],
+  "child",
+];
+
+test("diagnostic activity and provider reports use the canonical effective source rule", () => {
+  for (const source of [
+    ...invalidSources,
+    validSource,
+    { ...validSource, depth: 1.0 },
+    { ...validSource, depth: Number.MAX_SAFE_INTEGER },
+  ]) {
+    const _meta = { "opencode/child-session": source };
+    const child = childSessionSource(_meta) !== undefined;
+    const updates: acp.SessionUpdate[] = [
+      {
+        sessionUpdate: "agent_message_chunk",
+        content: { type: "text", text: "message" },
+        _meta,
+      },
+      {
+        sessionUpdate: "agent_thought_chunk",
+        content: { type: "text", text: "thought" },
+        _meta,
+      },
+      { sessionUpdate: "plan", entries: [], _meta },
+      {
+        sessionUpdate: "tool_call",
+        toolCallId: "tool",
+        title: "tool",
+        status: "in_progress",
+        _meta,
+      },
+      {
+        sessionUpdate: "tool_call_update",
+        toolCallId: "tool",
+        status: "in_progress",
+        _meta,
+      },
+    ];
+    for (const update of updates) {
+      const observed = observeDiagnostics(undefined, update, 100)!;
+      assert.equal(observed.lastActivity?.receivedAt, child ? undefined : 100);
+      assert.equal(
+        observed.lastChildActivity?.receivedAt,
+        child ? 100 : undefined,
+      );
+      if ("toolCallId" in update)
+        assert.deepEqual(observed.toolSources, {
+          tool: child ? "child" : "parent",
+        });
+    }
+    for (const report of [
+      {
+        metadata: { "opencode/retry": { attempt: 2 } },
+        provider: { kind: "retry", attempt: 2 },
+      },
+      {
+        metadata: { "opencode/compaction": { status: "started" } },
+        provider: { kind: "compaction", status: "started" },
+      },
+    ]) {
+      assert.deepEqual(
+        observeDiagnostics(
+          undefined,
+          {
+            sessionUpdate: "session_info_update",
+            _meta: { ..._meta, ...report.metadata },
+          },
+          200,
+        ),
+        child ? undefined : { provider: report.provider },
+      );
+    }
+  }
+});
+
+test("explicit null and invalid sources clear child inheritance in a live attempt", async () => {
+  for (const source of invalidSources) {
+    let time = 100;
+    const client: ChatSessionClient = {
+      async *prompt() {
+        yield {
+          type: "session_update",
+          update: {
+            sessionUpdate: "tool_call",
+            toolCallId: "tool",
+            title: "Tool",
+            status: "in_progress",
+            _meta: { "opencode/child-session": validSource },
+          },
+        };
+        const conversation = () => store.getState().conversations.one!;
+        assert.deepEqual(conversation().diagnostics, {
+          lastChildActivity: { kind: "tool", receivedAt: 100 },
+          toolSources: { tool: "child" },
+        });
+        time = 200;
+        yield {
+          type: "session_update",
+          update: {
+            sessionUpdate: "tool_call_update",
+            toolCallId: "tool",
+            _meta: { "opencode/child-session": source },
+          },
+        };
+        assert.deepEqual(conversation().diagnostics, {
+          lastChildActivity: { kind: "tool", receivedAt: 100 },
+          lastActivity: { kind: "tool", receivedAt: 200 },
+          toolSources: { tool: "parent" },
+        });
+        const tool = conversation()
+          .turns.at(-1)!
+          .items.find((item) => item.kind === "toolCall")!;
+        assert.equal(childSessionSource(tool.metadata), undefined);
+        time = 300;
+        // Other namespaces must not prevent inheritance of the now-parent source.
+        yield {
+          type: "session_update",
+          update: {
+            sessionUpdate: "tool_call_update",
+            toolCallId: "tool",
+            _meta: { unrelated: true },
+          },
+        };
+        time = 400;
+        yield {
+          type: "session_update",
+          update: { sessionUpdate: "tool_call_update", toolCallId: "tool" },
+        };
+        assert.deepEqual(conversation().diagnostics, {
+          lastChildActivity: { kind: "tool", receivedAt: 100 },
+          lastActivity: { kind: "tool", receivedAt: 400 },
+          toolSources: { tool: "parent" },
+        });
+        yield { type: "completed", stopReason: "end_turn" };
+      },
+      async *load() {
+        yield { type: "completed" };
+      },
+      setConfig: async () => ({ configOptions: [] }),
+      respondToPermission: async () => ({}),
+    };
+    const store = createChatStore(client, { now: () => time });
+    try {
+      await store.getState().sendMessage({ oraSessionId: "one", text: "go" });
+    } finally {
+      store.getState().dispose();
+    }
+  }
+});
 
 test("only recognized provider reports establish state and null clears retries", () => {
   assert.equal(
