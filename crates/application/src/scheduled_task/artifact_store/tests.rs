@@ -304,6 +304,30 @@ fn orphan_sweep_refuses_a_linked_storage_root() {
 }
 
 #[test]
+fn read_artifact_refuses_a_linked_storage_root() {
+    let (temporary, store, run_id) = fixture();
+    let outside = temporary.path().join("outside");
+    let outside_run = outside.join(run_id.as_ref());
+    fs::create_dir_all(&outside_run).expect("create outside run directory");
+    let outside_file = outside_run.join("report.md");
+    fs::write(&outside_file, "outside").expect("write outside artifact");
+    link_directory(&outside, store.root());
+
+    let registered = ScheduledRunArtifact {
+        relative_path: "report.md".to_string(),
+        kind: ScheduledArtifactKind::Markdown,
+        size_bytes: 7,
+        registered_at: 1,
+    };
+
+    assert!(store.read_artifact(&run_id, &registered).is_err());
+    assert_eq!(
+        fs::read(&outside_file).expect("outside file survives"),
+        b"outside"
+    );
+}
+
+#[test]
 fn reconcile_removes_a_file_with_no_registered_row() {
     let (_temporary, store, run_id) = fixture();
     let run_directory = store.root().join(run_id.as_ref());
