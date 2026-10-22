@@ -1498,4 +1498,56 @@ mod tests {
                 .expect("annotate running run")
         );
     }
+
+    #[test]
+    fn annotate_verdict_rejects_runs_in_terminal_states() {
+        for (transition, run_name) in [
+            (
+                ScheduledRunTransition::Fail {
+                    reason: ScheduledRunFailureReason::Timeout,
+                },
+                "run-timeout",
+            ),
+            (ScheduledRunTransition::Cancel, "run-cancelled"),
+        ] {
+            let (temp_dir, pool) = bootstrapped_pool();
+            seed_definition(&pool, temp_dir.path());
+            let repository = SqliteScheduledRunRepository::new(pool.clone());
+            let run = ScheduledRun::accepted(
+                ScheduledRunId::new(run_name),
+                occurrence(91),
+                &scheduled_task(),
+                92,
+            );
+            repository
+                .resolve_scheduled_occurrence(ScheduledOccurrenceCandidate::run(run))
+                .expect("admit run");
+            repository
+                .transition_scheduled_run(
+                    &ScheduledRunId::new(run_name),
+                    ScheduledRunTransition::Start {
+                        session_id: SessionId::new("session-1"),
+                        worktree_path: format!("worktrees/{run_name}"),
+                        worktree_task_id: TaskId::new(run_name),
+                    },
+                    100,
+                )
+                .expect("start run");
+            repository
+                .transition_scheduled_run(&ScheduledRunId::new(run_name), transition, 200)
+                .expect("finish run in a terminal state");
+
+            assert!(
+                !repository
+                    .annotate_scheduled_run_verdict(
+                        &ScheduledRunId::new(run_name),
+                        ScheduledRunVerdict::Fail,
+                        None,
+                        300,
+                    )
+                    .expect("annotate terminal run"),
+                "{run_name} must reject a verdict annotation after reaching a terminal state"
+            );
+        }
+    }
 }

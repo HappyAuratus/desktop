@@ -286,6 +286,29 @@ fn delete_run_refuses_a_linked_storage_root() {
 }
 
 #[test]
+fn read_refuses_a_linked_storage_root() {
+    let (temporary, store, run_id) = fixture();
+    let outside = temporary.path().join("outside");
+    let outside_run = outside.join(run_id.as_ref());
+    fs::create_dir_all(&outside_run).expect("create outside run directory");
+    let sentinel = outside_run.join("report.md");
+    fs::write(&sentinel, "secret").expect("write sentinel");
+    link_directory(&outside, store.root());
+
+    let artifact = ScheduledRunArtifact {
+        relative_path: "report.md".to_string(),
+        kind: ScheduledArtifactKind::Markdown,
+        size_bytes: 6,
+        registered_at: 1,
+    };
+    assert!(
+        store.read_artifact(&run_id, &artifact).is_err(),
+        "a read through a linked storage root must refuse instead of following the link"
+    );
+    assert_eq!(fs::read(&sentinel).expect("sentinel survives"), b"secret");
+}
+
+#[test]
 fn orphan_sweep_refuses_a_linked_storage_root() {
     let (temporary, store, _) = fixture();
     let outside = temporary.path().join("outside");
