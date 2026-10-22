@@ -8,7 +8,7 @@
 mod agents;
 #[path = "workspace_cloud/deliveries.rs"]
 mod deliveries;
-pub use deliveries::{SIGNATURE, STORE_HOST};
+pub use deliveries::{SIGNATURE, STORE_HOST, terminal_status};
 #[path = "workspace_cloud/restores.rs"]
 mod restores;
 pub use restores::{PRIOR_BASE, PRIOR_DELIVERY_REF, PRIOR_FINAL};
@@ -86,6 +86,10 @@ pub enum Event {
         id: String,
     },
     DeliveryRegistered {
+        run: String,
+    },
+    /// A normal dispatch registration was rejected before any execution became durable.
+    DispatchRefused {
         run: String,
     },
     /// The fake Node accepted a controlled delivery envelope.
@@ -1165,6 +1169,12 @@ impl ExecutionService for WorkspaceCloud {
         request: Request<proto::RecordDispatchRequest>,
     ) -> Result<Response<proto::RecordDispatchResponse>, Status> {
         let message = request.into_inner();
+        if let Some(fault) = self.dispatch_refusal(&message.operation_id) {
+            self.timeline.push(Event::DispatchRefused {
+                run: message.operation_id,
+            });
+            return Err(fault);
+        }
         if matches!(
             message.input.as_ref().and_then(|i| i.spec.as_ref()),
             Some(
@@ -1274,11 +1284,16 @@ impl ExecutionService for WorkspaceCloud {
         request: Request<proto::ListPendingDispatchesRequest>,
     ) -> Result<Response<proto::ListPendingDispatchesResponse>, Status> {
         let node = request.into_inner().node_id;
+        let hidden = self.hidden_delivery_executions();
         let records = self
             .lock()
             .clones
             .iter()
-            .filter(|record| record.result.is_none() && (node.is_empty() || record.node_id == node))
+            .filter(|record| {
+                record.result.is_none()
+                    && (node.is_empty() || record.node_id == node)
+                    && !hidden.contains(&record.execution_id)
+            })
             .cloned()
             .collect();
         Ok(Response::new(proto::ListPendingDispatchesResponse {

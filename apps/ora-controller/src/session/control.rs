@@ -6,7 +6,21 @@ use tokio::{sync::mpsc, task::JoinSet};
 pub(super) enum Action {
     Send(Box<ControllerToNodeMessage>),
     Answered(ExecutionId),
+    TerminalRefused(ExecutionId),
+    TerminalAccepted(ExecutionId),
     Unresolved(ExecutionId),
+}
+
+/// Connection-local reconciliation state; a refused terminal outranks every status hint.
+enum ExecutionControl {
+    Retransmitted,
+    /// A prior connection was refused; statuses cannot authorize redispatch before its replay.
+    AwaitingRefusedTerminal,
+    TerminalRefused {
+        event: Box<RevisionResultMessage>,
+        /// Retain Cloud's original verdict with the unresolved execution for diagnostics.
+        _detail: String,
+    },
 }
 
 /// Two bounded workers for polling and reconciliation; both are cancelled with their connection.
@@ -23,8 +37,7 @@ impl Control {
         period: Duration,
         capabilities: Vec<NodeCapability>,
         model_adapter: Option<ModelAdapterCapability>,
-        commands: mpsc::Sender<commands::Reply>,
-        grants: mpsc::Sender<grants::Request>,
+        workers: Workers,
     ) -> Self {
         let (input, receive) = mpsc::channel(256);
         let (output, outgoing) = mpsc::channel(256);
@@ -45,7 +58,7 @@ impl Control {
             capabilities,
             model_adapter,
             receive,
-            Workers { commands, grants },
+            workers,
             output,
         ));
         Self {
@@ -63,9 +76,10 @@ struct Polled {
 }
 
 /// The connection's other workers that learn from validated status replies.
-struct Workers {
-    commands: mpsc::Sender<commands::Reply>,
-    grants: mpsc::Sender<grants::Request>,
+pub(super) struct Workers {
+    pub(super) commands: mpsc::Sender<commands::Reply>,
+    pub(super) grants: mpsc::Sender<grants::Request>,
+    pub(super) refused: Vec<ExecutionId>,
 }
 
 /// Queries one execution per tick; bindings precede any execution that may need their authority.
@@ -154,9 +168,75 @@ async fn reconcile<S: CoordinationStore>(
     let agent_capable = capabilities.contains(&NodeCapability::AgentSession);
     let delivery_capable = capabilities.contains(&NodeCapability::RevisionDelivery);
     let plugin_capable = capabilities.contains(&NodeCapability::PluginInstall);
-    let mut retransmitted = std::collections::HashSet::new();
+    let mut executions: std::collections::HashMap<_, _> = workers
+        .refused
+        .iter()
+        .cloned()
+        .map(|id| (id, ExecutionControl::AwaitingRefusedTerminal))
+        .collect();
     while let Some(message) = input.recv().await {
-        let ack = take_over(&store, &identity, &message).await?;
+        let execution = match &message {
+            NodeToControllerMessage::RevisionResult(event) => Some(&event.execution_id),
+            NodeToControllerMessage::ExecutionStatus(status) => Some(&status.execution_id),
+            _ => None,
+        };
+        if let Some(ExecutionControl::TerminalRefused { event, .. }) =
+            execution.and_then(|id| executions.get(id))
+        {
+            // Suppress only replays of the original binding. Conflicting bodies, producers or
+            // operations still fail the connection rather than disappearing behind isolation.
+            let matches = match &message {
+                NodeToControllerMessage::RevisionResult(duplicate) => duplicate == event.as_ref(),
+                NodeToControllerMessage::ExecutionStatus(status) => {
+                    status.operation_id == event.operation_id
+                        && status.payload.node == identity
+                        && match &status.payload.state {
+                            ExecutionState::Completed(ExecutionResult::Revision(result)) => {
+                                result.as_ref() == &event.payload
+                            }
+                            ExecutionState::Unknown
+                            | ExecutionState::Accepted
+                            | ExecutionState::Running => true,
+                            ExecutionState::Completed(_) => false,
+                        }
+                }
+                _ => false,
+            };
+            if !matches {
+                return Err(Error::Conflict);
+            }
+            continue;
+        }
+        let ack = match take_over(&store, &identity, &message).await {
+            Ok(ack) => ack,
+            Err(Error::TerminalTakeoverRefused(detail))
+                if let NodeToControllerMessage::RevisionResult(event) = &message =>
+            {
+                executions.insert(
+                    event.execution_id.clone(),
+                    ExecutionControl::TerminalRefused {
+                        event: Box::new(event.clone()),
+                        _detail: detail,
+                    },
+                );
+                output
+                    .send(Action::TerminalRefused(event.execution_id.clone()))
+                    .await
+                    .map_err(|_| Error::Conflict)?;
+                continue;
+            }
+            Err(error) => return Err(error),
+        };
+        if let NodeToControllerMessage::ExecutionStatus(status) = &message
+            && matches!(
+                executions.get(&status.execution_id),
+                Some(ExecutionControl::AwaitingRefusedTerminal)
+            )
+        {
+            // The normal takeover boundary above still validates the status identity. Its
+            // sequence-free answer cannot replace the retained terminal or permit a new start.
+            continue;
+        }
         if agent_capable
             && let NodeToControllerMessage::ExecutionStatus(status) = &message
             && status.payload.state != ExecutionState::Unknown
@@ -183,8 +263,14 @@ async fn reconcile<S: CoordinationStore>(
             });
         }
         if let NodeToControllerMessage::RevisionResult(event) = &message {
+            if matches!(
+                executions.get(&event.execution_id),
+                Some(ExecutionControl::AwaitingRefusedTerminal)
+            ) {
+                executions.remove(&event.execution_id);
+            }
             output
-                .send(Action::Answered(event.execution_id.clone()))
+                .send(Action::TerminalAccepted(event.execution_id.clone()))
                 .await
                 .map_err(|_| Error::Conflict)?;
         }
@@ -214,7 +300,7 @@ async fn reconcile<S: CoordinationStore>(
         } else if let NodeToControllerMessage::ExecutionStatus(status) = &message
             && status.payload.state == ExecutionState::Unknown
         {
-            if !retransmitted.contains(&status.execution_id) {
+            if !executions.contains_key(&status.execution_id) {
                 let command = if let Some(agent) = store
                     .original_agent_dispatch(&identity, &status.operation_id, &status.execution_id)
                     .await?
@@ -273,7 +359,7 @@ async fn reconcile<S: CoordinationStore>(
                     None
                 };
                 if command.is_some() {
-                    retransmitted.insert(status.execution_id.clone());
+                    executions.insert(status.execution_id.clone(), ExecutionControl::Retransmitted);
                 }
                 command
             } else {

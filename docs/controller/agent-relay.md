@@ -71,6 +71,17 @@ never writes `RevisionFailed` itself and never reports `VERIFICATION_FAILED`, wh
 Shutdown, lease loss and disconnection leave the delivery without a result; a new process resumes it
 through status queries and, for `Unknown`, the original command.
 
+For a registered delivery whose original producer, operation, execution and frozen input match,
+an exact `Aborted` / `ERROR_CODE_CONFLICT` / `dispatch_conflict` response to terminal takeover
+isolates only that execution. It stays unresolved without ACK or redispatch; duplicate terminals
+and status replies on that connection cannot clear it or submit it again. The Node's verified
+session, heartbeats, connection reports and other executions continue. One structured warning
+keeps Cloud's original code and message without recording the event body. A real reconnect or
+Controller restart permits another submission of the original event; only a successful takeover
+receipt permits ACK and clears the refusal. Every other conflict and session failure retains its
+existing handling. This local isolation does not make Cloud accept a late result or change a Run's
+outcome.
+
 ### Upload grants
 
 A delivery uploads only its session history (the JSONL at `history_key`); the commits go to the Git

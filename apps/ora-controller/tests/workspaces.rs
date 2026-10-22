@@ -300,7 +300,7 @@ impl Node {
                         _ => None,
                     }
                 }
-                _ = beat.tick() => Some(NodeToControllerMessage::Heartbeat(HeartbeatMessage {
+                _ = beat.tick(), if greeted => Some(NodeToControllerMessage::Heartbeat(HeartbeatMessage {
                     protocol_version: CURRENT_PROTOCOL_VERSION,
                     payload: Heartbeat { node: identity.clone() },
                 })),

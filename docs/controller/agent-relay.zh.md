@@ -26,6 +26,8 @@
 
 在 `TakeOverNodeEvent` 之前，Controller 把终止的 `RevisionResult` 与派发的输入核对：`base_commit`、`revision_ref` 和 `history.key` 必须一致，未改变的最终 commit 必须是基础 commit 或输入中上一个 Revision 的最终 commit，已交付的则两者都不能是。核对不通过的结果既不接管也不确认。交付 ref 是否指向最终 commit 只由 Cloud 经 Git Server 的 ref 查询核验；Controller 从不访问 Git Server。结果只在 Cloud 提交之后才确认；Cloud 在这次接管中校验声明的会话历史对象。`Completed` 的状态回复不结算任何东西，因为 Cloud 只接受带 Node 序号回执的交付结果。Controller 从不自己写 `RevisionFailed`，也从不报告只能由 Cloud 记录的 `VERIFICATION_FAILED`。关闭、丢失租约和断线都让交付保持没有结果；新进程通过状态查询以及（对 `Unknown`）原始命令继续它。
 
+对于已登记、原生产者、operation、execution 和固定输入均匹配的交付，只有终态接管返回精确的 `Aborted` / `ERROR_CODE_CONFLICT` / `dispatch_conflict` 时，Controller 才只隔离该执行。它保持 unresolved，不发 ACK、不重派；同一连接上的重复终态和状态回复既不能清除拒绝，也不能再次提交。Node 已核验的会话身份、心跳、连接报告和其他执行继续工作。首次拒绝记录一条结构化警告，保留 Cloud 原始代码和消息，不记录事件正文。真实重连或 Controller 重启后，可以再次提交原事件；只有成功的接管回执才允许 ACK 并清除拒绝。其他冲突和会话错误维持原处理。这项本地隔离不会让 Cloud 接收迟到结果，也不改变 Run 的结论。
+
 ### 上传授权
 
 交付只上传它的会话历史（`history_key` 处的 JSONL）；提交都推送到 Git Server。只为这个 key、只用 Node 冻结的 SHA-256 摘要向 `GrantRevisionUpload` 请求授权，这样 Cloud 会同时签名 `x-amz-checksum-sha256` 和 `If-None-Match: *`。指明其他 key 的请求从不转发给 Cloud，也得不到授权，但不会让交付失败：

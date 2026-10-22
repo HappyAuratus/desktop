@@ -59,6 +59,11 @@ pub enum Error {
     InvalidStorage,
     #[error("input, result or dispatch ownership conflict")]
     Conflict,
+    /// Only a validated delivery terminal refused by Cloud's exact dispatch verdict reaches here.
+    /// It remains unacknowledged on this connection; a real reconnect may submit it again.
+    #[cfg(target_os = "linux")]
+    #[error("delivery terminal takeover refused: {0}")]
+    TerminalTakeoverRefused(String),
     #[error("injected persistence failure")]
     Injected,
     #[error("invalid deployment composition: {0}")]

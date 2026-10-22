@@ -196,7 +196,9 @@ impl CloudStore {
         .await;
         let response = match response {
             Ok(p) => p,
-            Err(fault::Verdict::Conflict | fault::Verdict::StaleRuntimeBinding) => return Ok(None),
+            Err(fault::Verdict::Conflict(_) | fault::Verdict::StaleRuntimeBinding) => {
+                return Ok(None);
+            }
             Err(v) => return Err(self.settle(v)),
         };
         Ok(Some(binding(response.binding.ok_or(Error::Conflict)?)))

@@ -8,6 +8,9 @@ use tracing::field::{Field, Visit};
 use tracing_subscriber::layer::{Context, Layer};
 use workspace_cloud::{SIGNATURE, STORE_HOST};
 
+#[path = "deliveries/refusals.rs"]
+mod refusals;
+
 const FINAL: &str = "89abcdef0123456789abcdef0123456789abcdef";
 const HISTORY_DIGEST: &str = "2222222222222222222222222222222222222222222222222222222222222222";
 
@@ -21,6 +24,10 @@ struct DeliveryData {
     terminal: HashMap<ExecutionId, RevisionExecutionResult>,
     /// Grants received, kept only so tests can compare them with what Cloud issued.
     grants: Vec<UploadGrantMessage>,
+    /// Holds a formed terminal before the transport is cut, without losing its Node outbox.
+    pause_terminal: bool,
+    /// Explicit duplicate/status frames used to exercise a refused execution on one connection.
+    injected: std::collections::VecDeque<NodeToControllerMessage>,
 }
 
 /// The delivery half of the fake sandbox Node.
@@ -65,6 +72,12 @@ impl DeliveryNode {
         let mut data = self.data.lock().unwrap();
         if let Some(need) = data.needs.pop() {
             return Some(NodeToControllerMessage::UploadGrantNeeded(need));
+        }
+        if let Some(message) = data.injected.pop_front() {
+            return Some(message);
+        }
+        if data.pause_terminal {
+            return None;
         }
         let (key, event) = data.outbox.iter().find(|(key, _)| !sent.contains(*key))?;
         sent.insert(key.clone());
@@ -260,7 +273,11 @@ impl Visit for Line<'_> {
 
 impl<S: tracing::Subscriber> Layer<S> for Recorder {
     fn on_event(&self, event: &tracing::Event<'_>, _: Context<'_, S>) {
-        let mut line = format!("{} ", event.metadata().target());
+        let mut line = format!(
+            "{} {} ",
+            event.metadata().level(),
+            event.metadata().target()
+        );
         event.record(&mut Line(&mut line));
         self.0.lock().unwrap().push(line);
     }
