@@ -1,4 +1,5 @@
 import type * as acp from "@agentclientprotocol/sdk";
+import { childSessionSource } from "./item-metadata.ts";
 
 /** A live observation, never reconstructed from transcript load time or provider health guesses. */
 interface ObservedRunActivity {
@@ -43,14 +44,15 @@ export function observeDiagnostics(
   } as const;
   if (update.sessionUpdate in kinds) {
     const kind = kinds[update.sessionUpdate as keyof typeof kinds];
-    let child =
-      record(update._meta) && "opencode/child-session" in update._meta;
+    let child = childSessionSource(update._meta) !== undefined;
     let toolSources = previous?.toolSources;
     if (
       update.sessionUpdate === "tool_call" ||
       update.sessionUpdate === "tool_call_update"
     ) {
-      child ||= toolSources?.[update.toolCallId] === "child";
+      // Only an omitted namespace inherits; explicit null/invalid values reset ownership.
+      if (!(record(update._meta) && "opencode/child-session" in update._meta))
+        child = toolSources?.[update.toolCallId] === "child";
       toolSources = {
         ...toolSources,
         [update.toolCallId]: child ? "child" : "parent",
@@ -66,7 +68,7 @@ export function observeDiagnostics(
   }
   if (update.sessionUpdate !== "session_info_update" || !record(update._meta))
     return previous;
-  if ("opencode/child-session" in update._meta) return previous;
+  if (childSessionSource(update._meta)) return previous;
   const retry = update._meta["opencode/retry"];
   if (
     record(retry) &&
