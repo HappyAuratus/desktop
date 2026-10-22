@@ -435,13 +435,15 @@ impl DesktopScheduledRunExecutor {
             }
         };
         let session_id = SessionId::new(started.session.id);
-        if !self.transition(
+        if !transition(
+            &self.runs,
             &run,
             ScheduledRunTransition::Start {
                 session_id: session_id.clone(),
                 worktree_path: worktree_path.clone(),
                 worktree_task_id: worktree_task_id.clone(),
             },
+            self.clock.now_timestamp_millis(),
         ) {
             // The run row already reached a terminal state (startup recovery won the race),
             // so the freshly provisioned worktree is discarded directly. Stop the session
@@ -591,10 +593,15 @@ impl DesktopScheduledRunExecutor {
         worktree_path: Option<&str>,
         transition: ScheduledRunTransition,
     ) {
-        if !self.transition(run, transition.clone()) {
+        if !settle_terminal_run(
+            &self.runs,
+            &self.events,
+            run,
+            transition,
+            self.clock.now_timestamp_millis(),
+        ) {
             return;
         }
-        self.publish_finished(run, &transition);
         if let Some(worktree_task_id) = worktree_task_id {
             self.janitor
                 .run_finished(run, worktree_task_id, worktree_path)
@@ -603,10 +610,8 @@ impl DesktopScheduledRunExecutor {
     }
 
     /// Finishes a run that ended its turn normally: persist `succeeded`, annotate the
-    /// business verdict from the final Assistant turn, then publish and hand the worktree
-    /// to the janitor. The verdict write happens after the terminal transition and before
-    /// `RunFinished`, and is best-effort — a missing sentinel, an illegal value, an
-    /// over-long detail, or a run that is no longer `succeeded` leaves it "not reported".
+    /// business verdict from the final Assistant turn, collect the declared artifacts,
+    /// then publish `RunFinished` and hand the worktree to the janitor.
     async fn finish_succeeded(
         &self,
         run: &ScheduledRun,
@@ -614,12 +619,18 @@ impl DesktopScheduledRunExecutor {
         worktree_path: &str,
         session_id: &SessionId,
     ) {
-        if !self.transition(run, ScheduledRunTransition::Succeed) {
+        if !settle_succeeded_run(
+            &self.runs,
+            &self.artifacts,
+            self.tasks.sessions_root(),
+            &self.events,
+            run,
+            session_id,
+            Path::new(worktree_path),
+            self.clock.now_timestamp_millis(),
+        ) {
             return;
         }
-        self.annotate_verdict(run, session_id);
-        self.artifacts.collect(&run.id, Path::new(worktree_path));
-        self.publish_finished(run, &ScheduledRunTransition::Succeed);
         self.janitor
             .run_finished(run, worktree_task_id, Some(worktree_path))
             .await;
@@ -628,73 +639,125 @@ impl DesktopScheduledRunExecutor {
         self.artifacts.sweep();
     }
 
-    /// Parses the documented verdict sentinel out of the run's final Assistant turn and
-    /// persists it once, without rewriting any execution-layer fact.
-    fn annotate_verdict(&self, run: &ScheduledRun, session_id: &SessionId) {
-        let history = match read_session_history(self.tasks.sessions_root(), session_id.as_ref()) {
-            Ok(history) => history,
-            Err(error) => {
-                ora_warn!(run_id = %run.id, error = %error, "scheduled run verdict could not read session history");
-                return;
-            }
-        };
-        let Some(assistant) = final_assistant_message(&history) else {
-            return;
-        };
-        let Some(annotation) = parse_scheduled_run_verdict(&assistant) else {
-            return;
-        };
-        if let Err(error) = self.runs.annotate_scheduled_run_verdict(
-            &run.id,
-            annotation.verdict,
-            annotation.detail.as_deref(),
-            self.clock.now_timestamp_millis(),
-        ) {
-            ora_warn!(run_id = %run.id, error = %error, "scheduled run verdict annotation failed");
-        }
-    }
-
-    /// Announces a terminal run state once the persisted fact is committed.
-    fn publish_finished(&self, run: &ScheduledRun, transition: &ScheduledRunTransition) {
-        let (status, failure_reason) = match transition {
-            ScheduledRunTransition::Start { .. } => return,
-            ScheduledRunTransition::Succeed => (ScheduledRunStatus::Succeeded, None),
-            ScheduledRunTransition::Fail { reason } => (ScheduledRunStatus::Failed, Some(*reason)),
-            ScheduledRunTransition::Cancel => (ScheduledRunStatus::Cancelled, None),
-        };
-        self.events
-            .try_publish(ora_contracts::AppEvent::ScheduledTask(
-                ora_contracts::ScheduledTaskEvent::RunFinished {
-                    task_id: run.occurrence.task_id.to_string(),
-                    run_id: run.id.to_string(),
-                    status: contract_run_status(status),
-                    failure_reason: failure_reason.map(contract_failure_reason),
-                },
-            ));
-    }
-
     async fn fail(&self, run: &ScheduledRun, reason: ScheduledRunFailureReason) {
         self.finish(run, None, None, ScheduledRunTransition::Fail { reason })
             .await;
     }
+}
 
-    fn transition(&self, run: &ScheduledRun, transition: ScheduledRunTransition) -> bool {
-        match self.runs.transition_scheduled_run(
-            &run.id,
-            transition,
-            self.clock.now_timestamp_millis(),
-        ) {
-            Ok(ora_application::ScheduledRunTransitionResolution::Updated(_)) => true,
-            Ok(other) => {
-                ora_warn!(run_id = %run.id, result = ?other, "scheduled run lifecycle transition was not accepted");
-                false
-            }
-            Err(error) => {
-                ora_warn!(run_id = %run.id, error = %error, "scheduled run lifecycle transition failed");
-                false
-            }
+/// Persists one transition against the run repository, logging rather than failing when
+/// the transition is no longer applicable.
+fn transition(
+    runs: &SqliteScheduledRunRepository,
+    run: &ScheduledRun,
+    transition: ScheduledRunTransition,
+    now: i64,
+) -> bool {
+    match runs.transition_scheduled_run(&run.id, transition, now) {
+        Ok(ora_application::ScheduledRunTransitionResolution::Updated(_)) => true,
+        Ok(other) => {
+            ora_warn!(run_id = %run.id, result = ?other, "scheduled run lifecycle transition was not accepted");
+            false
+        }
+        Err(error) => {
+            ora_warn!(run_id = %run.id, error = %error, "scheduled run lifecycle transition failed");
+            false
         }
     }
+}
+
+/// Parses the documented verdict sentinel out of the run's final Assistant turn and
+/// persists it once, without rewriting any execution-layer fact.
+fn annotate_verdict(
+    runs: &SqliteScheduledRunRepository,
+    sessions_root: &Path,
+    run: &ScheduledRun,
+    session_id: &SessionId,
+    now: i64,
+) {
+    let history = match read_session_history(sessions_root, session_id.as_ref()) {
+        Ok(history) => history,
+        Err(error) => {
+            ora_warn!(run_id = %run.id, error = %error, "scheduled run verdict could not read session history");
+            return;
+        }
+    };
+    let Some(assistant) = final_assistant_message(&history) else {
+        return;
+    };
+    let Some(annotation) = parse_scheduled_run_verdict(&assistant) else {
+        return;
+    };
+    if let Err(error) = runs.annotate_scheduled_run_verdict(
+        &run.id,
+        annotation.verdict,
+        annotation.detail.as_deref(),
+        now,
+    ) {
+        ora_warn!(run_id = %run.id, error = %error, "scheduled run verdict annotation failed");
+    }
+}
+
+/// Announces a terminal run state once the persisted fact is committed.
+fn publish_finished(
+    events: &AppEventPublisher,
+    run: &ScheduledRun,
+    transition: &ScheduledRunTransition,
+) {
+    let (status, failure_reason) = match transition {
+        ScheduledRunTransition::Start { .. } => return,
+        ScheduledRunTransition::Succeed => (ScheduledRunStatus::Succeeded, None),
+        ScheduledRunTransition::Fail { reason } => (ScheduledRunStatus::Failed, Some(*reason)),
+        ScheduledRunTransition::Cancel => (ScheduledRunStatus::Cancelled, None),
+    };
+    events.try_publish(ora_contracts::AppEvent::ScheduledTask(
+        ora_contracts::ScheduledTaskEvent::RunFinished {
+            task_id: run.occurrence.task_id.to_string(),
+            run_id: run.id.to_string(),
+            status: contract_run_status(status),
+            failure_reason: failure_reason.map(contract_failure_reason),
+        },
+    ));
+}
+
+/// Finishes a run whose turn ended normally: transition to `succeeded`, annotate the
+/// business verdict, collect the declared artifacts, then publish `RunFinished`. The
+/// verdict write and artifact collection sit after the terminal transition and before
+/// `RunFinished`, so a subscriber always observes the final verdict when it sees
+/// `RunFinished`. Returns whether the terminal transition was accepted.
+fn settle_succeeded_run(
+    runs: &SqliteScheduledRunRepository,
+    artifacts: &ScheduledRunArtifactRuntime,
+    sessions_root: &Path,
+    events: &AppEventPublisher,
+    run: &ScheduledRun,
+    session_id: &SessionId,
+    worktree_path: &Path,
+    now: i64,
+) -> bool {
+    if !transition(runs, run, ScheduledRunTransition::Succeed, now) {
+        return false;
+    }
+    annotate_verdict(runs, sessions_root, run, session_id, now);
+    artifacts.collect(&run.id, worktree_path);
+    publish_finished(events, run, &ScheduledRunTransition::Succeed);
+    true
+}
+
+/// Finishes a run in a non-succeeded terminal state: transition, then publish
+/// `RunFinished` without annotating a verdict or collecting artifacts.
+fn settle_terminal_run(
+    runs: &SqliteScheduledRunRepository,
+    events: &AppEventPublisher,
+    run: &ScheduledRun,
+    terminal: ScheduledRunTransition,
+    now: i64,
+) -> bool {
+    if !transition(runs, run, terminal.clone(), now) {
+        return false;
+    }
+    publish_finished(events, run, &terminal);
+    true
 }
 
 fn scheduled_run_completion_transition(stop_reason: StopReason) -> ScheduledRunTransition {
@@ -892,5 +955,280 @@ mod tests {
                 }
             );
         }
+    }
+
+    use std::path::{Path, PathBuf};
+
+    use agent_client_protocol_schema::v1::{
+        ContentBlock, ContentChunk, SessionUpdate, TextContent,
+    };
+    use ora_application::{
+        ProjectRepository, ScheduledOccurrenceCandidate, ScheduledOccurrenceRepository,
+        ScheduledTaskHistoryRepository, ScheduledTaskRepository,
+    };
+    use ora_db::{
+        DatabaseBootstrapper, DatabaseLocation, SqliteProjectRepository,
+        SqliteScheduledRunRepository, SqliteScheduledTaskRepository, default_migration_catalog,
+    };
+    use ora_domain::{
+        Project, ScheduledOccurrence, ScheduledRun, ScheduledRunId, ScheduledRunVerdict,
+        ScheduledTaskHistoryEntry, SessionId, TaskId, WorkspaceLocation,
+    };
+    use ora_history::{FixedHistoryClock, HistoryRecord, HistoryWriter};
+    use tempfile::TempDir;
+    use time::OffsetDateTime;
+
+    use super::{settle_succeeded_run, settle_terminal_run, transition};
+
+    /// Runs one integration test on a current-thread runtime with trace logging scoped.
+    fn run_integration(test: impl std::future::Future<Output = ()>) {
+        ora_logging::with_trace_logging(|| {
+            tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .expect("test runtime")
+                .block_on(test);
+        });
+    }
+
+    /// Writes a minimal session history whose final Assistant turn carries `text`.
+    fn write_session_history(sessions_root: &Path, session_id: &str, text: &str) {
+        let writer = HistoryWriter::open(
+            sessions_root,
+            session_id,
+            FixedHistoryClock::new(OffsetDateTime::UNIX_EPOCH),
+        )
+        .expect("history writer");
+        writer
+            .append_record(
+                0,
+                HistoryRecord::Update {
+                    update: Box::new(SessionUpdate::AgentMessageChunk(ContentChunk::new(
+                        ContentBlock::Text(TextContent::new(text)),
+                    ))),
+                    tool_timing: None,
+                },
+            )
+            .expect("append assistant message");
+        writer
+            .append_record(
+                1,
+                HistoryRecord::TurnEnded {
+                    stop_reason: StopReason::EndTurn,
+                },
+            )
+            .expect("append turn end");
+    }
+
+    /// Bootstraps a repository, seeds a local task, and admits then starts one run.
+    struct SettleFixture {
+        _temporary: TempDir,
+        runs: SqliteScheduledRunRepository,
+        artifacts: super::super::artifact::ScheduledRunArtifactRuntime,
+        store: ora_application::ScheduledArtifactStore,
+        hub: crate::app_event::AppEventHub,
+        events: crate::app_event::AppEventPublisher,
+        sessions_root: PathBuf,
+        worktree: PathBuf,
+        task: ScheduledTask,
+        run: ScheduledRun,
+    }
+
+    impl SettleFixture {
+        fn new(run_name: &str) -> Self {
+            ora_logging::initialize_test_clock();
+            let temporary = TempDir::new().expect("backend fixture");
+            let database_path = temporary.path().join("ora.sqlite3");
+            let pool = DatabaseBootstrapper::system()
+                .bootstrap_repository_pool(
+                    &DatabaseLocation::path(&database_path),
+                    &default_migration_catalog().expect("migration catalog"),
+                )
+                .expect("bootstrap database");
+
+            let project_root = temporary.path().join("project");
+            std::fs::create_dir_all(&project_root).expect("create project root");
+            let project =
+                SqliteProjectRepository::with_clock(pool.clone(), crate::clock::SystemClock)
+                    .create_project(
+                        Project::new(
+                            ora_domain::ProjectId::new("project-1"),
+                            "Settle fixture",
+                            AuditFields::new(10, 10, /*is_deleted*/ false),
+                        ),
+                        WorkspaceLocation::local_filesystem(
+                            project_root.to_string_lossy().into_owned(),
+                        ),
+                    )
+                    .expect("create project");
+
+            let task = ScheduledTask::new(
+                ScheduledTaskId::new("scheduled-task-settle"),
+                "Settle fixture",
+                true,
+                ScheduledTaskSchedule::daily(9, 0).expect("daily"),
+                ScheduledTaskExecutionLocation::Local,
+                project.id.clone(),
+                AgentRef::parse("ora/agent").expect("agent ref"),
+                Some("default".to_string()),
+                "Run the settle fixture",
+                Some(ScheduledTaskApproval::full_auto_in_worktree(10)),
+                AuditFields::new(10, 10, false),
+            )
+            .expect("settle task");
+            SqliteScheduledTaskRepository::new(pool.clone())
+                .create_scheduled_task(task.clone())
+                .expect("create task");
+
+            let runs = SqliteScheduledRunRepository::new(pool.clone());
+            let run = ScheduledRun::accepted(
+                ScheduledRunId::new(run_name),
+                ScheduledOccurrence {
+                    task_id: task.id.clone(),
+                    scheduled_at: 1_000,
+                },
+                &task,
+                1_001,
+            );
+            runs.resolve_scheduled_occurrence(ScheduledOccurrenceCandidate::run(run.clone()))
+                .expect("admit run");
+            assert!(
+                transition(
+                    &runs,
+                    &run,
+                    ScheduledRunTransition::Start {
+                        session_id: SessionId::new("session-1"),
+                        worktree_path: "worktrees/settle".to_string(),
+                        worktree_task_id: TaskId::new("task-settle"),
+                    },
+                    2_000,
+                ),
+                "start the run"
+            );
+
+            let store =
+                ora_application::ScheduledArtifactStore::new(temporary.path().join("artifacts"));
+            let artifacts = super::super::artifact::ScheduledRunArtifactRuntime::new(
+                pool.clone(),
+                store.clone(),
+                crate::clock::SystemClock,
+            );
+            let sessions_root = temporary.path().join("sessions");
+            let worktree = temporary.path().join("worktree");
+            std::fs::create_dir_all(&worktree).expect("create worktree");
+
+            let hub = crate::app_event::AppEventHub::new();
+            let events = hub.publisher();
+
+            Self {
+                _temporary: temporary,
+                runs,
+                artifacts,
+                store,
+                hub,
+                events,
+                sessions_root,
+                worktree,
+                task,
+                run,
+            }
+        }
+
+        /// Reads the run's persisted verdict from its task-history entry.
+        fn verdict(&self) -> Option<ScheduledRunVerdict> {
+            let history = self
+                .runs
+                .list_scheduled_task_history(&self.task.id)
+                .expect("read history");
+            history.into_iter().find_map(|entry| match entry {
+                ScheduledTaskHistoryEntry::Run(run) if run.id == self.run.id => run.verdict,
+                _ => None,
+            })
+        }
+    }
+
+    #[test]
+    fn succeeded_settlement_annotates_the_verdict_before_run_finished() {
+        run_integration(async {
+            let fixture = SettleFixture::new("run-succeeded");
+            write_session_history(
+                &fixture.sessions_root,
+                "session-1",
+                "QA_VERDICT: fail\nQA_DETAIL: critical defect",
+            );
+            let mut events = fixture.hub.subscribe();
+
+            assert!(
+                settle_succeeded_run(
+                    &fixture.runs,
+                    &fixture.artifacts,
+                    &fixture.sessions_root,
+                    &fixture.events,
+                    &fixture.run,
+                    &SessionId::new("session-1"),
+                    &fixture.worktree,
+                    3_000,
+                ),
+                "settle the succeeded run"
+            );
+
+            // A fresh subscription first replays `Ready`; the next event is `RunFinished`.
+            let _ = events.recv().await.unwrap().unwrap();
+            let event = events.recv().await.unwrap().unwrap();
+            match event {
+                ora_contracts::AppEvent::ScheduledTask(
+                    ora_contracts::ScheduledTaskEvent::RunFinished { run_id, status, .. },
+                ) => {
+                    assert_eq!(run_id, "run-succeeded");
+                    assert_eq!(status, ora_contracts::ScheduledRunStatus::Succeeded);
+                    // The verdict must already be durable when the frontend observes
+                    // `RunFinished`, not written afterwards.
+                    assert_eq!(fixture.verdict(), Some(ScheduledRunVerdict::Fail));
+                }
+                other => panic!("expected RunFinished, got {other:?}"),
+            }
+        });
+    }
+
+    #[test]
+    fn failed_settlement_never_annotates_nor_collects() {
+        run_integration(async {
+            let fixture = SettleFixture::new("run-failed");
+            // A declared artifact is present; a failed run must leave it uncollected.
+            let source = fixture.worktree.join(".ora-scheduled-artifacts");
+            std::fs::create_dir_all(&source).expect("create artifact directory");
+            std::fs::write(source.join("report.md"), "report").expect("write artifact");
+            let mut events = fixture.hub.subscribe();
+
+            assert!(
+                settle_terminal_run(
+                    &fixture.runs,
+                    &fixture.events,
+                    &fixture.run,
+                    ScheduledRunTransition::Fail {
+                        reason: ScheduledRunFailureReason::Timeout,
+                    },
+                    3_000,
+                ),
+                "settle the failed run"
+            );
+
+            let _ = events.recv().await.unwrap().unwrap();
+            let event = events.recv().await.unwrap().unwrap();
+            match event {
+                ora_contracts::AppEvent::ScheduledTask(
+                    ora_contracts::ScheduledTaskEvent::RunFinished { run_id, status, .. },
+                ) => {
+                    assert_eq!(run_id, "run-failed");
+                    assert_eq!(status, ora_contracts::ScheduledRunStatus::Failed);
+                }
+                other => panic!("expected RunFinished, got {other:?}"),
+            }
+            assert_eq!(fixture.verdict(), None, "a failed run carries no verdict");
+            assert!(
+                !fixture.store.root().join("run-failed").exists(),
+                "a failed run must not collect artifacts"
+            );
+        });
     }
 }
