@@ -2,13 +2,133 @@ import { act, render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { appI18n } from "../../i18n/i18n-instance";
 import { RunDiagnosticsPanel } from "./run-diagnostics";
-import type { ChatToolCall, ChatTurn } from "@ora/chat";
+import {
+  createChatStore,
+  type ChatSessionClient,
+  type ChatToolCall,
+  type ChatTurn,
+} from "@ora/chat";
 
 beforeEach(async () => {
   await act(() => appI18n.changeLanguage("en-US"));
 });
 
 describe("run diagnostics", () => {
+  it.each([
+    null,
+    {},
+    { id: " ", parentID: "root", depth: 1 },
+    { id: "child", parentID: " ", depth: 1 },
+    { id: "child", parentID: "root", depth: 0 },
+  ])(
+    "shows cleared or invalid sources as parent activity and preserves retry: %j",
+    async (source) => {
+      let time = 100;
+      let release = () => {};
+      let markReady = () => {};
+      const gate = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      const ready = new Promise<void>((resolve) => {
+        markReady = resolve;
+      });
+      const client: ChatSessionClient = {
+        async *prompt() {
+          yield {
+            type: "session_update",
+            update: {
+              sessionUpdate: "tool_call",
+              toolCallId: "tool",
+              title: "Reattributed tool",
+              status: "in_progress",
+              _meta: {
+                "opencode/child-session": {
+                  id: "child",
+                  parentID: "root",
+                  depth: 1,
+                },
+              },
+            },
+          };
+          time = 200;
+          yield {
+            type: "session_update",
+            update: {
+              sessionUpdate: "tool_call_update",
+              toolCallId: "tool",
+              _meta: { "opencode/child-session": source },
+            },
+          };
+          time = 300;
+          yield {
+            type: "session_update",
+            update: { sessionUpdate: "tool_call_update", toolCallId: "tool" },
+          };
+          yield {
+            type: "session_update",
+            update: {
+              sessionUpdate: "session_info_update",
+              _meta: {
+                "opencode/child-session": source,
+                "opencode/retry": { attempt: 2 },
+              },
+            },
+          };
+          markReady();
+          await gate;
+          yield { type: "completed", stopReason: "end_turn" };
+        },
+        async *load() {
+          yield { type: "completed" };
+        },
+        setConfig: async () => ({ configOptions: [] }),
+        respondToPermission: async () => ({}),
+      };
+      const store = createChatStore(client, { now: () => time });
+      let sending: Promise<void> | undefined;
+      try {
+        await act(async () => {
+          sending = store
+            .getState()
+            .sendMessage({ oraSessionId: "one", text: "go" });
+          await ready;
+        });
+        const conversation = store.getState().conversations.one!;
+        const view = render(
+          <RunDiagnosticsPanel
+            diagnostics={conversation.diagnostics}
+            turns={conversation.turns}
+            isResponding={conversation.isResponding}
+            pendingPermissions={[]}
+          />,
+        );
+        expect(
+          screen.getByText("Parent tools").nextElementSibling,
+        ).toHaveTextContent("Reattributed tool");
+        expect(screen.queryByText("Child tools")).not.toBeInTheDocument();
+        expect(
+          screen.queryByText("Tools with unconfirmed source"),
+        ).not.toBeInTheDocument();
+        expect(view.container.querySelectorAll("time")[0]).toHaveAttribute(
+          "datetime",
+          new Date(300).toISOString(),
+        );
+        expect(view.container.querySelectorAll("time")[1]).toHaveAttribute(
+          "datetime",
+          new Date(100).toISOString(),
+        );
+        expect(screen.getByText(/retry.*2/i)).toBeInTheDocument();
+        view.unmount();
+      } finally {
+        await act(async () => {
+          release();
+          await sending;
+          store.getState().dispose();
+        });
+      }
+    },
+  );
+
   it("does not invent provider health or turn replay into live activity", () => {
     render(
       <RunDiagnosticsPanel
