@@ -267,7 +267,7 @@ fn declares_at_most_the_per_run_artifact_count() {
     assert_eq!(
         manifest.rejections,
         vec![ScheduledArtifactRejection {
-            display_name: format!("report-{:02}.txt", MAX_SCHEDULED_ARTIFACTS_PER_RUN),
+            display_name: format!("report-{MAX_SCHEDULED_ARTIFACTS_PER_RUN:02}.txt"),
             reason: ScheduledArtifactRejectionReason::TooMany,
         }]
     );

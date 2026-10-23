@@ -183,7 +183,7 @@ impl<R: GitRunner> DeliveryGit<R> {
                 source: std::io::Error::other("non-UTF-8 Git directory"),
             })?;
         let scratch = [("GIT_INDEX_FILE", index)];
-        let excluded = format!(":(exclude){}", SCHEDULED_ARTIFACT_DIRECTORY);
+        let excluded = format!(":(exclude){SCHEDULED_ARTIFACT_DIRECTORY}");
         self.output(checkout, &["read-tree", "HEAD"], &scratch)?;
         self.output(
             checkout,
