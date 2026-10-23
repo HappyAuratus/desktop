@@ -36,9 +36,10 @@ pub(super) struct ScheduledDeclaration {
 /// Only a scheduled occurrence declares, and only when Cloud ended it as asked after the agent
 /// finished a turn: a cancelled, failed or interrupted session has no completed turn whose
 /// conclusion could describe the run. The completed turn gates both facts, because an end command
-/// can cancel the turn that was still running while the session still ends as asked. Each fact is
-/// then validated against the wire rules before it is declared, so nothing this module produces can
-/// make the terminal write fail.
+/// can cancel the turn that was still running while the session still ends as asked. A completed
+/// turn that said nothing still gates the artifacts, because a turn may finish its work through
+/// tools alone; only its verdict is then unreported. Each fact is validated against the wire rules
+/// before it is declared, so nothing this module produces can make the terminal write fail.
 pub(super) fn declare(
     end: &SessionEnd,
     trigger: Option<SessionTrigger>,
@@ -56,6 +57,9 @@ pub(super) fn declare(
         return None;
     }
     let final_turn = completed_final_turn(sessions_root, execution)?;
+    // The completed turn proves the agent finished its work; what it said there is optional. A turn
+    // that only used tools has no verdict text, but the artifacts it wrote are still the run's
+    // declaration, so only the verdict stays unreported.
     let declaration = ScheduledDeclaration {
         result: parse_verdict(&final_turn, execution),
         manifest: reportable_manifest(checkout, execution),
@@ -63,14 +67,16 @@ pub(super) fn declare(
     (declaration.result.is_some() || declaration.manifest.is_some()).then_some(declaration)
 }
 
-/// Reads the final Assistant turn, returning it only when `TurnEnded` closed it normally.
+/// Reads the final Assistant turn, present only when `TurnEnded` closed it normally.
 ///
 /// An end command can cancel the turn that is running, so the end reason alone does not prove the
 /// agent completed its work. An unreadable history, a cancelled or truncated turn, and a turn that
-/// never ended all mean "cannot tell", and an earlier turn is never used instead.
+/// never ended all mean "cannot tell", and an earlier turn is never used instead. A completed turn
+/// is evidence even when it carries no Assistant text, so its empty text is returned rather than
+/// mistaken for a missing turn.
 fn completed_final_turn(sessions_root: &Path, execution: &ExecutionId) -> Option<String> {
     let history = ora_history::read_session_history(sessions_root, execution.as_str()).ok()?;
-    ora_history::final_completed_assistant_message(&history)
+    ora_history::final_completed_assistant_turn(&history)
 }
 
 /// Parses the documented sentinel out of the run's final completed Assistant turn.

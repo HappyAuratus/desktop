@@ -1,6 +1,5 @@
 use crate::handoff::{
-    binding_needs_handoff, final_assistant_message, final_completed_assistant_message,
-    render_handoff,
+    binding_needs_handoff, final_assistant_message, final_completed_assistant_turn, render_handoff,
 };
 use crate::reader::{HistoryIntegrity, SessionHistory};
 use crate::record::{AgentSwitch, HistoryLine, HistoryRecord, SCHEMA_VERSION, SessionMeta};
@@ -465,7 +464,7 @@ fn returns_the_final_assistant_turn_when_it_completed() {
     ]);
 
     assert_eq!(
-        final_completed_assistant_message(&recorded),
+        final_completed_assistant_turn(&recorded),
         Some("QA_VERDICT: pass".to_string())
     );
 }
@@ -482,7 +481,7 @@ fn refuses_a_final_turn_the_provider_cancelled_without_falling_back() {
         turn_ended(StopReason::Cancelled),
     ]);
 
-    assert_eq!(final_completed_assistant_message(&recorded), None);
+    assert_eq!(final_completed_assistant_turn(&recorded), None);
 }
 
 #[test]
@@ -493,11 +492,11 @@ fn refuses_a_final_turn_that_never_ended() {
         assistant("QA_VERDICT: pass"),
     ]);
 
-    assert_eq!(final_completed_assistant_message(&recorded), None);
+    assert_eq!(final_completed_assistant_turn(&recorded), None);
 }
 
 #[test]
-fn refuses_a_completed_final_turn_without_assistant_text() {
+fn a_completed_final_turn_without_assistant_text_is_still_a_completed_turn() {
     let recorded = history(vec![
         meta(agent_ref("ora-space.claude")),
         user("first"),
@@ -507,7 +506,12 @@ fn refuses_a_completed_final_turn_without_assistant_text() {
         turn_ended(StopReason::EndTurn),
     ]);
 
-    assert_eq!(final_completed_assistant_message(&recorded), None);
+    // A turn that only used tools finished normally; it states nothing, and its emptiness is not
+    // the same answer as "the final turn never completed".
+    assert_eq!(
+        final_completed_assistant_turn(&recorded),
+        Some(String::new())
+    );
 }
 
 #[test]
@@ -550,7 +554,7 @@ fn a_completed_final_turn_ignores_a_child_sessions_conclusion() {
     ]);
 
     assert_eq!(
-        final_completed_assistant_message(&recorded),
+        final_completed_assistant_turn(&recorded),
         Some("QA_VERDICT: pass".to_string())
     );
 }

@@ -425,6 +425,46 @@ fn a_flood_of_unusable_names_stays_inside_one_frame() {
 }
 
 #[test]
+fn a_completed_final_turn_without_assistant_text_still_declares_its_artifacts() {
+    let root = checkout();
+    let execution = ExecutionId::new("execution-tool-only");
+    // A turn that finishes its work through tools never writes an Assistant message, but its
+    // `TurnEnded(end_turn)` proves the agent finished: what it wrote is the run's declaration.
+    write_history(
+        root.path(),
+        &execution,
+        vec![user("write the report"), turn_ended()],
+    );
+    let directory = artifact_directory(root.path());
+    std::fs::write(directory.join("report.md"), "hello").expect("a report");
+
+    let declaration = declare(
+        &SessionEnd::requested(EndSessionReason::IdleTimeout),
+        Some(SessionTrigger::Scheduled),
+        root.path(),
+        &execution,
+        root.path(),
+    )
+    .expect("a declaration");
+
+    // The empty turn states no verdict, and its artifacts are not lost with it.
+    assert_eq!(declaration.result, None);
+    assert_eq!(
+        declaration.manifest.expect("artifacts are independent"),
+        ora_node_protocol::ScheduledArtifactManifest {
+            items: vec![item(
+                0,
+                "report.md",
+                ScheduledArtifactKind::Markdown,
+                "hello"
+            )],
+            rejections: Vec::new(),
+            omitted_rejections: 0,
+        }
+    );
+}
+
+#[test]
 fn a_run_without_artifacts_or_a_verdict_declares_nothing() {
     let root = checkout();
     let execution = ExecutionId::new("execution-quiet");
