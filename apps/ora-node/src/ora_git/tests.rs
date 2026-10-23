@@ -297,6 +297,7 @@ fn session_start(node: &NodeId) -> StartAgentSessionMessage {
                 },
                 prior_revision: None,
                 workspace_directory: Vec::new(),
+                trigger: None,
             },
         },
     }

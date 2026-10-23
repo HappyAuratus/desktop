@@ -16,6 +16,7 @@ mod preview;
 mod process;
 mod queue;
 mod resume;
+mod scheduled;
 mod thread;
 mod workload;
 
@@ -284,6 +285,8 @@ where
             node: self.shared.node.clone(),
             reason: AgentSessionEndReason::Interrupted,
             detail: None,
+            scheduled_result: None,
+            artifact_manifest: None,
         }
     }
 

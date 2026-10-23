@@ -7,6 +7,7 @@ mod repository;
 mod repository_result;
 mod revision;
 mod revision_restore;
+mod scheduled_run;
 mod worktree;
 
 pub use agent_session::{
@@ -41,4 +42,11 @@ pub use revision::{
     RevisionUnchanged, StoredObject, UploadMethod,
 };
 pub use revision_restore::{PriorRevision, PriorRevisionCommit};
+pub use scheduled_run::{
+    MAX_SCHEDULED_ARTIFACT_BYTES, MAX_SCHEDULED_ARTIFACT_TOTAL_BYTES,
+    MAX_SCHEDULED_ARTIFACTS_PER_RUN, MAX_SCHEDULED_VERDICT_DETAIL_CHARS,
+    SCHEDULED_ARTIFACT_DIRECTORY, ScheduledArtifactItem, ScheduledArtifactKind,
+    ScheduledArtifactManifest, ScheduledArtifactRejection, ScheduledArtifactRejectionReason,
+    ScheduledRunResult, ScheduledVerdict, SessionTrigger,
+};
 pub use worktree::*;

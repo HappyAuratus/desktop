@@ -31,6 +31,7 @@ pub(super) fn command() -> StartAgentSessionMessage {
                 },
                 prior_revision: None,
                 workspace_directory: Vec::new(),
+                trigger: None,
             },
         },
     }
@@ -72,6 +73,8 @@ pub(super) fn ended() -> AgentSessionEnded {
         },
         reason: AgentSessionEndReason::Interrupted,
         detail: None,
+        scheduled_result: None,
+        artifact_manifest: None,
     }
 }
 

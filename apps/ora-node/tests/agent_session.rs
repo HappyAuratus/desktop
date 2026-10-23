@@ -130,6 +130,7 @@ async fn unconfigured_model_proxy_ends_before_launching_the_plugin() {
             workspace_directory: vec![],
             git_identity: identity(),
             initial_turn: turn("turn-1", "read the repository"),
+            trigger: None,
         },
     );
     assert_eq!(
@@ -138,6 +139,8 @@ async fn unconfigured_model_proxy_ends_before_launching_the_plugin() {
             node: fixture.node(),
             reason: AgentSessionEndReason::AgentFailed,
             detail: Some("model_proxy_unavailable".into()),
+            scheduled_result: None,
+            artifact_manifest: None,
         }
     );
     assert_eq!(
@@ -257,6 +260,8 @@ async fn records_reach_the_thread_as_history_lines_attributed_to_their_turns() {
                 node: fixture.node(),
                 reason: AgentSessionEndReason::UserEnded,
                 detail: None,
+                scheduled_result: None,
+                artifact_manifest: None,
             },
             vec![
                 ("command-2".to_string(), vec![CommandSettlement::Executed]),
@@ -416,6 +421,8 @@ async fn a_crash_before_the_thread_append_leaves_the_history_one_line_ahead() {
                 node: fixture.node(),
                 reason: AgentSessionEndReason::Interrupted,
                 detail: None,
+                scheduled_result: None,
+                artifact_manifest: None,
             },
             Ok(ora_history::history_path(&fixture.home().join("sessions"), EXECUTION).unwrap()),
         ),
@@ -455,6 +462,8 @@ async fn a_plugin_of_another_version_ends_the_session_without_starting_it() {
         node: fixture.node(),
         reason: AgentSessionEndReason::AgentFailed,
         detail: Some("agent_plugin_unavailable".to_string()),
+        scheduled_result: None,
+        artifact_manifest: None,
     };
     assert_eq!(
         (
@@ -826,6 +835,7 @@ async fn an_undeclared_plugin_never_takes_the_legacy_model_route() {
             workspace_directory: vec![],
             git_identity: identity(),
             initial_turn: turn("turn-1", "must not be sent"),
+            trigger: None,
         },
     );
     let ended = fixture.ended().await;

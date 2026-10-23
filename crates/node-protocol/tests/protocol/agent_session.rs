@@ -39,6 +39,7 @@ pub(super) fn start() -> Case {
                         initial_turn: turn("turn-1", "Fix the failing login test."),
                         prior_revision: None,
                         workspace_directory: Vec::new(),
+                        trigger: None,
                     },
                 },
             },
@@ -442,6 +443,8 @@ async fn session_end_round_trips_as_event_and_completed_status() -> Result<(), T
         node: node(),
         reason: AgentSessionEndReason::AgentFailed,
         detail: Some("agent_plugin_unavailable".to_owned()),
+        scheduled_result: None,
+        artifact_manifest: None,
     });
     let result_wire = json!({"kind": "agent_session_ended", "result": {
         "node": {"node_id": "node-1", "incarnation_id": "incarnation-1"},
@@ -636,5 +639,101 @@ async fn controlled_session_start_round_trips_and_binds_exact_identity() -> Resu
     changed = envelope;
     changed.binding.input_closed = true;
     assert!(changed.validate().is_err());
+    Ok(())
+}
+
+/// A scheduled session declares how Cloud admitted it; a manual run leaves the field absent, which
+/// is also what every session released before Cloud admitted scheduled occurrences looks like.
+#[tokio::test]
+async fn a_scheduled_session_start_carries_its_trigger() -> Result<(), TestError> {
+    let mut case = start();
+    let Message::Controller(ControllerToNodeMessage::StartAgentSession(command)) =
+        &mut case.message
+    else {
+        panic!("fixture must be a session start")
+    };
+    command.payload.spec.trigger = Some(SessionTrigger::Scheduled);
+    case.wire["payload"]["spec"]["trigger"] = json!("scheduled");
+
+    case.assert_wire().await?;
+    case.assert_round_trip().await?;
+    assert_eq!(start().wire["payload"]["spec"].get("trigger"), None);
+    Ok(())
+}
+
+/// The terminal result of a scheduled run carries the verdict and the artifact declaration it made
+/// before its Workspace was released; Cloud verifies both and never parses the Thread for them.
+#[tokio::test]
+async fn a_scheduled_terminal_result_declares_its_verdict_and_artifacts() -> Result<(), TestError> {
+    let result = AgentSessionResult::AgentSessionEnded(AgentSessionEnded {
+        node: node(),
+        reason: AgentSessionEndReason::IdleTimeout,
+        detail: None,
+        scheduled_result: Some(ScheduledRunResult {
+            verdict: ScheduledVerdict::RangeUnresolved,
+            verdict_detail: Some("no comparison base".to_owned()),
+        }),
+        artifact_manifest: Some(ScheduledArtifactManifest {
+            items: vec![ScheduledArtifactItem {
+                index: 0,
+                display_name: "reports/review.md".to_owned(),
+                kind: ScheduledArtifactKind::Markdown,
+                size_bytes: 5,
+                sha256: "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824"
+                    .to_owned(),
+            }],
+            rejections: vec![ScheduledArtifactRejection {
+                display_name: "notes.pdf".to_owned(),
+                reason: ScheduledArtifactRejectionReason::UnsupportedType,
+            }],
+        }),
+    });
+    let case = Case {
+        message: Message::Node(NodeToControllerMessage::AgentSessionEnded(
+            AgentSessionEndedMessage {
+                protocol_version: CURRENT_PROTOCOL_VERSION,
+                operation_id: OperationId::new(OPERATION),
+                execution_id: ExecutionId::new(EXECUTION),
+                sequence: Sequence::new(/*value*/ 4),
+                payload: result.clone(),
+            },
+        )),
+        wire: json!({"message_type": "agent_session_ended", "protocol_version": 1,
+            "operation_id": OPERATION, "execution_id": EXECUTION, "sequence": 4,
+            "payload": {"kind": "agent_session_ended", "result": {
+                "node": {"node_id": "node-1", "incarnation_id": "incarnation-1"},
+                "reason": "idle_timeout",
+                "scheduled_result": {"verdict": "range_unresolved",
+                    "verdict_detail": "no comparison base"},
+                "artifact_manifest": {
+                    "items": [{"index": 0, "display_name": "reports/review.md",
+                        "kind": "markdown", "size_bytes": 5,
+                        "sha256": "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824"}],
+                    "rejections": [{"display_name": "notes.pdf", "reason": "unsupported_type"}]}}}}),
+    };
+    case.assert_wire().await?;
+    case.assert_round_trip().await?;
+
+    let mut over_long = case.wire.clone();
+    over_long["payload"]["result"]["scheduled_result"]["verdict_detail"] =
+        json!("x".repeat(MAX_SCHEDULED_VERDICT_DETAIL_CHARS + 1));
+    reject_semantics(
+        Peer::Node,
+        &over_long,
+        "over-long verdict detail",
+        MessageValidationError::InvalidScheduledResult,
+    )
+    .await?;
+
+    let mut escaping = case.wire.clone();
+    escaping["payload"]["result"]["artifact_manifest"]["items"][0]["display_name"] =
+        json!("../escape.md");
+    reject_semantics(
+        Peer::Node,
+        &escaping,
+        "unsafe artifact path",
+        MessageValidationError::InvalidScheduledArtifactManifest,
+    )
+    .await?;
     Ok(())
 }

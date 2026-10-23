@@ -55,6 +55,7 @@ fn session() -> StartAgentSessionMessage {
                         .expect("valid delivery ref"),
                     base_commit: CommitId::new("0".repeat(40)),
                 }),
+                trigger: None,
             },
         },
     }
@@ -170,6 +171,8 @@ fn unknown_stop_matrix_expires_without_terminal_then_original_proof_settles_once
                         },
                         reason: AgentSessionEndReason::AgentFailed,
                         detail: Some("prior_revision_unavailable".into()),
+                        scheduled_result: None,
+                        artifact_manifest: None,
                     };
                     journal.defer_restore_end(&input.execution_id, &ended)?;
                     let config = ProcessConfig {

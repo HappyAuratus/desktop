@@ -1,5 +1,6 @@
 //! How a session execution ended, before the Node identity is attached.
 
+use super::scheduled::ScheduledDeclaration;
 use ora_node_protocol::{AgentSessionEndReason, EndSessionReason};
 
 /// Why a session execution ended, before the Node identity is attached.
@@ -7,6 +8,9 @@ pub(super) struct SessionEnd {
     pub(super) reason: AgentSessionEndReason,
     /// A bounded code naming the cause of an `agent_failed` end.
     pub(super) detail: Option<&'static str>,
+    /// What a scheduled run declares about its business result. Every failure path leaves it
+    /// empty: only a run Cloud ended as asked has a completed turn to report.
+    pub(super) scheduled: Option<ScheduledDeclaration>,
 }
 
 impl SessionEnd {
@@ -15,6 +19,7 @@ impl SessionEnd {
         Self {
             reason: AgentSessionEndReason::AgentFailed,
             detail: Some(detail),
+            scheduled: None,
         }
     }
 
@@ -27,6 +32,7 @@ impl SessionEnd {
                 EndSessionReason::Cancelled => AgentSessionEndReason::Cancelled,
             },
             detail: None,
+            scheduled: None,
         }
     }
 }

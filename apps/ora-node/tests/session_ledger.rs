@@ -37,6 +37,7 @@ fn runtime_ports_use_durable_ledger() {
                 initial_turn: turn.clone(),
                 prior_revision: None,
                 workspace_directory: vec![],
+                trigger: None,
             },
         },
     };
@@ -100,6 +101,8 @@ fn runtime_ports_use_durable_ledger() {
         },
         reason: AgentSessionEndReason::UserEnded,
         detail: None,
+        scheduled_result: None,
+        artifact_manifest: None,
     };
     assert_eq!(
         SessionLedger::end_session(&ledger, &input.execution_id, ended).unwrap(),
