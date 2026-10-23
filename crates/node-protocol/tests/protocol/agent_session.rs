@@ -687,6 +687,7 @@ async fn a_scheduled_terminal_result_declares_its_verdict_and_artifacts() -> Res
                 reason: ScheduledArtifactRejectionReason::UnsupportedType,
             }],
             omitted_rejections: 0,
+            walk_truncated: false,
         }),
     });
     let case = Case {
@@ -788,6 +789,22 @@ async fn a_scheduled_terminal_result_declares_its_verdict_and_artifacts() -> Res
         MessageValidationError::InvalidScheduledArtifactManifest,
     )
     .await?;
+
+    // A walk that stopped at its candidate bound is a fact the terminal event carries on its own, so
+    // a Controller sees that candidates were never examined even when the refusal list is full.
+    let mut cut = case.wire.clone();
+    cut["payload"]["result"]["artifact_manifest"]["rejections"] = Value::Array(
+        (0..MAX_SCHEDULED_ARTIFACT_REJECTIONS)
+            .map(|index| {
+                json!({"display_name": format!("reject-{index}.pdf"),
+                "reason": "unsupported_type"})
+            })
+            .collect(),
+    );
+    cut["payload"]["result"]["artifact_manifest"]["omitted_rejections"] = json!(448);
+    cut["payload"]["result"]["artifact_manifest"]["walk_truncated"] = json!(true);
+    let decoded: NodeToControllerMessage = serde_json::from_value(cut)?;
+    assert_eq!(round_trip_node(decoded.clone()).await?, decoded);
     Ok(())
 }
 
@@ -800,6 +817,7 @@ fn a_manifest_summarises_refusals_beyond_its_list_bound() {
             items: Vec::new(),
             rejections: Vec::new(),
             omitted_rejections: 12,
+            walk_truncated: false,
         })
         .expect("a manifest serializes"),
         json!({"items": [], "rejections": [], "omitted_rejections": 12})
@@ -807,5 +825,37 @@ fn a_manifest_summarises_refusals_beyond_its_list_bound() {
     assert_eq!(
         serde_json::to_value(ScheduledArtifactManifest::default()).expect("a manifest serializes"),
         json!({"items": [], "rejections": []})
+    );
+}
+
+/// A cut walk states itself on the wire, even when the refusal list is already full and cannot
+/// carry the detail; a complete walk leaves the fact absent.
+#[test]
+fn a_manifest_states_a_cut_walk_separately_from_its_refusals() {
+    let manifest = ScheduledArtifactManifest {
+        items: Vec::new(),
+        rejections: vec![ScheduledArtifactRejection {
+            display_name: "nested".to_owned(),
+            reason: ScheduledArtifactRejectionReason::CandidateLimit,
+        }],
+        omitted_rejections: 448,
+        walk_truncated: true,
+    };
+
+    assert_eq!(
+        serde_json::to_value(&manifest).expect("a manifest serializes"),
+        json!({
+            "items": [],
+            "rejections": [{"display_name": "nested", "reason": "candidate_limit"}],
+            "omitted_rejections": 448,
+            "walk_truncated": true,
+        })
+    );
+    manifest.validate().expect("a cut walk is reportable");
+    assert_eq!(
+        serde_json::to_value(&ScheduledArtifactManifest::default())
+            .expect("a manifest serializes")
+            .get("walk_truncated"),
+        None
     );
 }

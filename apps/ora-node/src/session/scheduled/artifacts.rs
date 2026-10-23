@@ -6,7 +6,8 @@
 //! verifies the uploads, so nothing here writes into the Workspace or decides where a file lives.
 //!
 //! A missing directory is "no artifacts"; every refused candidate is recorded with its reason so a
-//! refusal is visible to the reader instead of silently dropped.
+//! refusal is visible to the reader instead of silently dropped. The walk itself is bounded, so a
+//! directory an agent flooded costs no more than the walk may examine and states when it was cut.
 
 use ora_domain::{
     MAX_SCHEDULED_ARTIFACT_BYTES, MAX_SCHEDULED_ARTIFACT_TOTAL_BYTES,
@@ -27,8 +28,9 @@ use std::path::Path;
 ///
 /// The per-run artifact bound is 64, so a legitimate run needs far fewer candidates than this. The
 /// bound exists for the accidental case — a directory an agent filled with thousands of names —
-/// where an unbounded walk would keep the session from settling; the refusal that stops the walk is
-/// still reported, and the terminal result stays far inside the frame limit.
+/// where an unbounded walk would keep the session from settling. It is spent while a directory is
+/// read, so neither memory nor enumeration grows past it, and the manifest states that the walk was
+/// cut instead of letting a full refusal list stand for the whole directory.
 const MAX_WALKED_CANDIDATES: usize = 512;
 
 /// Collects what one run declared, or `None` when it has no artifact directory.
@@ -53,6 +55,7 @@ pub(super) fn collect(checkout: &Path) -> Option<ScheduledArtifactManifest> {
         items: collector.items,
         rejections: collector.rejections,
         omitted_rejections: collector.omitted_rejections,
+        walk_truncated: collector.walk_truncated,
     })
 }
 
@@ -65,6 +68,41 @@ fn refused(reason: ScheduledArtifactRejectionReason) -> ScheduledArtifactManifes
             reason,
         }],
         omitted_rejections: 0,
+        walk_truncated: false,
+    }
+}
+
+/// The entries one directory read hands to the walk, and whether more remained.
+pub(super) struct BoundedEntries<T> {
+    pub(super) entries: Vec<T>,
+    /// Whether the directory held entries the walk did not read, so nothing it read was dropped.
+    pub(super) truncated: bool,
+}
+
+/// Reads at most `budget` entries of one directory, so the walk never holds or sorts a directory
+/// larger than what it may still examine.
+///
+/// One extra probe separates a directory that ended exactly at the bound from one the walk cut
+/// short, which is the difference between a complete declaration and a truncated one.
+pub(super) fn bounded_entries<T>(
+    mut entries: impl Iterator<Item = T>,
+    budget: usize,
+) -> BoundedEntries<T> {
+    let mut kept = Vec::with_capacity(budget);
+    while kept.len() < budget {
+        match entries.next() {
+            Some(entry) => kept.push(entry),
+            None => {
+                return BoundedEntries {
+                    entries: kept,
+                    truncated: false,
+                };
+            }
+        }
+    }
+    BoundedEntries {
+        entries: kept,
+        truncated: entries.next().is_some(),
     }
 }
 
@@ -81,6 +119,9 @@ struct Collector {
     candidates_left: usize,
     /// Refusals observed after the list bound was reached; only their count is kept.
     omitted_rejections: u32,
+    /// Whether the walk stopped at the candidate bound, which the manifest states separately so a
+    /// full refusal list cannot hide that candidates were never examined.
+    walk_truncated: bool,
     /// Whether the walk already stopped, so a parent level does not resume after a nested one.
     stopped: bool,
 }
@@ -95,11 +136,17 @@ impl Collector {
             total: 0,
             candidates_left: MAX_WALKED_CANDIDATES,
             omitted_rejections: 0,
+            walk_truncated: false,
             stopped: false,
         }
     }
 
-    /// Walks one directory level by level without following links, collecting accepted files.
+    /// Walks one directory level at a time without following links, collecting accepted files.
+    ///
+    /// The candidate budget is spent while the directory is read, before one level is kept or
+    /// sorted: a directory holding tens of thousands of names costs no more memory, and no more
+    /// entries read, than the walk may still examine, so the terminal write cannot be delayed by a
+    /// directory an agent flooded.
     fn visit(&mut self, directory: &Path, prefix: &str) {
         if self.stopped {
             return;
@@ -114,29 +161,29 @@ impl Collector {
                 return;
             }
         };
-        let mut entries = match entries.collect::<Result<Vec<_>, _>>() {
-            Ok(entries) => entries,
-            Err(_) => {
-                self.refuse(
-                    directory_name(prefix),
-                    ScheduledArtifactRejectionReason::ReadFailed,
-                );
-                return;
+        let bounded = bounded_entries(entries, self.candidates_left);
+        let mut entries = Vec::with_capacity(bounded.entries.len());
+        for entry in bounded.entries {
+            match entry {
+                Ok(entry) => entries.push(entry),
+                Err(_) => {
+                    self.refuse(
+                        directory_name(prefix),
+                        ScheduledArtifactRejectionReason::ReadFailed,
+                    );
+                    return;
+                }
             }
-        };
+        }
         entries.sort_by_key(std::fs::DirEntry::file_name);
         for entry in entries {
             if self.stopped {
                 return;
             }
             if self.candidates_left == 0 {
-                // The remaining names are unknown, so the walk records only that it stopped here;
-                // `omitted_rejections` still counts this refusal when the list is already full.
-                self.stopped = true;
-                self.refuse(
-                    directory_name(prefix),
-                    ScheduledArtifactRejectionReason::CandidateLimit,
-                );
+                // A nested level spent the rest of the budget after this one was read, so neither
+                // the names left here nor those below them were examined.
+                self.stop(prefix);
                 return;
             }
             self.candidates_left -= 1;
@@ -181,6 +228,28 @@ impl Collector {
                 continue;
             }
             self.accept(&entry.path(), &parsed, &metadata);
+        }
+        if bounded.truncated {
+            // This level held more names than the walk could still examine, so the rest were never
+            // read and the batch that was read is all this level contributes.
+            self.stop(prefix);
+        }
+    }
+
+    /// Stops the walk at the candidate bound and states why on its own.
+    ///
+    /// The stop is a fact about the walk rather than a refused candidate, so it is never folded into
+    /// `omitted_rejections`: that count stays a summary of candidates the walk refuted, while
+    /// `walk_truncated` says an unknown number was never examined. Its detail names the level the
+    /// walk stopped in when the refusal list still has room; a full list hides the name, not the fact.
+    fn stop(&mut self, prefix: &str) {
+        self.stopped = true;
+        self.walk_truncated = true;
+        if self.rejections.len() < MAX_SCHEDULED_ARTIFACT_REJECTIONS {
+            self.rejections.push(ScheduledArtifactRejection {
+                display_name: bounded_name(directory_name(prefix)),
+                reason: ScheduledArtifactRejectionReason::CandidateLimit,
+            });
         }
     }
 

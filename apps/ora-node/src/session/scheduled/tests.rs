@@ -304,6 +304,7 @@ fn a_detail_the_wire_refuses_keeps_the_artifacts_but_reports_no_verdict() {
             )],
             rejections: Vec::new(),
             omitted_rejections: 0,
+            walk_truncated: false,
         }
     );
 }
@@ -384,9 +385,11 @@ fn a_flood_of_unusable_names_stays_inside_one_frame() {
     let manifest = declaration.manifest.expect("a manifest");
 
     // The refusal list is bounded and the rest is a visible count, so the manifest stays small
-    // instead of repeating one entry per file the agent happened to leave behind.
+    // instead of repeating one entry per file the agent happened to leave behind. The walk itself
+    // stopped at its candidate bound, so the 600 files were never all read.
     assert_eq!(manifest.rejections.len(), MAX_SCHEDULED_ARTIFACT_REJECTIONS);
     assert!(manifest.omitted_rejections > 0);
+    assert!(manifest.walk_truncated);
     manifest.validate().expect("the declaration is reportable");
 
     // Both messages that can carry the terminal result must still fit one frame: the end event
@@ -460,6 +463,7 @@ fn a_completed_final_turn_without_assistant_text_still_declares_its_artifacts() 
             )],
             rejections: Vec::new(),
             omitted_rejections: 0,
+            walk_truncated: false,
         }
     );
 }
@@ -504,6 +508,7 @@ fn collects_whitelisted_files_recursively_with_their_sizes_and_digests() {
             ],
             rejections: Vec::new(),
             omitted_rejections: 0,
+            walk_truncated: false,
         })
     );
 }
@@ -528,6 +533,7 @@ fn refuses_a_candidate_outside_the_type_whitelist() {
                 reason: ScheduledArtifactRejectionReason::UnsupportedType,
             }],
             omitted_rejections: 0,
+            walk_truncated: false,
         })
     );
 }
@@ -548,6 +554,7 @@ fn refuses_a_candidate_larger_than_the_single_artifact_bound() {
                 reason: ScheduledArtifactRejectionReason::TooLarge,
             }],
             omitted_rejections: 0,
+            walk_truncated: false,
         })
     );
 }
@@ -591,6 +598,7 @@ fn refuses_a_symbolic_link_out_of_the_artifact_directory() {
                 reason: ScheduledArtifactRejectionReason::Symlink,
             }],
             omitted_rejections: 0,
+            walk_truncated: false,
         })
     );
 }
@@ -613,6 +621,7 @@ fn refuses_a_hard_link_whose_inode_is_reachable_elsewhere() {
                 reason: ScheduledArtifactRejectionReason::HardLink,
             }],
             omitted_rejections: 0,
+            walk_truncated: false,
         })
     );
 }
@@ -639,6 +648,90 @@ fn refuses_a_symlinked_artifact_directory_whole() {
                 reason: ScheduledArtifactRejectionReason::Symlink,
             }],
             omitted_rejections: 0,
+            walk_truncated: false,
         })
     );
+}
+
+#[test]
+fn the_walk_reads_no_more_directory_entries_than_it_may_examine() {
+    // A directory holding far more names than the walk may examine must not be read into memory
+    // first: the budget is spent while enumerating, and one probe tells that more remained.
+    let pulled = std::cell::Cell::new(0);
+    let entries = (0..20_000).inspect(|_| pulled.set(pulled.get() + 1));
+
+    let bounded = artifacts::bounded_entries(entries, 4);
+
+    assert_eq!(bounded.entries.len(), 4);
+    assert!(bounded.truncated);
+    assert_eq!(pulled.get(), 5);
+}
+
+#[test]
+fn a_directory_that_ends_at_the_candidate_bound_is_not_truncated() {
+    // Exactly as many entries as the budget: every one was examined, so nothing is missing and the
+    // manifest must not claim a cut.
+    let bounded = artifacts::bounded_entries(0..4, 4);
+
+    assert_eq!(bounded.entries.len(), 4);
+    assert!(!bounded.truncated);
+}
+
+#[test]
+fn a_cut_walk_states_the_level_it_stopped_in() {
+    let checkout = checkout();
+    let directory = artifact_directory(checkout.path());
+    let nested = directory.join("nested");
+    std::fs::create_dir_all(&nested).expect("a nested directory");
+    // Empty directories are legal candidates that refuse nothing, so the refusal list still has room
+    // when the walk runs out of candidates and can name the level it stopped in.
+    for index in 0..600 {
+        std::fs::create_dir_all(nested.join(format!("{index:04}"))).expect("a nested directory");
+    }
+
+    assert_eq!(
+        artifacts::collect(checkout.path()),
+        Some(ora_node_protocol::ScheduledArtifactManifest {
+            items: Vec::new(),
+            rejections: vec![ScheduledArtifactRejection {
+                display_name: "nested".to_string(),
+                reason: ScheduledArtifactRejectionReason::CandidateLimit,
+            }],
+            omitted_rejections: 0,
+            walk_truncated: true,
+        })
+    );
+}
+
+#[test]
+fn a_full_refusal_list_cannot_hide_a_cut_walk() {
+    let checkout = checkout();
+    let directory = artifact_directory(checkout.path());
+    // The list fills with the first 64 unusable names, so the stop has no room for its own detail;
+    // the manifest still states the cut on the wire instead of presenting a complete refusal list.
+    for index in 0..600 {
+        std::fs::write(directory.join(format!("{index:04}.pdf")), "").expect("a candidate");
+    }
+
+    let manifest = artifacts::collect(checkout.path()).expect("a manifest");
+
+    assert_eq!(
+        (
+            manifest.items.len(),
+            manifest.rejections.len(),
+            manifest.omitted_rejections,
+            manifest.walk_truncated
+        ),
+        (0, MAX_SCHEDULED_ARTIFACT_REJECTIONS, 448, true)
+    );
+    assert!(
+        !manifest
+            .rejections
+            .iter()
+            .any(|rejection| rejection.reason == ScheduledArtifactRejectionReason::CandidateLimit)
+    );
+    manifest.validate().expect("the declaration is reportable");
+    let wire = serde_json::to_value(&manifest).expect("a manifest serializes");
+    assert_eq!(wire["walk_truncated"], serde_json::Value::Bool(true));
+    assert_eq!(wire["omitted_rejections"], serde_json::json!(448));
 }

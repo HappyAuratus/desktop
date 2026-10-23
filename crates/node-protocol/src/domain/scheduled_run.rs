@@ -148,7 +148,8 @@ pub enum ScheduledArtifactRejectionReason {
     /// The file could not be read while collecting or hashing it.
     ReadFailed,
     /// The walk stopped at the executor's candidate bound before examining every entry, so names
-    /// below the named directory may be missing from this declaration.
+    /// below the named directory may be missing from this declaration. The manifest states the same
+    /// fact in `walk_truncated`, which stays visible even when this list has no room for the detail.
     CandidateLimit,
 }
 
@@ -172,6 +173,14 @@ pub struct ScheduledArtifactManifest {
     /// a silent cut.
     #[serde(default, skip_serializing_if = "is_zero")]
     pub omitted_rejections: u32,
+    /// Whether the walk stopped at its candidate bound before reading every entry, so candidates the
+    /// executor never examined may exist.
+    ///
+    /// This is separate from `omitted_rejections`, which counts refused candidates the walk did
+    /// enumerate: here no count is known, and the refusal list may already be full, so a reader
+    /// could neither see the cut nor tell it from a complete list of refusals without this fact.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub walk_truncated: bool,
 }
 
 impl ScheduledArtifactManifest {
@@ -226,6 +235,13 @@ impl ScheduledArtifactManifest {
 #[allow(clippy::trivially_copy_pass_by_ref)]
 fn is_zero(value: &u32) -> bool {
     *value == 0
+}
+
+/// Omits the walk fact from the wire while the walk read every entry it may examine.
+// `skip_serializing_if` gives the predicate a reference; taking the `bool` by value would not fit it.
+#[allow(clippy::trivially_copy_pass_by_ref)]
+fn is_false(value: &bool) -> bool {
+    !*value
 }
 
 /// Parses a declared artifact path into the identity rules the collector applies while walking.

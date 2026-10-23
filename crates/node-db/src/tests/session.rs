@@ -212,6 +212,7 @@ fn a_scheduled_declaration_is_persisted_with_the_terminal_result() {
                 reason: ScheduledArtifactRejectionReason::UnsupportedType,
             }],
             omitted_rejections: 2,
+            walk_truncated: true,
         }),
     };
 
