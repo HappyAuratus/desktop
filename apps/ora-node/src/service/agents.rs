@@ -397,7 +397,7 @@ fn ora_git(
     directory: &std::path::Path,
     ledger: SessionJournal,
     shutdown: crate::Shutdown,
-) -> Result<Option<std::sync::Arc<dyn crate::ora_git::OraGitBroker>>, crate::Error> {
+) -> Result<Option<crate::ora_git::Availability>, crate::Error> {
     let (Some(policy), Some(access), Some(config)) = (
         node.delivery_git_policy()?,
         node.git_server(),
@@ -413,20 +413,23 @@ fn ora_git(
     };
     let owner = node.git.runner().process_config().workload_uid;
     // SAFETY: geteuid only reads the process identity.
-    let peer_uid = owner.unwrap_or_else(|| unsafe { libc::geteuid() });
-    let service = crate::ora_git::OraGitService::new(crate::ora_git::OraGitParts {
-        directory: directory.to_path_buf(),
-        peer_uid,
-        workload: DeliveryGit::new(host()?, policy),
-        node: AsNode(host()?),
-        access,
-        repository_root: config.repository_root.clone(),
-        owner,
-        ledger,
-        shutdown,
+    let node_uid = unsafe { libc::geteuid() };
+    crate::ora_git::Availability::for_workload(owner, node_uid, |peer_uid| {
+        let service = crate::ora_git::OraGitService::new(crate::ora_git::OraGitParts {
+            directory: directory.to_path_buf(),
+            peer_uid,
+            workload: DeliveryGit::new(host()?, policy),
+            node: AsNode(host()?),
+            access,
+            repository_root: config.repository_root.clone(),
+            owner: Some(peer_uid),
+            ledger,
+            shutdown,
+        })
+        .map_err(ora_node_db::Error::from)?;
+        Ok(std::sync::Arc::new(std::sync::Arc::new(service)))
     })
-    .map_err(ora_node_db::Error::from)?;
-    Ok(Some(std::sync::Arc::new(std::sync::Arc::new(service))))
+    .map(Some)
 }
 
 /// A repeated start only reports durable state; it never relaunches an existing session.

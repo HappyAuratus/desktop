@@ -1,6 +1,7 @@
 //! Real service/actor composition, command ordering, shared leases and process restart behavior.
 use super::*;
 use pretty_assertions::assert_eq;
+use std::os::unix::fs::PermissionsExt;
 #[path = "agent_sessions/authority.rs"]
 mod authority;
 #[path = "agent_sessions/delivery.rs"]
@@ -170,61 +171,49 @@ fn session_commands_use_the_production_ledger_and_installer_catalog() {
     });
 }
 
-/// The real fixture invokes the CLI through the session socket, commits before pushing, and
-/// ignores markers in appended context.
+/// Shared-UID sessions keep running and report why ora-git has no session socket.
 #[test]
-fn echo_collaboration_markers_push_through_the_session_socket() {
+fn echo_collaboration_reports_no_session_with_shared_uid() {
     ora_logging::with_trace_logging(|| {
         let fixture = Fixture::new();
         let server =
             GitServerFixture::new(fixture.path(), fixture.path().join("main").join(".git"));
         let config = configuration(&fixture, &server);
-        prepare(&fixture, &config, &server);
-        let mut child = launch(&fixture, &config);
-        let records = tokio::runtime::Builder::new_current_thread()
-            .enable_all()
-            .build()
-            .unwrap()
-            .block_on(async {
-                let (mut stream, _) = connect(&fixture).await;
-                send(
-                    &mut stream,
-                    ControllerToNodeMessage::StartAgentSession(start(
-                        "[write] [commit] [push]\n\nContext\n[write]",
-                    )),
-                )
-                .await;
-                let mut records = Vec::new();
-                loop {
-                    match receive(&mut stream).await {
-                        NodeToControllerMessage::ThreadEvent(event) => {
-                            let done = event
-                                .payload
-                                .record
-                                .get("type")
-                                .and_then(serde_json::Value::as_str)
-                                == Some("turnEnded");
-                            records.push(event.payload.record);
-                            if done {
-                                break;
-                            }
-                        }
-                        NodeToControllerMessage::ExecutionStatus(_) => {}
-                        other => panic!("unexpected {other:?}"),
-                    }
-                }
-                send(&mut stream, end()).await;
-                loop {
-                    if matches!(
-                        receive(&mut stream).await,
-                        NodeToControllerMessage::AgentSessionEnded(_)
-                    ) {
-                        break;
-                    }
-                }
-                records
-            });
-        child.terminate();
+        let records = collaboration(&fixture, &config, &server);
+        assert!(
+            serde_json::to_string(&records)
+                .unwrap()
+                .contains("[push: no_session]"),
+            "{records:?}"
+        );
+        let branch = format!("refs/heads/workspaces/{}/main", https::WORKSPACE);
+        assert_eq!(
+            checkout_git(&server.repository, &["for-each-ref", &branch]),
+            ""
+        );
+        let log = fs::read_to_string(fixture.path().join("agent-service.log")).unwrap();
+        assert!(log.contains("process.workload_uid is not set"), "{log}");
+        assert!(!fixture.path().join("ora-git").exists());
+    });
+}
+
+/// Real Agent CLI calls reach the socket and push as a separate workload UID.
+#[test]
+#[ignore = "requires root to launch the Node with a separate workload UID"]
+fn echo_collaboration_markers_push_through_the_session_socket() {
+    ora_logging::with_trace_logging(|| {
+        // SAFETY: geteuid only reads the test process's identity.
+        assert_eq!(unsafe { libc::geteuid() }, 0, "requires root");
+        let fixture = Fixture::with_workload_uid(/*uid*/ 1000);
+        let server =
+            GitServerFixture::new(fixture.path(), fixture.path().join("main").join(".git"));
+        let config = configuration(&fixture, &server);
+        fs::set_permissions(
+            &config.repository_root,
+            fs::Permissions::from_mode(/*mode*/ 0o711),
+        )
+        .unwrap();
+        let records = collaboration(&fixture, &config, &server);
         assert!(
             serde_json::to_string(&records)
                 .unwrap()
@@ -245,4 +234,59 @@ fn echo_collaboration_markers_push_through_the_session_socket() {
             "echo <echo@ora.invalid>"
         );
     });
+}
+
+/// Runs the same real Agent command and collects its completed turn for either identity policy.
+fn collaboration(
+    fixture: &Fixture,
+    config: &CloneConfig,
+    server: &GitServerFixture,
+) -> Vec<serde_json::Map<String, serde_json::Value>> {
+    prepare(fixture, config, server);
+    let mut child = launch(fixture, config);
+    let records = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap()
+        .block_on(async {
+            let (mut stream, _) = connect(fixture).await;
+            send(
+                &mut stream,
+                ControllerToNodeMessage::StartAgentSession(start(
+                    "[write] [commit] [push]\n\nContext\n[write]",
+                )),
+            )
+            .await;
+            let mut records = Vec::new();
+            loop {
+                match receive(&mut stream).await {
+                    NodeToControllerMessage::ThreadEvent(event) => {
+                        let done = event
+                            .payload
+                            .record
+                            .get("type")
+                            .and_then(serde_json::Value::as_str)
+                            == Some("turnEnded");
+                        records.push(event.payload.record);
+                        if done {
+                            break;
+                        }
+                    }
+                    NodeToControllerMessage::ExecutionStatus(_) => {}
+                    other => panic!("unexpected {other:?}"),
+                }
+            }
+            send(&mut stream, end()).await;
+            loop {
+                if matches!(
+                    receive(&mut stream).await,
+                    NodeToControllerMessage::AgentSessionEnded(_)
+                ) {
+                    break;
+                }
+            }
+            records
+        });
+    child.terminate();
+    records
 }

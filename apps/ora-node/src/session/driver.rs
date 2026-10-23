@@ -239,19 +239,16 @@ where
     // The socket exists only while the session runs; dropping it removes the file, and requests
     // that arrive after that fail as `no_session`.
     let ora_git = match &shared.ora_git {
-        Some(broker) => match broker.open(crate::ora_git::SessionGit {
-            execution: execution.clone(),
-            checkout_execution: spec.checkout_execution_id.clone(),
-            checkout: cloned.clone(),
-            directory: spec.workspace_directory.clone(),
-        }) {
-            Ok(socket) => {
-                environment.insert(
-                    ora_git::SOCKET_ENV.to_owned(),
-                    socket.path().to_string_lossy().into_owned(),
-                );
-                Some(socket)
-            }
+        Some(broker) => match broker.open(
+            crate::ora_git::SessionGit {
+                execution: execution.clone(),
+                checkout_execution: spec.checkout_execution_id.clone(),
+                checkout: cloned.clone(),
+                directory: spec.workspace_directory.clone(),
+            },
+            &mut environment,
+        ) {
+            Ok(socket) => socket,
             Err(error) => {
                 ora_warn!(execution_id = %execution, error = %error, "ora-git socket could not be opened");
                 if let Some(access) = &mut model_access {

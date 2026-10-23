@@ -1,6 +1,7 @@
 use super::super::*;
 use crate::support::{ChildGuard, until};
 use std::{
+    os::unix::fs::PermissionsExt,
     path::Path,
     process::{Command, Stdio},
     time::Duration,
@@ -49,7 +50,12 @@ pub(super) fn launch(fixture: &Fixture, clone: &CloneConfig) -> ChildGuard {
         model_proxy: None,
         deno_path: env!("CARGO_BIN_EXE_ora-node-echo-agent").into(),
         ready_timeout_ms: 5000,
-        workload_directory: None,
+        workload_directory: config.process.workload_uid.map(|_| {
+            let directory = fixture.path().join("agents");
+            fs::create_dir(&directory).unwrap();
+            fs::set_permissions(&directory, fs::Permissions::from_mode(/*mode*/ 0o711)).unwrap();
+            directory
+        }),
         ora_git_directory: Some(fixture.path().join("ora-git")),
     });
     config.control.as_mut().unwrap().heartbeat_ms = 20;
