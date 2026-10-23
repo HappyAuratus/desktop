@@ -81,7 +81,7 @@ Deno 路径必须是绝对路径，超时必须为正数。有这个配置段时
 Cloud 可以把会话输入作为定时 occurrence 受理（`spec.trigger = scheduled`），手工 Issue 运行则不设置该字段。只有这类会话、
 且只有 Cloud 按请求结束它时（`user_ended` 或 `idle_timeout`），并且 Agent 已经完成一个轮次，才在终止结果里上报业务事实；
 取消、失败或中断的会话、所有手工运行，以及最后一轮被取消或始终没有收尾的运行，都不上报。结束原因本身不证明轮次完成：
-结束命令会取消仍在执行的轮次。
+结束命令会取消仍在执行的轮次。只用工具完成了工作的轮次没有 verdict 文本，它写出的产物照常上报。
 
 - verdict 从定稿历史的最后一个 Assistant 轮解析，且只有 `TurnEnded` 以 `end_turn` 收尾时才算数：
   `QA_VERDICT: <pass|warn|fail|blocked|idle|range_unresolved>`，可紧随一行 `QA_DETAIL: ...`。取第一个标记，大小写不敏感；
@@ -92,9 +92,10 @@ Cloud 可以把会话输入作为定时 occurrence 受理（`spec.trigger = sche
   一致的类型白名单（markdown、json、txt、log、xml、html）、路径与符号链接／硬链接拒绝规则，以及单文件 10 MiB、单运行
   64 个、总计 64 MiB 的上限。名称按 NFC 归一后做 Unicode 大小写折叠，大小写不敏感文件系统会当成同一路径的两种拼写只声明
   一个，另一个记为拒绝。被接受的候选连同大小和 SHA-256 组成上报的 `artifact_manifest`，由 Cloud 在接收上传时核对；
-  被拒绝的候选连同原因保留在清单里，不会消失。一次遍历最多检查 512 个条目、最多列出 64 条拒绝，其余拒绝计入
-  `omitted_rejections`，所以塞满不可用名称的目录仍然只产生能装进一个帧的终止结果。目录不存在就不上报任何产物，对象键
-  最终由 Cloud 决定；Node 不写 Workspace，也不持有对象存储凭据。
+  被拒绝的候选连同原因保留在清单里，不会消失。遍历的 512 条目预算在读取每个目录时就地消耗，塞满名称的目录不会被完整
+  枚举、保留或排序；清单最多列出 64 条拒绝，其余拒绝计入 `omitted_rejections`，而在没有读完所有条目就停止时设置
+  `walk_truncated`，所以没人检查过的候选不会被当成一份完整的拒绝清单。目录不存在就不上报任何产物，对象键最终由 Cloud
+  决定；Node 不写 Workspace，也不持有对象存储凭据。
 
 ## 实时预览
 

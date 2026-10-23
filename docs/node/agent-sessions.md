@@ -106,7 +106,8 @@ manual Issue run, where the field is absent. Only such a session, and only one C
 (`user_ended` or `idle_timeout`) after the agent finished a turn, reports business facts in its
 terminal result; a cancelled, failed or interrupted session, every manual run, and a run whose final
 turn was cancelled or never ended all report neither fact. The end reason alone is not proof that a
-turn completed: an end command cancels the turn that is still running.
+turn completed: an end command cancels the turn that is still running. A completed turn that only
+used tools states no verdict, and its artifacts are still declared.
 
 - The verdict is parsed from the final Assistant turn of the sealed history, and only when
   `TurnEnded` closed that turn with `end_turn`:
@@ -125,10 +126,12 @@ turn completed: an end command cancels the turn that is still running.
   filesystem treats as one path are declared once and the second is refused. Accepted files become
   the declared `artifact_manifest` with their size and SHA-256, which Cloud verifies against the
   upload; refused candidates stay in the manifest with their reason instead of disappearing. The
-  walk examines at most 512 entries and lists at most 64 refusals; further refusals are counted in
-  `omitted_rejections`, so a directory full of unusable names still produces a terminal result that
-  fits one frame. A missing directory declares nothing, and Cloud chooses every object key later;
-  Node never writes to the Workspace and never holds an object-store credential.
+  walk spends a 512-entry budget while it reads each directory, so a flooded directory is never
+  enumerated, kept or sorted in full. It lists at most 64 refusals and counts further ones in
+  `omitted_rejections`; when it stops before reading every entry it sets `walk_truncated`, so
+  candidates nobody examined are never mistaken for a complete list of refusals. A missing directory
+  declares nothing, and Cloud chooses every object key later; Node never writes to the Workspace and
+  never holds an object-store credential.
 
 ## Live previews
 
