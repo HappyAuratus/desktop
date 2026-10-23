@@ -23,16 +23,25 @@ request with its own git-access identity. The decision is
   otherwise. The Node keeps it at `0711` (traversable but not listable by others) and, when it starts,
   removes only the sockets an earlier Node process named there.
 - The Node enables `ora-git` only when `process.workload_uid` is set and differs from the Node's
-  effective UID. Otherwise it logs the specific configuration reason, creates no service or session
-  socket, and keeps running ordinary Agent sessions. Those sessions receive `ORA_GIT_DISABLED_REASON`;
-  invoking `ora-git` prints that reason as `no_session` (exit 3), before attempting any socket access.
+  effective UID. The component refuses both a missing UID and one equal to the Node's UID, without
+  falling back to the Node UID. Session behavior depends on the Node passing its other startup checks:
+  - In a local mode that permits a missing `workload_uid`, if the other startup checks pass and the
+    ora-git service inputs are configured, the Node logs the configuration reason and creates no
+    service or session socket. Ordinary Agent sessions continue and receive `ORA_GIT_DISABLED_REASON`;
+    invoking `ora-git` prints that reason as `no_session` (exit 3), before attempting socket access.
+  - Network mTLS management rejects a missing `workload_uid` at startup, before reaching that path.
+  - An explicit UID equal to the Node's effective UID is rejected earlier by process-runtime
+    configuration validation. An explicit workload UID requires root management, a non-root workload
+    UID and an empty base environment. The Node does not start, so there is no Agent session or
+    `ORA_GIT_DISABLED_REASON`. A separate UID that passes the other startup checks keeps the existing
+    socket, peer-UID check and Git request behavior.
 - The Node image installs the binary at `/usr/local/bin/ora-git` on the workload `PATH`, see
   [Container images](../operations/container-images.md). The socket client is Unix-only; built for
   another platform, `ora-git` answers `internal`.
 
 ## Sessions and sockets
 
-Each running Agent session gets its own socket with a random name in that directory, and its path
+When `ora-git` is enabled, each running Agent session gets its own socket with a random name in that directory, and its path
 reaches the agent plugin and the processes it spawns as `ORA_GIT_SOCKET`. A session whose socket cannot
 be opened ends as `agent_failed{ora_git_unavailable}`.
 
@@ -58,13 +67,13 @@ reaches the Git Server answers `denied`.
 ora-git info | list | fetch upstream | fetch workspace <workspaceId> [<branch>] | push [<branch>]
 ```
 
-| Verb | What it does |
-|---|---|
-| `info` | Prints this Workspace's id, branch and base commit and where fetched refs land; no network access |
-| `list` | Lists the Binding's upstream branches and every Workspace branch on the Git Server, annotating Workspaces with the kind, Issue, run, run status and title from the session's Workspace directory, as Cloud froze it when the session started |
-| `fetch upstream` | Fetches the Binding's upstream branches into `refs/remotes/ora/upstream/` |
-| `fetch workspace <id> [<branch>]` | Fetches one Workspace's branches, or one of them, into `refs/remotes/ora/workspaces/<id>/` |
-| `push [<branch>]` | Pushes the local branch (default: the Workspace's own branch) to `refs/heads/workspaces/<own id>/<branch>` |
+| Verb                              | What it does                                                                                                                                                                                                                                 |
+| --------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `info`                            | Prints this Workspace's id, branch and base commit and where fetched refs land; no network access                                                                                                                                            |
+| `list`                            | Lists the Binding's upstream branches and every Workspace branch on the Git Server, annotating Workspaces with the kind, Issue, run, run status and title from the session's Workspace directory, as Cloud froze it when the session started |
+| `fetch upstream`                  | Fetches the Binding's upstream branches into `refs/remotes/ora/upstream/`                                                                                                                                                                    |
+| `fetch workspace <id> [<branch>]` | Fetches one Workspace's branches, or one of them, into `refs/remotes/ora/workspaces/<id>/`                                                                                                                                                   |
+| `push [<branch>]`                 | Pushes the local branch (default: the Workspace's own branch) to `refs/heads/workspaces/<own id>/<branch>`                                                                                                                                   |
 
 Fetches write only `refs/remotes/ora/**`; local branches, HEAD, the index, working files and repository
 configuration are preserved. The command line accepts no URL, refspec, option or force flag, and a branch
@@ -91,15 +100,15 @@ value.
 
 Failures print `ora-git: <code>: <hint>` on stderr; hints name refs, commits or the disabling configuration field.
 
-| Code | Exit | Meaning |
-|---|---|---|
-| `usage` | 2 | Malformed command line or request |
-| `no_session` | 3 | No running session behind the socket |
-| `forbidden` | 4 | The caller is not the workload user |
-| `busy` | 5 | Another request of the session is running |
-| `not_found` | 6 | No matching ref or local branch |
-| `conflict` | 7 | The Workspace branch moved since this checkout last saw it |
-| `not_fast_forward` | 8 | The pushed commit does not contain the branch's last known value |
-| `denied` | 9 | The Git Server refused the request or the Node's git-access identity (401, 403) |
-| `unavailable` | 10 | The Git Server could not be reached |
-| `internal` | 11 | The Node failed locally; the cause is in the Node log |
+| Code               | Exit | Meaning                                                                         |
+| ------------------ | ---- | ------------------------------------------------------------------------------- |
+| `usage`            | 2    | Malformed command line or request                                               |
+| `no_session`       | 3    | No running session behind the socket                                            |
+| `forbidden`        | 4    | The caller is not the workload user                                             |
+| `busy`             | 5    | Another request of the session is running                                       |
+| `not_found`        | 6    | No matching ref or local branch                                                 |
+| `conflict`         | 7    | The Workspace branch moved since this checkout last saw it                      |
+| `not_fast_forward` | 8    | The pushed commit does not contain the branch's last known value                |
+| `denied`           | 9    | The Git Server refused the request or the Node's git-access identity (401, 403) |
+| `unavailable`      | 10   | The Git Server could not be reached                                             |
+| `internal`         | 11   | The Node failed locally; the cause is in the Node log                           |
