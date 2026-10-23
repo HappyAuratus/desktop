@@ -117,7 +117,37 @@ impl CloudStore {
             }
         })
         .await
-        .map_err(|v| self.settle(v))?;
+        .map_err(|verdict| match verdict {
+            fault::Verdict::Conflict(detail) if detail.is_terminal_dispatch_refusal() => {
+                // All original ownership and frozen-input checks above succeeded. This refusal
+                // has no receipt and may only quarantine this terminal, never its Node session.
+                ora_logging::ora_warn!(
+                    operation_id = %event.operation_id.as_str(),
+                    execution_id = %event.execution_id.as_str(),
+                    node_id = %session.node_id.as_str(),
+                    node_incarnation_id = %session.incarnation_id.as_str(),
+                    workspace_id = %command.payload.spec.workspace_ref.workspace_id(),
+                    sequence = event.sequence.value(),
+                    grpc_code = ?detail.code,
+                    detail = detail.refined.map(|code| code.as_str_name()).unwrap_or_default(),
+                    cloud_message = %detail.message,
+                    disposition = "unresolved/no_ack/no_redispatch",
+                    "Cloud refused delivery terminal takeover; execution remains unresolved"
+                );
+                Error::TerminalTakeoverRefused(detail.to_string())
+            }
+            fault::Verdict::Conflict(detail) => {
+                ora_logging::ora_warn!(
+                    execution_id = %event.execution_id.as_str(),
+                    grpc_code = ?detail.code,
+                    detail = detail.refined.map(|code| code.as_str_name()).unwrap_or_default(),
+                    cloud_message = %detail.message,
+                    "Cloud delivery terminal conflict closes the session"
+                );
+                self.settle(fault::Verdict::Conflict(detail))
+            }
+            verdict => self.settle(verdict),
+        })?;
         self.forget_checksums(&event.execution_id);
         Ok(())
     }
@@ -170,7 +200,7 @@ impl CloudStore {
         // stale lease still drops the epoch through `settle` and is retried after re-acquiring.
         let response = match fault::read(call).await {
             Ok(response) => response,
-            Err(fault::Verdict::Conflict | fault::Verdict::NotFound) => {
+            Err(fault::Verdict::Conflict(_) | fault::Verdict::NotFound) => {
                 return Ok(self.not_grantable(execution));
             }
             Err(verdict) => return Err(self.settle(verdict)),

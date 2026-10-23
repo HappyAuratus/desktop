@@ -222,6 +222,11 @@ impl Node {
                 {
                     return;
                 }
+                if let NodeToControllerMessage::ExecutionStatus(status) = &event {
+                    self.timeline.push(Event::DeliveryHintSent {
+                        execution: status.execution_id.as_str().into(),
+                    });
+                }
             }
             let reply = tokio::select! {
                 frame = receiver.recv() => {
@@ -300,7 +305,7 @@ impl Node {
                         _ => None,
                     }
                 }
-                _ = beat.tick() => Some(NodeToControllerMessage::Heartbeat(HeartbeatMessage {
+                _ = beat.tick(), if greeted => Some(NodeToControllerMessage::Heartbeat(HeartbeatMessage {
                     protocol_version: CURRENT_PROTOCOL_VERSION,
                     payload: Heartbeat { node: identity.clone() },
                 })),

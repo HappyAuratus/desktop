@@ -21,7 +21,7 @@ pub(super) enum Verdict {
     /// No durable record exists for the identity; reads report `None`, facts report a conflict.
     NotFound,
     /// Identity or content disagrees with the durable record; retrying as-is cannot succeed.
-    Conflict,
+    Conflict(Detail),
     /// A delayed control acknowledgement names a version that has already moved on.
     StaleRuntimeBinding,
     /// The lease epoch is not current or another holder owns the lease.
@@ -34,11 +34,20 @@ pub(super) enum Verdict {
 
 /// What the status carried, kept for logs and messages: the refined contract code when Cloud
 /// attached one, otherwise the transport-level code and message.
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) struct Detail {
-    code: Code,
-    refined: Option<ErrorCode>,
-    message: String,
+    pub(super) code: Code,
+    pub(super) refined: Option<ErrorCode>,
+    pub(super) message: String,
+}
+
+impl Detail {
+    /// Only this exact Cloud verdict may isolate an already validated delivery terminal.
+    pub(super) fn is_terminal_dispatch_refusal(&self) -> bool {
+        self.code == Code::Aborted
+            && self.refined == Some(ErrorCode::Conflict)
+            && self.message == "dispatch_conflict"
+    }
 }
 
 impl fmt::Display for Detail {
@@ -69,14 +78,19 @@ struct RpcStatus {
 }
 
 /// Maps one status to the contract's classification: the status code is primary, the attached
-/// `ErrorDetail` refines it. Cloud produces both in one place, so they never disagree; the refined
-/// code is therefore informational here.
+/// `ErrorDetail` is retained alongside it. The validated delivery terminal boundary may recognize
+/// an exact refusal, without weakening the ordinary conflict class for any other caller.
 pub(super) fn classify(status: &Status) -> Verdict {
     let refined = RpcStatus::decode(status.details())
         .ok()
         .and_then(|rpc| {
             rpc.details
                 .iter()
+                // The pinned prost output has no Name implementation. Match the contract Any
+                // identity before decoding, for every Cloud caller that uses this classifier.
+                .filter(|any| {
+                    any.type_url == "type.googleapis.com/ora.cloud.internal.v1.ErrorDetail"
+                })
                 .find_map(|any| ErrorDetail::decode(any.value.as_slice()).ok())
         })
         .and_then(|detail| ErrorCode::try_from(detail.code).ok());
@@ -91,13 +105,15 @@ pub(super) fn classify(status: &Status) -> Verdict {
             Verdict::StaleRuntimeBinding
         }
         Code::Aborted | Code::InvalidArgument | Code::AlreadyExists | Code::OutOfRange => {
-            Verdict::Conflict
+            Verdict::Conflict(detail)
         }
         // Cloud reports an operation that is no longer running under this epoch, or whose version
         // moved on, with the same status as a stale lease. Only the lease verdict may drop the
         // epoch; a stale operation snapshot is a conflict the operation driver resolves by
         // claiming again.
-        Code::FailedPrecondition if status.message() == STALE_OPERATION => Verdict::Conflict,
+        Code::FailedPrecondition if status.message() == STALE_OPERATION => {
+            Verdict::Conflict(detail)
+        }
         Code::FailedPrecondition => Verdict::Stale(detail),
         // Cloud authenticates no Controller at this stage, so a refusal means the deployments
         // disagree; nothing was committed and the call is retried like an outage.
@@ -209,7 +225,10 @@ mod tests {
             classify(&Status::aborted("stale_runtime_control")),
             Verdict::StaleRuntimeBinding
         );
-        assert_eq!(classify(&Status::aborted("stale_node")), Verdict::Conflict);
+        assert!(matches!(
+            classify(&Status::aborted("stale_node")),
+            Verdict::Conflict(_)
+        ));
         assert!(matches!(
             classify(&Status::failed_precondition("stale_controller")),
             Verdict::Stale(_)
@@ -234,6 +253,77 @@ mod tests {
         Status::with_details(code, message, rpc.encode_to_vec().into())
     }
 
+    /// All three original status fields must survive classification and match exactly.
+    #[test]
+    fn terminal_dispatch_refusal_requires_the_exact_cloud_verdict() {
+        let status = cloud_status(Code::Aborted, "dispatch_conflict", ErrorCode::Conflict);
+        let Verdict::Conflict(detail) = classify(&status) else {
+            panic!("expected a conflict carrying Cloud's verdict");
+        };
+        assert_eq!(
+            detail,
+            Detail {
+                code: Code::Aborted,
+                refined: Some(ErrorCode::Conflict),
+                message: "dispatch_conflict".into(),
+            }
+        );
+        assert!(detail.is_terminal_dispatch_refusal());
+        assert_eq!(
+            detail.to_string(),
+            "ERROR_CODE_CONFLICT (Aborted): dispatch_conflict"
+        );
+        for status in [
+            Status::aborted("dispatch_conflict"),
+            Status::with_details(Code::Aborted, "dispatch_conflict", vec![0xff].into()),
+            Status::with_details(
+                Code::Aborted,
+                "dispatch_conflict",
+                RpcStatus {
+                    code: Code::Aborted as i32,
+                    message: "dispatch_conflict".into(),
+                    details: vec![prost_types::Any {
+                        type_url: "type.googleapis.com/example.OtherDetail".into(),
+                        value: ErrorDetail {
+                            code: ErrorCode::Conflict as i32,
+                        }
+                        .encode_to_vec(),
+                    }],
+                }
+                .encode_to_vec()
+                .into(),
+            ),
+            cloud_status(Code::Aborted, "dispatch_conflict", ErrorCode::NotFound),
+            cloud_status(
+                Code::InvalidArgument,
+                "dispatch_conflict",
+                ErrorCode::Conflict,
+            ),
+            cloud_status(
+                Code::AlreadyExists,
+                "dispatch_conflict",
+                ErrorCode::Conflict,
+            ),
+            cloud_status(Code::OutOfRange, "dispatch_conflict", ErrorCode::Conflict),
+            cloud_status(Code::Aborted, "result_conflict", ErrorCode::Conflict),
+            cloud_status(Code::Aborted, "receipt_conflict", ErrorCode::Conflict),
+            cloud_status(Code::Aborted, "dispatch_conflict ", ErrorCode::Conflict),
+            cloud_status(
+                Code::FailedPrecondition,
+                "stale_operation",
+                ErrorCode::StaleController,
+            ),
+        ] {
+            let Verdict::Conflict(detail) = classify(&status) else {
+                panic!("expected the original conflict class");
+            };
+            assert!(
+                !detail.is_terminal_dispatch_refusal(),
+                "unexpected isolation: {detail}"
+            );
+        }
+    }
+
     /// The status code decides the class; the attached detail is carried into the message.
     #[test]
     fn statuses_map_to_contract_classes() {
@@ -243,7 +333,11 @@ mod tests {
                 "submission_conflict",
                 ErrorCode::Conflict
             )),
-            Verdict::Conflict
+            Verdict::Conflict(Detail {
+                code: Code::Aborted,
+                refined: Some(ErrorCode::Conflict),
+                message: "submission_conflict".into(),
+            })
         );
         assert_eq!(
             classify(&cloud_status(
@@ -272,7 +366,11 @@ mod tests {
                 "stale_operation",
                 ErrorCode::StaleController,
             )),
-            Verdict::Conflict
+            Verdict::Conflict(Detail {
+                code: Code::FailedPrecondition,
+                refined: Some(ErrorCode::StaleController),
+                message: "stale_operation".into(),
+            })
         );
         assert!(matches!(
             classify(&Status::unavailable("persistence unavailable")),
@@ -296,10 +394,11 @@ mod tests {
         /// Renders the carried detail so tests can pin the message shape without matching structure.
         fn to_string_for_test(&self) -> String {
             match self {
-                Self::NotFound | Self::Conflict | Self::StaleRuntimeBinding => format!("{self:?}"),
-                Self::Stale(detail) | Self::Unavailable(detail) | Self::Unknown(detail) => {
-                    detail.to_string()
-                }
+                Self::NotFound | Self::StaleRuntimeBinding => format!("{self:?}"),
+                Self::Conflict(detail)
+                | Self::Stale(detail)
+                | Self::Unavailable(detail)
+                | Self::Unknown(detail) => detail.to_string(),
             }
         }
     }
@@ -373,7 +472,7 @@ mod tests {
             async { Err(Status::aborted("submission_conflict")) }
         })
         .await;
-        assert_eq!(result, Err(Verdict::Conflict));
+        assert!(matches!(result, Err(Verdict::Conflict(_))));
         assert_eq!(rounds, 1);
 
         let mut rounds = 0;

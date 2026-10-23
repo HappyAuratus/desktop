@@ -4,6 +4,7 @@ mod grants;
 mod previews;
 mod relay;
 use super::*;
+pub(crate) use control::{SessionObserver, Unobserved};
 use ora_node_transport::{
     CloseReason, ConnectError, FrameReceiver, FrameSender, TransportError, close_connection, ipc,
     websocket::{self, WsEndpoint},
@@ -108,40 +109,6 @@ impl From<TransportError> for SessionError {
             | TransportError::WebSocket(_) => Self::Disconnected(error.to_string()),
         }
     }
-}
-
-/// What a session tells its owner beyond its own result. A static Node's handshake proves its
-/// configured identity to the store; the Cloud adapter's sandbox sessions report the handshake to
-/// Cloud and stop a Workspace's clone step when the Node cannot tell an execution's outcome. Callbacks run on the session task and must not
-/// block it.
-pub(crate) trait SessionObserver: Send + Sync {
-    /// The handshake completed with this Node incarnation; the session is live from here on.
-    fn established(&self, node: &NodeRuntimeIdentity);
-    /// Records the negotiated capabilities before publishing the connected identity.
-    fn capabilities(
-        &self,
-        _capabilities: &[NodeCapability],
-        _model_adapter: Option<&ModelAdapterCapability>,
-    ) {
-    }
-    /// The Node still answers `Unknown` for an execution after this connection retransmitted its
-    /// original command once. It may be a retained uncertain attempt or a command the Node has not
-    /// admitted yet; the owner decides how long that may last.
-    fn unresolved(&self, execution: &ExecutionId);
-    /// The Node reported the execution as accepted, running or completed, which ends any earlier
-    /// unresolved report for it.
-    fn answered(&self, execution: &ExecutionId);
-}
-
-/// The observer of sessions nobody watches.
-pub(crate) struct Unobserved;
-
-impl SessionObserver for Unobserved {
-    fn established(&self, _node: &NodeRuntimeIdentity) {}
-
-    fn unresolved(&self, _execution: &ExecutionId) {}
-
-    fn answered(&self, _execution: &ExecutionId) {}
 }
 
 /// Bounds one I/O step; an elapsed deadline is connection loss, not an execution outcome.
@@ -360,8 +327,11 @@ async fn coordinate<S: CoordinationStore, R: FrameReceiver, W: FrameSender, O: S
         Duration::from_millis(config.query_interval_ms),
         capabilities,
         model_adapter,
-        commands.input.clone(),
-        grants.input.clone(),
+        control::Workers {
+            commands: commands.input.clone(),
+            grants: grants.input.clone(),
+            refused: observer.refused_executions(),
+        },
     );
     let mut settled = std::collections::HashSet::new();
     let mut previews = previews::Relay::new();
@@ -399,6 +369,8 @@ async fn coordinate<S: CoordinationStore, R: FrameReceiver, W: FrameSender, O: S
                 Some(action) = control.outgoing.recv() => match action {
                     control::Action::Send(reply) => bounded(deadline, transmit(writer, &reply)).await?,
                     control::Action::Answered(execution) => observer.answered(&execution),
+                    control::Action::TerminalRefused(execution) => observer.terminal_refused(&execution),
+                    control::Action::TerminalAccepted(execution) => observer.terminal_accepted(&execution),
                     control::Action::Unresolved(execution) => { if !settled.contains(&execution) { observer.unresolved(&execution); } },
                 },
                 _ = tick.tick() => {

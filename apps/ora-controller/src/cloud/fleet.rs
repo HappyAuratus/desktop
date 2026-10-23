@@ -107,6 +107,22 @@ pub(super) enum Gate {
     Closed,
 }
 
+/// Why an execution remains unresolved across transport reconnects.
+enum Unresolved {
+    Unknown(Instant),
+    /// Status hints on a later connection cannot stand in for the missing takeover receipt.
+    TerminalRefused(Instant),
+}
+
+impl Unresolved {
+    /// Preserve the first unresolved observation while strengthening its reason.
+    fn since(&self) -> Instant {
+        match self {
+            Self::Unknown(since) | Self::TerminalRefused(since) => *since,
+        }
+    }
+}
+
 /// State one sandbox's session, reporter and operation steps share.
 pub(super) struct Sandbox {
     pub(super) binding: Binding,
@@ -116,7 +132,7 @@ pub(super) struct Sandbox {
     /// Held across a clone registration and while quiesce closes it, so a registration either
     /// committed before quiesce lists unfinished work or never happens.
     pub(super) gate: sync::Mutex<Gate>,
-    unresolved: Mutex<HashMap<ExecutionId, Instant>>,
+    unresolved: Mutex<HashMap<ExecutionId, Unresolved>>,
     capabilities: Mutex<Vec<NodeCapability>>,
     /// The adapter facts of the same handshake; only an exact match runs a configured session.
     model_adapter: Mutex<Option<ModelAdapterCapability>>,
@@ -182,7 +198,7 @@ impl Sandbox {
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
             .get(execution)
-            .map(Instant::elapsed)
+            .map(|state| state.since().elapsed())
     }
 
     /// Whether any execution on this Node has an outcome the Node could not tell.
@@ -243,14 +259,40 @@ impl SessionObserver for Sandbox {
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
             .entry(execution.clone())
-            .or_insert_with(Instant::now);
+            .or_insert_with(|| Unresolved::Unknown(Instant::now()));
     }
 
     fn answered(&self, execution: &ExecutionId) {
         self.unresolved
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
+            .retain(|id, state| id != execution || matches!(state, Unresolved::TerminalRefused(_)));
+    }
+
+    fn terminal_refused(&self, execution: &ExecutionId) {
+        self.unresolved
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .entry(execution.clone())
+            .and_modify(|state| *state = Unresolved::TerminalRefused(state.since()))
+            .or_insert_with(|| Unresolved::TerminalRefused(Instant::now()));
+    }
+
+    fn terminal_accepted(&self, execution: &ExecutionId) {
+        self.unresolved
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
             .remove(execution);
+    }
+
+    fn refused_executions(&self) -> Vec<ExecutionId> {
+        self.unresolved
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .iter()
+            .filter(|(_, state)| matches!(state, Unresolved::TerminalRefused(_)))
+            .map(|(id, _)| id.clone())
+            .collect()
     }
 }
 

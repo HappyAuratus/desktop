@@ -8,7 +8,7 @@
 mod agents;
 #[path = "workspace_cloud/deliveries.rs"]
 mod deliveries;
-pub use deliveries::{SIGNATURE, STORE_HOST};
+pub use deliveries::{SIGNATURE, STORE_HOST, terminal_status};
 #[path = "workspace_cloud/restores.rs"]
 mod restores;
 pub use restores::{PRIOR_BASE, PRIOR_DELIVERY_REF, PRIOR_FINAL};
@@ -88,8 +88,16 @@ pub enum Event {
     DeliveryRegistered {
         run: String,
     },
+    /// A normal dispatch registration was rejected before any execution became durable.
+    DispatchRefused {
+        run: String,
+    },
     /// The fake Node accepted a controlled delivery envelope.
     DeliveryStarted {
+        execution: String,
+    },
+    /// An explicitly injected status hint crossed the fake Node's WebSocket send boundary.
+    DeliveryHintSent {
         execution: String,
     },
     /// Cloud signed grants for exactly these requested checksums.
@@ -150,6 +158,10 @@ pub enum Event {
     },
     /// The fake Node's session with the Controller ended.
     SessionEnded,
+    /// A runtime still holding its lease explicitly returns it during shutdown.
+    LeaseReleased {
+        epoch: i64,
+    },
     /// The Node observed the Controller's deliberate control-channel close.
     ShutdownClose,
     /// A force-stop listing completed, including an empty one used to observe the next wake.
@@ -663,6 +675,9 @@ impl ControllerLeaseService for WorkspaceCloud {
         &self,
         request: Request<proto::ReleaseLeaseRequest>,
     ) -> Result<Response<proto::ReleaseLeaseResponse>, Status> {
+        self.timeline.push(Event::LeaseReleased {
+            epoch: request.get_ref().epoch,
+        });
         Ok(Response::new(proto::ReleaseLeaseResponse {
             lease: Some(proto::Lease {
                 holder_id: "owner".into(),
@@ -1165,6 +1180,12 @@ impl ExecutionService for WorkspaceCloud {
         request: Request<proto::RecordDispatchRequest>,
     ) -> Result<Response<proto::RecordDispatchResponse>, Status> {
         let message = request.into_inner();
+        if let Some(fault) = self.dispatch_refusal(&message.operation_id) {
+            self.timeline.push(Event::DispatchRefused {
+                run: message.operation_id,
+            });
+            return Err(fault);
+        }
         if matches!(
             message.input.as_ref().and_then(|i| i.spec.as_ref()),
             Some(
@@ -1274,11 +1295,16 @@ impl ExecutionService for WorkspaceCloud {
         request: Request<proto::ListPendingDispatchesRequest>,
     ) -> Result<Response<proto::ListPendingDispatchesResponse>, Status> {
         let node = request.into_inner().node_id;
+        let hidden = self.hidden_delivery_executions();
         let records = self
             .lock()
             .clones
             .iter()
-            .filter(|record| record.result.is_none() && (node.is_empty() || record.node_id == node))
+            .filter(|record| {
+                record.result.is_none()
+                    && (node.is_empty() || record.node_id == node)
+                    && !hidden.contains(&record.execution_id)
+            })
             .cloned()
             .collect();
         Ok(Response::new(proto::ListPendingDispatchesResponse {
