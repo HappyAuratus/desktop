@@ -195,12 +195,14 @@ impl StrictRelativePath {
 
     /// Builds the portable case-folded key used for whole-tree conflict detection.
     ///
-    /// The path is Unicode NFC-normalized and then compared case-insensitively, matching the
-    /// behaviour of case-insensitive filesystems. The original spelling stays authoritative for
-    /// storage.
+    /// The path is Unicode NFC-normalized and then case-folded with Unicode lowercase, matching the
+    /// behaviour of case-insensitive filesystems for non-ASCII names as well. Lowercasing can
+    /// expand a character (`İ` becomes `i` plus a combining dot), which only makes the key stricter:
+    /// two names that fold to the same key are treated as one path. The original spelling stays
+    /// authoritative for storage.
     pub fn fold_case_key(&self) -> String {
         use unicode_normalization::UnicodeNormalization;
-        self.path.nfc().collect::<String>().to_ascii_lowercase()
+        self.path.nfc().collect::<String>().to_lowercase()
     }
 }
 
@@ -419,6 +421,20 @@ mod tests {
                 .unwrap()
                 .fold_case_key(),
             StrictRelativePath::parse("review.md")
+                .unwrap()
+                .fold_case_key()
+        );
+        // Case-insensitive filesystems treat these as one name, so the key has to as well: an
+        // ASCII-only fold would let a collector accept both spellings.
+        assert_eq!(
+            StrictRelativePath::parse("Á.txt").unwrap().fold_case_key(),
+            StrictRelativePath::parse("á.txt").unwrap().fold_case_key()
+        );
+        assert_eq!(
+            StrictRelativePath::parse("Ä/report.md")
+                .unwrap()
+                .fold_case_key(),
+            StrictRelativePath::parse("ä/report.md")
                 .unwrap()
                 .fold_case_key()
         );

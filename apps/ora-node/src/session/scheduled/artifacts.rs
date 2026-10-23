@@ -13,6 +13,7 @@ use ora_domain::{
     MAX_SCHEDULED_ARTIFACTS_PER_RUN, SCHEDULED_ARTIFACT_DIRECTORY, ScheduledArtifactKind,
 };
 use ora_node_protocol::{
+    MAX_SCHEDULED_ARTIFACT_REJECTION_NAME_BYTES, MAX_SCHEDULED_ARTIFACT_REJECTIONS,
     ScheduledArtifactItem, ScheduledArtifactManifest, ScheduledArtifactRejection,
     ScheduledArtifactRejectionReason,
 };
@@ -21,6 +22,14 @@ use std::collections::HashSet;
 use std::fs;
 use std::io::{self, Read};
 use std::path::Path;
+
+/// Most directory entries one walk examines.
+///
+/// The per-run artifact bound is 64, so a legitimate run needs far fewer candidates than this. The
+/// bound exists for the accidental case — a directory an agent filled with thousands of names —
+/// where an unbounded walk would keep the session from settling; the refusal that stops the walk is
+/// still reported, and the terminal result stays far inside the frame limit.
+const MAX_WALKED_CANDIDATES: usize = 512;
 
 /// Collects what one run declared, or `None` when it has no artifact directory.
 pub(super) fn collect(checkout: &Path) -> Option<ScheduledArtifactManifest> {
@@ -38,11 +47,12 @@ pub(super) fn collect(checkout: &Path) -> Option<ScheduledArtifactManifest> {
     if !metadata.is_dir() {
         return Some(refused(ScheduledArtifactRejectionReason::PathUnsafe));
     }
-    let mut collector = Collector::default();
+    let mut collector = Collector::new();
     collector.visit(&directory, "");
     Some(ScheduledArtifactManifest {
         items: collector.items,
         rejections: collector.rejections,
+        omitted_rejections: collector.omitted_rejections,
     })
 }
 
@@ -54,11 +64,12 @@ fn refused(reason: ScheduledArtifactRejectionReason) -> ScheduledArtifactManifes
             display_name: SCHEDULED_ARTIFACT_DIRECTORY.to_string(),
             reason,
         }],
+        omitted_rejections: 0,
     }
 }
 
-/// One directory walk that carries the accepted items, refusals and the bounds already consumed.
-#[derive(Default)]
+/// One directory walk that carries the accepted items, the refusals still listable, and the bounds
+/// already consumed.
 struct Collector {
     items: Vec<ScheduledArtifactItem>,
     rejections: Vec<ScheduledArtifactRejection>,
@@ -66,11 +77,33 @@ struct Collector {
     /// under two spellings that a case-insensitive or non-normalized reader would confuse.
     names: HashSet<String>,
     total: u64,
+    /// Entries the walk may still examine; zero stops it at the next candidate.
+    candidates_left: usize,
+    /// Refusals observed after the list bound was reached; only their count is kept.
+    omitted_rejections: u32,
+    /// Whether the walk already stopped, so a parent level does not resume after a nested one.
+    stopped: bool,
 }
 
 impl Collector {
+    /// Starts a walk that has not examined or refused anything yet.
+    fn new() -> Self {
+        Self {
+            items: Vec::new(),
+            rejections: Vec::new(),
+            names: HashSet::new(),
+            total: 0,
+            candidates_left: MAX_WALKED_CANDIDATES,
+            omitted_rejections: 0,
+            stopped: false,
+        }
+    }
+
     /// Walks one directory level by level without following links, collecting accepted files.
     fn visit(&mut self, directory: &Path, prefix: &str) {
+        if self.stopped {
+            return;
+        }
         let entries = match fs::read_dir(directory) {
             Ok(entries) => entries,
             Err(_) => {
@@ -93,6 +126,20 @@ impl Collector {
         };
         entries.sort_by_key(std::fs::DirEntry::file_name);
         for entry in entries {
+            if self.stopped {
+                return;
+            }
+            if self.candidates_left == 0 {
+                // The remaining names are unknown, so the walk records only that it stopped here;
+                // `omitted_rejections` still counts this refusal when the list is already full.
+                self.stopped = true;
+                self.refuse(
+                    directory_name(prefix),
+                    ScheduledArtifactRejectionReason::CandidateLimit,
+                );
+                return;
+            }
+            self.candidates_left -= 1;
             let file_name = entry.file_name();
             let Some(name) = file_name.to_str() else {
                 self.refuse(
@@ -195,12 +242,36 @@ impl Collector {
     }
 
     /// Records one refusal; the reader sees the reason instead of a silently missing artifact.
+    ///
+    /// The list is bounded so a directory full of unusable names cannot build a terminal result
+    /// larger than the frame that carries it. A refusal past the bound is still counted, and the
+    /// manifest states how many were dropped instead of hiding them.
     fn refuse(&mut self, display_name: String, reason: ScheduledArtifactRejectionReason) {
+        if self.rejections.len() >= MAX_SCHEDULED_ARTIFACT_REJECTIONS {
+            self.omitted_rejections = self.omitted_rejections.saturating_add(1);
+            return;
+        }
         self.rejections.push(ScheduledArtifactRejection {
-            display_name,
+            display_name: bounded_name(display_name),
             reason,
         });
     }
+}
+
+/// Keeps a refused name inside the wire bound, cutting on a character boundary.
+///
+/// Only a name that is already outside the collector's path limits can reach this: accepted paths
+/// are bounded by `StrictRelativePath`, while a name the platform cannot decode arrives through a
+/// lossy conversion and is bounded here.
+fn bounded_name(name: String) -> String {
+    if name.len() <= MAX_SCHEDULED_ARTIFACT_REJECTION_NAME_BYTES {
+        return name;
+    }
+    let mut end = MAX_SCHEDULED_ARTIFACT_REJECTION_NAME_BYTES;
+    while !name.is_char_boundary(end) {
+        end -= 1;
+    }
+    name[..end].to_string()
 }
 
 /// Names the refused directory: the root has only its fixed name, nested levels their relative path.

@@ -1,4 +1,7 @@
-use crate::handoff::{binding_needs_handoff, final_assistant_message, render_handoff};
+use crate::handoff::{
+    binding_needs_handoff, final_assistant_message, final_completed_assistant_message,
+    render_handoff,
+};
 use crate::reader::{HistoryIntegrity, SessionHistory};
 use crate::record::{AgentSwitch, HistoryLine, HistoryRecord, SCHEMA_VERSION, SessionMeta};
 use agent_client_protocol_schema::v1::StopReason;
@@ -450,6 +453,64 @@ fn keeps_an_unterminated_final_turn() {
 }
 
 #[test]
+fn returns_the_final_assistant_turn_when_it_completed() {
+    let recorded = history(vec![
+        meta(agent_ref("ora-space.claude")),
+        user("first"),
+        assistant("QA_VERDICT: fail"),
+        turn_ended(StopReason::EndTurn),
+        user("second"),
+        assistant("QA_VERDICT: pass"),
+        turn_ended(StopReason::EndTurn),
+    ]);
+
+    assert_eq!(
+        final_completed_assistant_message(&recorded),
+        Some("QA_VERDICT: pass".to_string())
+    );
+}
+
+#[test]
+fn refuses_a_final_turn_the_provider_cancelled_without_falling_back() {
+    let recorded = history(vec![
+        meta(agent_ref("ora-space.claude")),
+        user("first"),
+        assistant("QA_VERDICT: fail"),
+        turn_ended(StopReason::EndTurn),
+        user("second"),
+        assistant("QA_VERDICT: pass"),
+        turn_ended(StopReason::Cancelled),
+    ]);
+
+    assert_eq!(final_completed_assistant_message(&recorded), None);
+}
+
+#[test]
+fn refuses_a_final_turn_that_never_ended() {
+    let recorded = history(vec![
+        meta(agent_ref("ora-space.claude")),
+        user("first"),
+        assistant("QA_VERDICT: pass"),
+    ]);
+
+    assert_eq!(final_completed_assistant_message(&recorded), None);
+}
+
+#[test]
+fn refuses_a_completed_final_turn_without_assistant_text() {
+    let recorded = history(vec![
+        meta(agent_ref("ora-space.claude")),
+        user("first"),
+        assistant("QA_VERDICT: fail"),
+        turn_ended(StopReason::EndTurn),
+        user("second"),
+        turn_ended(StopReason::EndTurn),
+    ]);
+
+    assert_eq!(final_completed_assistant_message(&recorded), None);
+}
+
+#[test]
 fn ignores_child_session_messages_when_selecting_the_final_turn() {
     let recorded = history(vec![
         meta(agent_ref("ora-space.opencode")),
@@ -476,4 +537,20 @@ fn returns_none_when_only_child_session_messages_exist() {
     ]);
 
     assert_eq!(final_assistant_message(&recorded), None);
+}
+
+#[test]
+fn a_completed_final_turn_ignores_a_child_sessions_conclusion() {
+    let recorded = history(vec![
+        meta(agent_ref("ora-space.opencode")),
+        user("run the nightly checks"),
+        child_assistant("QA_VERDICT: fail"),
+        assistant("QA_VERDICT: pass"),
+        turn_ended(StopReason::EndTurn),
+    ]);
+
+    assert_eq!(
+        final_completed_assistant_message(&recorded),
+        Some("QA_VERDICT: pass".to_string())
+    );
 }

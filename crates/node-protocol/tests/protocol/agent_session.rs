@@ -686,6 +686,7 @@ async fn a_scheduled_terminal_result_declares_its_verdict_and_artifacts() -> Res
                 display_name: "notes.pdf".to_owned(),
                 reason: ScheduledArtifactRejectionReason::UnsupportedType,
             }],
+            omitted_rejections: 0,
         }),
     });
     let case = Case {
@@ -735,5 +736,76 @@ async fn a_scheduled_terminal_result_declares_its_verdict_and_artifacts() -> Res
         MessageValidationError::InvalidScheduledArtifactManifest,
     )
     .await?;
+
+    // The collector folds names with Unicode case folding after NFC, so two spellings one
+    // case-insensitive filesystem treats as one name must not both be declared.
+    let mut unicode_case = case.wire.clone();
+    unicode_case["payload"]["result"]["artifact_manifest"]["items"] = json!([
+        {"index": 0, "display_name": "Á.txt", "kind": "text", "size_bytes": 1,
+            "sha256": "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824"},
+        {"index": 1, "display_name": "á.txt", "kind": "text", "size_bytes": 1,
+            "sha256": "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824"}
+    ]);
+    reject_semantics(
+        Peer::Node,
+        &unicode_case,
+        "one path in two Unicode cases",
+        MessageValidationError::InvalidScheduledArtifactManifest,
+    )
+    .await?;
+
+    // Combining and precomposed spellings are the same path too.
+    let mut unicode_form = case.wire.clone();
+    unicode_form["payload"]["result"]["artifact_manifest"]["items"] = json!([
+        {"index": 0, "display_name": "é.txt", "kind": "text", "size_bytes": 1,
+            "sha256": "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824"},
+        {"index": 1, "display_name": "e\u{301}.txt", "kind": "text", "size_bytes": 1,
+            "sha256": "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824"}
+    ]);
+    reject_semantics(
+        Peer::Node,
+        &unicode_form,
+        "one path in two normalization forms",
+        MessageValidationError::InvalidScheduledArtifactManifest,
+    )
+    .await?;
+
+    // A manifest lists at most the bounded number of refusals; further refusals are counted in
+    // `omitted_rejections` instead of inflating the terminal result.
+    let mut too_many = case.wire.clone();
+    too_many["payload"]["result"]["artifact_manifest"]["rejections"] = Value::Array(
+        (0..=MAX_SCHEDULED_ARTIFACT_REJECTIONS)
+            .map(|index| {
+                json!({"display_name": format!("reject-{index}.pdf"),
+                "reason": "unsupported_type"})
+            })
+            .collect(),
+    );
+    reject_semantics(
+        Peer::Node,
+        &too_many,
+        "more refusals than one manifest lists",
+        MessageValidationError::InvalidScheduledArtifactManifest,
+    )
+    .await?;
     Ok(())
+}
+
+/// Refusals beyond the listed bound stay visible as a count, and the count is absent when none
+/// were dropped.
+#[test]
+fn a_manifest_summarises_refusals_beyond_its_list_bound() {
+    assert_eq!(
+        serde_json::to_value(ScheduledArtifactManifest {
+            items: Vec::new(),
+            rejections: Vec::new(),
+            omitted_rejections: 12,
+        })
+        .expect("a manifest serializes"),
+        json!({"items": [], "rejections": [], "omitted_rejections": 12})
+    );
+    assert_eq!(
+        serde_json::to_value(ScheduledArtifactManifest::default()).expect("a manifest serializes"),
+        json!({"items": [], "rejections": []})
+    );
 }

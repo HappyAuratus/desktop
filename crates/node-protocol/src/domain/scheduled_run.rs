@@ -30,6 +30,19 @@ pub const MAX_SCHEDULED_ARTIFACT_BYTES: u64 = 10 * 1024 * 1024;
 /// Most artifacts one run may declare.
 pub const MAX_SCHEDULED_ARTIFACTS_PER_RUN: usize = 64;
 
+/// Most refused candidates one manifest lists.
+///
+/// The bound exists because a refusal is a declaration too: a directory with tens of thousands of
+/// unusable names would otherwise build a terminal result larger than the frame that carries it.
+/// Refusals beyond this count are summarised by `omitted_rejections` instead.
+pub const MAX_SCHEDULED_ARTIFACT_REJECTIONS: usize = 64;
+
+/// Largest display name one rejection may carry, in UTF-8 bytes.
+///
+/// The collector already bounds an accepted path; a refused candidate only needs to stay
+/// identifiable, so the same bound applies without requiring it to be a valid path.
+pub const MAX_SCHEDULED_ARTIFACT_REJECTION_NAME_BYTES: usize = 1024;
+
 /// Most bytes one run may declare across all artifacts (64 MiB).
 pub const MAX_SCHEDULED_ARTIFACT_TOTAL_BYTES: u64 = 64 * 1024 * 1024;
 
@@ -67,9 +80,12 @@ pub struct ScheduledRunResult {
 }
 
 impl ScheduledRunResult {
-    /// Keeps the detail inside Cloud's stored text bound; the executor drops an over-long detail
-    /// instead of failing the terminal result it belongs to.
-    pub(crate) fn validate(&self) -> Result<(), MessageValidationError> {
+    /// Checks the value against the bounds the wire enforces on both send and receive.
+    ///
+    /// The executor parses the annotation out of Agent output, so it validates the parsed value
+    /// here before it becomes part of a terminal result: a detail the wire refuses must degrade to
+    /// "not reported" instead of failing the transaction that settles the run.
+    pub fn validate(&self) -> Result<(), MessageValidationError> {
         match &self.verdict_detail {
             Some(detail)
                 if detail.chars().count() > MAX_SCHEDULED_VERDICT_DETAIL_CHARS
@@ -131,6 +147,9 @@ pub enum ScheduledArtifactRejectionReason {
     TotalTooLarge,
     /// The file could not be read while collecting or hashing it.
     ReadFailed,
+    /// The walk stopped at the executor's candidate bound before examining every entry, so names
+    /// below the named directory may be missing from this declaration.
+    CandidateLimit,
 }
 
 /// One refused candidate and the reason the reader sees.
@@ -148,14 +167,21 @@ pub struct ScheduledArtifactRejection {
 pub struct ScheduledArtifactManifest {
     pub items: Vec<ScheduledArtifactItem>,
     pub rejections: Vec<ScheduledArtifactRejection>,
+    /// Refused candidates whose detail is not listed because [`MAX_SCHEDULED_ARTIFACT_REJECTIONS`]
+    /// was already reached. The count keeps the omission visible instead of hiding refusals behind
+    /// a silent cut.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub omitted_rejections: u32,
 }
 
 impl ScheduledArtifactManifest {
     /// Bounds the manifest both for its own readers and against a Node that mis-declared what it
-    /// collected.
-    pub(crate) fn validate(&self) -> Result<(), MessageValidationError> {
+    /// collected, using the same rules the collector applies while walking the directory.
+    pub fn validate(&self) -> Result<(), MessageValidationError> {
         let invalid = || MessageValidationError::InvalidScheduledArtifactManifest;
-        if self.items.len() > MAX_SCHEDULED_ARTIFACTS_PER_RUN {
+        if self.items.len() > MAX_SCHEDULED_ARTIFACTS_PER_RUN
+            || self.rejections.len() > MAX_SCHEDULED_ARTIFACT_REJECTIONS
+        {
             return Err(invalid());
         }
         let mut indexes = std::collections::HashSet::new();
@@ -166,9 +192,12 @@ impl ScheduledArtifactManifest {
             {
                 return Err(invalid());
             }
-            if !names.insert(item.display_name.to_lowercase())
-                || !is_declared_artifact_path(&item.display_name)
-            {
+            // The collector folds names the same way, so two spellings one filesystem would treat
+            // as one path cannot both be declared.
+            let Some(path) = declared_artifact_path(&item.display_name) else {
+                return Err(invalid());
+            };
+            if !names.insert(path.fold_case_key()) {
                 return Err(invalid());
             }
             if item.size_bytes > MAX_SCHEDULED_ARTIFACT_BYTES || !is_lower_hex_sha256(&item.sha256)
@@ -180,16 +209,34 @@ impl ScheduledArtifactManifest {
         if total > MAX_SCHEDULED_ARTIFACT_TOTAL_BYTES {
             return Err(invalid());
         }
+        for rejection in &self.rejections {
+            if rejection.display_name.is_empty()
+                || rejection.display_name.len() > MAX_SCHEDULED_ARTIFACT_REJECTION_NAME_BYTES
+                || rejection.display_name.contains('\0')
+            {
+                return Err(invalid());
+            }
+        }
         Ok(())
     }
 }
 
-/// Accepts a declared artifact path: a strictly relative, portable path inside the directory.
+/// Omits the refusal summary from the wire while no refusal was dropped.
+// `skip_serializing_if` gives the predicate a reference; taking the `u32` by value would not fit it.
+#[allow(clippy::trivially_copy_pass_by_ref)]
+fn is_zero(value: &u32) -> bool {
+    *value == 0
+}
+
+/// Parses a declared artifact path into the identity rules the collector applies while walking.
 ///
 /// A Windows alternate data stream is refused separately because `:` is legal on Unix but would
 /// name another file stream on Windows.
-fn is_declared_artifact_path(value: &str) -> bool {
-    !value.contains(':') && StrictRelativePath::parse(value).is_ok()
+fn declared_artifact_path(value: &str) -> Option<StrictRelativePath> {
+    if value.contains(':') {
+        return None;
+    }
+    StrictRelativePath::parse(value).ok()
 }
 
 /// Accepts the digest spelling Cloud verifies uploads against.

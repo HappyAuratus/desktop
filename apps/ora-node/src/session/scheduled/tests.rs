@@ -9,9 +9,13 @@ use agent_client_protocol_schema::v1::{
 use ora_domain::{MAX_SCHEDULED_ARTIFACT_BYTES, MAX_SCHEDULED_ARTIFACTS_PER_RUN};
 use ora_history::{HistoryLine, HistoryRecord, history_path};
 use ora_node_protocol::{
-    EndSessionReason, ExecutionId, SCHEDULED_ARTIFACT_DIRECTORY, ScheduledArtifactItem,
-    ScheduledArtifactKind, ScheduledArtifactRejection, ScheduledArtifactRejectionReason,
-    ScheduledVerdict, SessionTrigger,
+    AgentSessionEndReason, AgentSessionEnded, AgentSessionEndedMessage, AgentSessionResult,
+    CURRENT_PROTOCOL_VERSION, EndSessionReason, ExecutionId, ExecutionResult, ExecutionState,
+    ExecutionStatus, ExecutionStatusMessage, MAX_FRAME_LENGTH, MAX_SCHEDULED_ARTIFACT_REJECTIONS,
+    NodeId, NodeIncarnationId, NodeRuntimeIdentity, NodeToControllerMessage, OperationId,
+    SCHEDULED_ARTIFACT_DIRECTORY, ScheduledArtifactItem, ScheduledArtifactKind,
+    ScheduledArtifactRejection, ScheduledArtifactRejectionReason, ScheduledVerdict, Sequence,
+    SessionTrigger, encode_node_frame,
 };
 use pretty_assertions::assert_eq;
 use std::path::{Path, PathBuf};
@@ -56,6 +60,31 @@ fn assistant(text: &str) -> HistoryRecord {
 fn turn_ended() -> HistoryRecord {
     HistoryRecord::TurnEnded {
         stop_reason: StopReason::EndTurn,
+    }
+}
+
+/// Closes one turn the way an end command does while the agent is still working.
+fn turn_cancelled() -> HistoryRecord {
+    HistoryRecord::TurnEnded {
+        stop_reason: StopReason::Cancelled,
+    }
+}
+
+/// Builds one settled user message, which opens a turn without any Assistant output.
+fn user(text: &str) -> HistoryRecord {
+    HistoryRecord::Update {
+        update: Box::new(SessionUpdate::UserMessageChunk(ContentChunk::new(
+            ContentBlock::Text(TextContent::new(text)),
+        ))),
+        tool_timing: None,
+    }
+}
+
+/// Identifies the Node that settles one execution.
+fn node() -> NodeRuntimeIdentity {
+    NodeRuntimeIdentity {
+        node_id: NodeId::new("node"),
+        incarnation_id: NodeIncarnationId::new("incarnation"),
     }
 }
 
@@ -169,6 +198,233 @@ fn an_unusable_marker_reports_no_verdict() {
 }
 
 #[test]
+fn a_cancelled_final_turn_declares_nothing() {
+    let root = checkout();
+    let execution = ExecutionId::new("execution-cancelled-turn");
+    write_history(
+        root.path(),
+        &execution,
+        vec![assistant("QA_VERDICT: pass"), turn_cancelled()],
+    );
+    let directory = artifact_directory(root.path());
+    std::fs::write(directory.join("report.md"), "hello").expect("a report");
+
+    // The end command cancelled the turn that was still running, so neither the verdict nor the
+    // artifacts it left behind describe a completed run.
+    assert_eq!(
+        declare(
+            &SessionEnd::requested(EndSessionReason::UserEnded),
+            Some(SessionTrigger::Scheduled),
+            root.path(),
+            &execution,
+            root.path(),
+        ),
+        None
+    );
+}
+
+#[test]
+fn an_unterminated_final_turn_declares_nothing() {
+    let root = checkout();
+    let execution = ExecutionId::new("execution-unterminated");
+    write_history(root.path(), &execution, vec![assistant("QA_VERDICT: pass")]);
+    artifact_directory(root.path());
+
+    assert_eq!(
+        declare(
+            &SessionEnd::requested(EndSessionReason::IdleTimeout),
+            Some(SessionTrigger::Scheduled),
+            root.path(),
+            &execution,
+            root.path(),
+        ),
+        None
+    );
+}
+
+#[test]
+fn a_final_turn_without_assistant_text_does_not_fall_back_to_an_earlier_verdict() {
+    let root = checkout();
+    let execution = ExecutionId::new("execution-empty-turn");
+    write_history(
+        root.path(),
+        &execution,
+        vec![
+            assistant("QA_VERDICT: fail"),
+            turn_ended(),
+            user("try again"),
+            turn_ended(),
+        ],
+    );
+
+    assert_eq!(
+        declare(
+            &SessionEnd::requested(EndSessionReason::UserEnded),
+            Some(SessionTrigger::Scheduled),
+            root.path(),
+            &execution,
+            root.path(),
+        ),
+        None
+    );
+}
+
+#[test]
+fn a_detail_the_wire_refuses_keeps_the_artifacts_but_reports_no_verdict() {
+    let root = checkout();
+    let execution = ExecutionId::new("execution-nul-detail");
+    write_history(
+        root.path(),
+        &execution,
+        vec![assistant("QA_VERDICT: pass\nQA_DETAIL: a\0b"), turn_ended()],
+    );
+    let directory = artifact_directory(root.path());
+    std::fs::write(directory.join("report.md"), "hello").expect("a report");
+
+    let declaration = declare(
+        &SessionEnd::requested(EndSessionReason::IdleTimeout),
+        Some(SessionTrigger::Scheduled),
+        root.path(),
+        &execution,
+        root.path(),
+    )
+    .expect("a declaration");
+
+    // A detail the wire refuses degrades to "not reported"; it must not fail the terminal write
+    // that settles the run, and it does not hide the independently collected artifacts.
+    assert_eq!(declaration.result, None);
+    assert_eq!(
+        declaration.manifest.expect("artifacts are independent"),
+        ora_node_protocol::ScheduledArtifactManifest {
+            items: vec![item(
+                0,
+                "report.md",
+                ScheduledArtifactKind::Markdown,
+                "hello"
+            )],
+            rejections: Vec::new(),
+            omitted_rejections: 0,
+        }
+    );
+}
+
+#[test]
+fn one_name_in_two_unicode_spellings_is_declared_once() {
+    let root = checkout();
+    let execution = ExecutionId::new("execution-unicode-names");
+    write_history(
+        root.path(),
+        &execution,
+        vec![assistant("QA_VERDICT: pass"), turn_ended()],
+    );
+    let directory = artifact_directory(root.path());
+    std::fs::write(directory.join("Á.txt"), "upper").expect("an upper-case name");
+    std::fs::write(directory.join("á.txt"), "lower").expect("a lower-case name");
+    std::fs::write(directory.join("é.txt"), "composed").expect("a composed name");
+    std::fs::write(directory.join("e\u{301}.txt"), "decomposed").expect("a decomposed name");
+
+    let declaration = declare(
+        &SessionEnd::requested(EndSessionReason::IdleTimeout),
+        Some(SessionTrigger::Scheduled),
+        root.path(),
+        &execution,
+        root.path(),
+    )
+    .expect("a declaration");
+    let manifest = declaration.manifest.expect("a manifest");
+
+    // The walk sorts each level, so the first spelling of each identity is the one declared and the
+    // second is refused instead of making the terminal result unrepresentable.
+    assert_eq!(
+        manifest.items,
+        vec![
+            item(0, "e\u{301}.txt", ScheduledArtifactKind::Text, "decomposed"),
+            item(1, "Á.txt", ScheduledArtifactKind::Text, "upper"),
+        ]
+    );
+    assert_eq!(
+        manifest.rejections,
+        vec![
+            ScheduledArtifactRejection {
+                display_name: "á.txt".to_string(),
+                reason: ScheduledArtifactRejectionReason::PathUnsafe,
+            },
+            ScheduledArtifactRejection {
+                display_name: "é.txt".to_string(),
+                reason: ScheduledArtifactRejectionReason::PathUnsafe,
+            },
+        ]
+    );
+    manifest.validate().expect("the declaration is reportable");
+}
+
+#[test]
+fn a_flood_of_unusable_names_stays_inside_one_frame() {
+    let root = checkout();
+    let execution = ExecutionId::new("execution-flood");
+    write_history(
+        root.path(),
+        &execution,
+        vec![assistant("QA_VERDICT: warn"), turn_ended()],
+    );
+    let directory = artifact_directory(root.path());
+    for index in 0..600 {
+        let name = format!("{index:04}-{}.pdf", "x".repeat(220));
+        std::fs::write(directory.join(name), "").expect("an unusable candidate");
+    }
+
+    let declaration = declare(
+        &SessionEnd::requested(EndSessionReason::IdleTimeout),
+        Some(SessionTrigger::Scheduled),
+        root.path(),
+        &execution,
+        root.path(),
+    )
+    .expect("a declaration");
+    let manifest = declaration.manifest.expect("a manifest");
+
+    // The refusal list is bounded and the rest is a visible count, so the manifest stays small
+    // instead of repeating one entry per file the agent happened to leave behind.
+    assert_eq!(manifest.rejections.len(), MAX_SCHEDULED_ARTIFACT_REJECTIONS);
+    assert!(manifest.omitted_rejections > 0);
+    manifest.validate().expect("the declaration is reportable");
+
+    // Both messages that can carry the terminal result must still fit one frame: the end event
+    // itself and the status query a reconnecting Controller sends.
+    let ended = AgentSessionEnded {
+        node: node(),
+        reason: AgentSessionEndReason::IdleTimeout,
+        detail: None,
+        scheduled_result: declaration.result,
+        artifact_manifest: Some(manifest),
+    };
+    let result = AgentSessionResult::AgentSessionEnded(ended.clone());
+    let messages = [
+        NodeToControllerMessage::AgentSessionEnded(AgentSessionEndedMessage {
+            protocol_version: CURRENT_PROTOCOL_VERSION,
+            operation_id: OperationId::new("operation"),
+            execution_id: execution.clone(),
+            sequence: Sequence::new(/*value*/ 9),
+            payload: result.clone(),
+        }),
+        NodeToControllerMessage::ExecutionStatus(ExecutionStatusMessage {
+            protocol_version: CURRENT_PROTOCOL_VERSION,
+            operation_id: OperationId::new("operation"),
+            execution_id: execution.clone(),
+            payload: ExecutionStatus {
+                stop_unconfirmed: Vec::new(),
+                node: node(),
+                state: ExecutionState::Completed(ExecutionResult::AgentSession(result)),
+            },
+        }),
+    ];
+    for message in messages {
+        let frame = encode_node_frame(&message).expect("the terminal result is encodable");
+        assert!(frame.len() < MAX_FRAME_LENGTH / 4);
+    }
+}
+
+#[test]
 fn a_run_without_artifacts_or_a_verdict_declares_nothing() {
     let root = checkout();
     let execution = ExecutionId::new("execution-quiet");
@@ -207,6 +463,7 @@ fn collects_whitelisted_files_recursively_with_their_sizes_and_digests() {
                 item(1, "report.md", ScheduledArtifactKind::Markdown, "hello"),
             ],
             rejections: Vec::new(),
+            omitted_rejections: 0,
         })
     );
 }
@@ -230,6 +487,7 @@ fn refuses_a_candidate_outside_the_type_whitelist() {
                 display_name: "report.pdf".to_string(),
                 reason: ScheduledArtifactRejectionReason::UnsupportedType,
             }],
+            omitted_rejections: 0,
         })
     );
 }
@@ -249,6 +507,7 @@ fn refuses_a_candidate_larger_than_the_single_artifact_bound() {
                 display_name: "huge.log".to_string(),
                 reason: ScheduledArtifactRejectionReason::TooLarge,
             }],
+            omitted_rejections: 0,
         })
     );
 }
@@ -264,6 +523,7 @@ fn declares_at_most_the_per_run_artifact_count() {
     let manifest = artifacts::collect(checkout.path()).expect("a manifest");
 
     assert_eq!(manifest.items.len(), MAX_SCHEDULED_ARTIFACTS_PER_RUN);
+    assert_eq!(manifest.omitted_rejections, 0);
     assert_eq!(
         manifest.rejections,
         vec![ScheduledArtifactRejection {
@@ -290,6 +550,7 @@ fn refuses_a_symbolic_link_out_of_the_artifact_directory() {
                 display_name: "link.md".to_string(),
                 reason: ScheduledArtifactRejectionReason::Symlink,
             }],
+            omitted_rejections: 0,
         })
     );
 }
@@ -311,6 +572,7 @@ fn refuses_a_hard_link_whose_inode_is_reachable_elsewhere() {
                 display_name: "linked.log".to_string(),
                 reason: ScheduledArtifactRejectionReason::HardLink,
             }],
+            omitted_rejections: 0,
         })
     );
 }
@@ -336,6 +598,7 @@ fn refuses_a_symlinked_artifact_directory_whole() {
                 display_name: SCHEDULED_ARTIFACT_DIRECTORY.to_string(),
                 reason: ScheduledArtifactRejectionReason::Symlink,
             }],
+            omitted_rejections: 0,
         })
     );
 }

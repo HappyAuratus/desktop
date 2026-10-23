@@ -5,7 +5,8 @@
 //! Both are derived from what the run already produced — the sealed history and the checkout — and
 //! neither writes to the Workspace. Cloud admits scheduled occurrences but never parses a Thread,
 //! a message or a tool field, so this module is the only place a run's business result comes from
-//! Agent output. A manual run, and every failed, cancelled or interrupted end, declares nothing.
+//! Agent output. A manual run, every failed, cancelled or interrupted end, and a run whose final
+//! turn the end cancelled or left unfinished declare nothing.
 
 mod artifacts;
 #[cfg(test)]
@@ -13,6 +14,7 @@ mod tests;
 
 use super::end::SessionEnd;
 use ora_domain::parse_scheduled_run_verdict;
+use ora_logging::ora_warn;
 use ora_node_protocol::{
     AgentSessionEndReason, ExecutionId, ScheduledArtifactManifest, ScheduledRunResult,
     ScheduledVerdict, SessionTrigger,
@@ -31,8 +33,12 @@ pub(super) struct ScheduledDeclaration {
 /// Derives the declaration of a session that is about to settle, or `None` when it declares
 /// nothing.
 ///
-/// Only a scheduled occurrence declares, and only when Cloud ended it as asked: a cancelled,
-/// failed or interrupted session has no completed turn whose conclusion could describe the run.
+/// Only a scheduled occurrence declares, and only when Cloud ended it as asked after the agent
+/// finished a turn: a cancelled, failed or interrupted session has no completed turn whose
+/// conclusion could describe the run. The completed turn gates both facts, because an end command
+/// can cancel the turn that was still running while the session still ends as asked. Each fact is
+/// then validated against the wire rules before it is declared, so nothing this module produces can
+/// make the terminal write fail.
 pub(super) fn declare(
     end: &SessionEnd,
     trigger: Option<SessionTrigger>,
@@ -49,25 +55,64 @@ pub(super) fn declare(
     ) {
         return None;
     }
+    let final_turn = completed_final_turn(sessions_root, execution)?;
     let declaration = ScheduledDeclaration {
-        result: parse_verdict(sessions_root, execution),
-        manifest: artifacts::collect(checkout),
+        result: parse_verdict(&final_turn, execution),
+        manifest: reportable_manifest(checkout, execution),
     };
     (declaration.result.is_some() || declaration.manifest.is_some()).then_some(declaration)
 }
 
-/// Reads the run's final Assistant turn and parses the documented sentinel out of it.
+/// Reads the final Assistant turn, returning it only when `TurnEnded` closed it normally.
 ///
-/// Any failure — unreadable history, no assistant turn, no marker, an illegal value or an
-/// over-long detail — means "not reported"; the run's execution result is never rewritten for it.
-fn parse_verdict(sessions_root: &Path, execution: &ExecutionId) -> Option<ScheduledRunResult> {
+/// An end command can cancel the turn that is running, so the end reason alone does not prove the
+/// agent completed its work. An unreadable history, a cancelled or truncated turn, and a turn that
+/// never ended all mean "cannot tell", and an earlier turn is never used instead.
+fn completed_final_turn(sessions_root: &Path, execution: &ExecutionId) -> Option<String> {
     let history = ora_history::read_session_history(sessions_root, execution.as_str()).ok()?;
-    let text = ora_history::final_assistant_message(&history)?;
-    let annotation = parse_scheduled_run_verdict(&text)?;
-    Some(ScheduledRunResult {
+    ora_history::final_completed_assistant_message(&history)
+}
+
+/// Parses the documented sentinel out of the run's final completed Assistant turn.
+///
+/// Any failure — no marker, an illegal value or a detail the wire would refuse — means "not
+/// reported"; the run's execution result is never rewritten for it.
+fn parse_verdict(text: &str, execution: &ExecutionId) -> Option<ScheduledRunResult> {
+    let annotation = parse_scheduled_run_verdict(text)?;
+    let result = ScheduledRunResult {
         verdict: verdict(annotation.verdict),
         verdict_detail: annotation.detail,
-    })
+    };
+    if result.validate().is_err() {
+        // The wire refuses some details the parser can still read (a NUL, say). Reporting one would
+        // fail the terminal transaction and lose the run's own settlement, so it degrades to
+        // "not reported" exactly like an illegal value. Artifacts stay independently reported.
+        ora_warn!(
+            execution_id = %execution,
+            "a scheduled verdict detail was not reportable and was left unreported"
+        );
+        return None;
+    }
+    Some(result)
+}
+
+/// Collects the artifact directory and keeps the declaration only if the wire accepts it.
+fn reportable_manifest(
+    checkout: &Path,
+    execution: &ExecutionId,
+) -> Option<ScheduledArtifactManifest> {
+    let manifest = artifacts::collect(checkout)?;
+    match manifest.validate() {
+        Ok(()) => Some(manifest),
+        Err(error) => {
+            ora_warn!(
+                execution_id = %execution,
+                error = %error,
+                "a scheduled artifact declaration was not reportable and was left unreported"
+            );
+            None
+        }
+    }
 }
 
 /// Maps the shared vocabulary onto its wire spelling; both sides list the same six conclusions.
