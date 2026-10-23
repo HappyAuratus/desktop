@@ -303,6 +303,57 @@ pub fn final_assistant_message(history: &SessionHistory) -> Option<String> {
         .map(|parts| parts.join("\n"))
 }
 
+/// Returns the text of the final Assistant turn of a session, present only when that turn completed
+/// normally.
+///
+/// A scheduled run reads its business verdict out of this text, so the question is not what the
+/// agent last said but whether the agent finished saying it. A `user_ended` or `idle_timeout` end
+/// names why Cloud stopped the session, not what the agent achieved: an end command cancels a turn
+/// that is still running and still ends the session as asked. A final turn whose `TurnEnded` is
+/// anything but `EndTurn` and one a crash left unterminated both yield `None`; an earlier turn is
+/// never used instead.
+///
+/// The completed turn is the evidence, and its text is only what the agent chose to say there, so a
+/// turn that used tools without writing a message still yields its (empty) text. A caller that reads
+/// a verdict from the text treats the empty case as "nothing stated" without losing the fact that
+/// the run finished its work.
+pub fn final_completed_assistant_turn(history: &SessionHistory) -> Option<String> {
+    let mut current: Vec<String> = Vec::new();
+    let mut closed: Option<(Vec<String>, StopReason)> = None;
+    let mut turn_open = false;
+    for line in &history.lines {
+        match &line.record {
+            HistoryRecord::TurnEnded { stop_reason } => {
+                closed = Some((std::mem::take(&mut current), *stop_reason));
+                turn_open = false;
+            }
+            HistoryRecord::Update { update, .. } => match update.as_ref() {
+                SessionUpdate::UserMessageChunk(_) => turn_open = true,
+                SessionUpdate::AgentMessageChunk(chunk) => {
+                    // A delegated child's conclusion is not the run's own.
+                    if child_source_id(chunk.meta.as_ref()).is_some() {
+                        continue;
+                    }
+                    let ContentBlock::Text(text) = &chunk.content else {
+                        continue;
+                    };
+                    current.push(text.text.clone());
+                    turn_open = true;
+                }
+                _ => {}
+            },
+            _ => {}
+        }
+    }
+    // A trailing turn without its `TurnEnded` shows the turn never finished, so the last closed
+    // turn is not the run's conclusion either.
+    if turn_open {
+        return None;
+    }
+    let (parts, stop_reason) = closed?;
+    (stop_reason == StopReason::EndTurn).then(|| parts.join("\n"))
+}
+
 /// Renders one content block as transcript text.
 ///
 /// Anything that is not text is named rather than reproduced: the receiving agent

@@ -34,6 +34,7 @@ pub(super) fn start(text: &str) -> StartAgentSessionMessage {
                 },
                 prior_revision: None,
                 workspace_directory: vec![],
+                trigger: None,
             },
         },
     }

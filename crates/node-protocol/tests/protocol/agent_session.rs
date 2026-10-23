@@ -39,6 +39,7 @@ pub(super) fn start() -> Case {
                         initial_turn: turn("turn-1", "Fix the failing login test."),
                         prior_revision: None,
                         workspace_directory: Vec::new(),
+                        trigger: None,
                     },
                 },
             },
@@ -442,6 +443,8 @@ async fn session_end_round_trips_as_event_and_completed_status() -> Result<(), T
         node: node(),
         reason: AgentSessionEndReason::AgentFailed,
         detail: Some("agent_plugin_unavailable".to_owned()),
+        scheduled_result: None,
+        artifact_manifest: None,
     });
     let result_wire = json!({"kind": "agent_session_ended", "result": {
         "node": {"node_id": "node-1", "incarnation_id": "incarnation-1"},
@@ -637,4 +640,222 @@ async fn controlled_session_start_round_trips_and_binds_exact_identity() -> Resu
     changed.binding.input_closed = true;
     assert!(changed.validate().is_err());
     Ok(())
+}
+
+/// A scheduled session declares how Cloud admitted it; a manual run leaves the field absent, which
+/// is also what every session released before Cloud admitted scheduled occurrences looks like.
+#[tokio::test]
+async fn a_scheduled_session_start_carries_its_trigger() -> Result<(), TestError> {
+    let mut case = start();
+    let Message::Controller(ControllerToNodeMessage::StartAgentSession(command)) =
+        &mut case.message
+    else {
+        panic!("fixture must be a session start")
+    };
+    command.payload.spec.trigger = Some(SessionTrigger::Scheduled);
+    case.wire["payload"]["spec"]["trigger"] = json!("scheduled");
+
+    case.assert_wire().await?;
+    case.assert_round_trip().await?;
+    assert_eq!(start().wire["payload"]["spec"].get("trigger"), None);
+    Ok(())
+}
+
+/// The terminal result of a scheduled run carries the verdict and the artifact declaration it made
+/// before its Workspace was released; Cloud verifies both and never parses the Thread for them.
+#[tokio::test]
+async fn a_scheduled_terminal_result_declares_its_verdict_and_artifacts() -> Result<(), TestError> {
+    let result = AgentSessionResult::AgentSessionEnded(AgentSessionEnded {
+        node: node(),
+        reason: AgentSessionEndReason::IdleTimeout,
+        detail: None,
+        scheduled_result: Some(ScheduledRunResult {
+            verdict: ScheduledVerdict::RangeUnresolved,
+            verdict_detail: Some("no comparison base".to_owned()),
+        }),
+        artifact_manifest: Some(ScheduledArtifactManifest {
+            items: vec![ScheduledArtifactItem {
+                index: 0,
+                display_name: "reports/review.md".to_owned(),
+                kind: ScheduledArtifactKind::Markdown,
+                size_bytes: 5,
+                sha256: "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824"
+                    .to_owned(),
+            }],
+            rejections: vec![ScheduledArtifactRejection {
+                display_name: "notes.pdf".to_owned(),
+                reason: ScheduledArtifactRejectionReason::UnsupportedType,
+            }],
+            omitted_rejections: 0,
+            walk_truncated: false,
+        }),
+    });
+    let case = Case {
+        message: Message::Node(NodeToControllerMessage::AgentSessionEnded(
+            AgentSessionEndedMessage {
+                protocol_version: CURRENT_PROTOCOL_VERSION,
+                operation_id: OperationId::new(OPERATION),
+                execution_id: ExecutionId::new(EXECUTION),
+                sequence: Sequence::new(/*value*/ 4),
+                payload: result.clone(),
+            },
+        )),
+        wire: json!({"message_type": "agent_session_ended", "protocol_version": 1,
+            "operation_id": OPERATION, "execution_id": EXECUTION, "sequence": 4,
+            "payload": {"kind": "agent_session_ended", "result": {
+                "node": {"node_id": "node-1", "incarnation_id": "incarnation-1"},
+                "reason": "idle_timeout",
+                "scheduled_result": {"verdict": "range_unresolved",
+                    "verdict_detail": "no comparison base"},
+                "artifact_manifest": {
+                    "items": [{"index": 0, "display_name": "reports/review.md",
+                        "kind": "markdown", "size_bytes": 5,
+                        "sha256": "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824"}],
+                    "rejections": [{"display_name": "notes.pdf", "reason": "unsupported_type"}]}}}}),
+    };
+    case.assert_wire().await?;
+    case.assert_round_trip().await?;
+
+    let mut over_long = case.wire.clone();
+    over_long["payload"]["result"]["scheduled_result"]["verdict_detail"] =
+        json!("x".repeat(MAX_SCHEDULED_VERDICT_DETAIL_CHARS + 1));
+    reject_semantics(
+        Peer::Node,
+        &over_long,
+        "over-long verdict detail",
+        MessageValidationError::InvalidScheduledResult,
+    )
+    .await?;
+
+    let mut escaping = case.wire.clone();
+    escaping["payload"]["result"]["artifact_manifest"]["items"][0]["display_name"] =
+        json!("../escape.md");
+    reject_semantics(
+        Peer::Node,
+        &escaping,
+        "unsafe artifact path",
+        MessageValidationError::InvalidScheduledArtifactManifest,
+    )
+    .await?;
+
+    // The collector folds names with Unicode case folding after NFC, so two spellings one
+    // case-insensitive filesystem treats as one name must not both be declared.
+    let mut unicode_case = case.wire.clone();
+    unicode_case["payload"]["result"]["artifact_manifest"]["items"] = json!([
+        {"index": 0, "display_name": "Á.txt", "kind": "text", "size_bytes": 1,
+            "sha256": "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824"},
+        {"index": 1, "display_name": "á.txt", "kind": "text", "size_bytes": 1,
+            "sha256": "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824"}
+    ]);
+    reject_semantics(
+        Peer::Node,
+        &unicode_case,
+        "one path in two Unicode cases",
+        MessageValidationError::InvalidScheduledArtifactManifest,
+    )
+    .await?;
+
+    // Combining and precomposed spellings are the same path too.
+    let mut unicode_form = case.wire.clone();
+    unicode_form["payload"]["result"]["artifact_manifest"]["items"] = json!([
+        {"index": 0, "display_name": "é.txt", "kind": "text", "size_bytes": 1,
+            "sha256": "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824"},
+        {"index": 1, "display_name": "e\u{301}.txt", "kind": "text", "size_bytes": 1,
+            "sha256": "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824"}
+    ]);
+    reject_semantics(
+        Peer::Node,
+        &unicode_form,
+        "one path in two normalization forms",
+        MessageValidationError::InvalidScheduledArtifactManifest,
+    )
+    .await?;
+
+    // A manifest lists at most the bounded number of refusals; further refusals are counted in
+    // `omitted_rejections` instead of inflating the terminal result.
+    let mut too_many = case.wire.clone();
+    too_many["payload"]["result"]["artifact_manifest"]["rejections"] = Value::Array(
+        (0..=MAX_SCHEDULED_ARTIFACT_REJECTIONS)
+            .map(|index| {
+                json!({"display_name": format!("reject-{index}.pdf"),
+                "reason": "unsupported_type"})
+            })
+            .collect(),
+    );
+    reject_semantics(
+        Peer::Node,
+        &too_many,
+        "more refusals than one manifest lists",
+        MessageValidationError::InvalidScheduledArtifactManifest,
+    )
+    .await?;
+
+    // A walk that stopped at its candidate bound is a fact the terminal event carries on its own, so
+    // a Controller sees that candidates were never examined even when the refusal list is full.
+    let mut cut = case.wire.clone();
+    cut["payload"]["result"]["artifact_manifest"]["rejections"] = Value::Array(
+        (0..MAX_SCHEDULED_ARTIFACT_REJECTIONS)
+            .map(|index| {
+                json!({"display_name": format!("reject-{index}.pdf"),
+                "reason": "unsupported_type"})
+            })
+            .collect(),
+    );
+    cut["payload"]["result"]["artifact_manifest"]["omitted_rejections"] = json!(448);
+    cut["payload"]["result"]["artifact_manifest"]["walk_truncated"] = json!(true);
+    let decoded: NodeToControllerMessage = serde_json::from_value(cut)?;
+    assert_eq!(round_trip_node(decoded.clone()).await?, decoded);
+    Ok(())
+}
+
+/// Refusals beyond the listed bound stay visible as a count, and the count is absent when none
+/// were dropped.
+#[test]
+fn a_manifest_summarises_refusals_beyond_its_list_bound() {
+    assert_eq!(
+        serde_json::to_value(ScheduledArtifactManifest {
+            items: Vec::new(),
+            rejections: Vec::new(),
+            omitted_rejections: 12,
+            walk_truncated: false,
+        })
+        .expect("a manifest serializes"),
+        json!({"items": [], "rejections": [], "omitted_rejections": 12})
+    );
+    assert_eq!(
+        serde_json::to_value(ScheduledArtifactManifest::default()).expect("a manifest serializes"),
+        json!({"items": [], "rejections": []})
+    );
+}
+
+/// A cut walk states itself on the wire, even when the refusal list is already full and cannot
+/// carry the detail; a complete walk leaves the fact absent.
+#[test]
+fn a_manifest_states_a_cut_walk_separately_from_its_refusals() {
+    let manifest = ScheduledArtifactManifest {
+        items: Vec::new(),
+        rejections: vec![ScheduledArtifactRejection {
+            display_name: "nested".to_owned(),
+            reason: ScheduledArtifactRejectionReason::CandidateLimit,
+        }],
+        omitted_rejections: 448,
+        walk_truncated: true,
+    };
+
+    assert_eq!(
+        serde_json::to_value(&manifest).expect("a manifest serializes"),
+        json!({
+            "items": [],
+            "rejections": [{"display_name": "nested", "reason": "candidate_limit"}],
+            "omitted_rejections": 448,
+            "walk_truncated": true,
+        })
+    );
+    manifest.validate().expect("a cut walk is reportable");
+    assert_eq!(
+        serde_json::to_value(&ScheduledArtifactManifest::default())
+            .expect("a manifest serializes")
+            .get("walk_truncated"),
+        None
+    );
 }

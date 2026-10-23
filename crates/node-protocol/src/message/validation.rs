@@ -86,6 +86,10 @@ pub enum MessageValidationError {
     InvalidUploadGrant,
     #[error("upload grant must carry at least one object")]
     EmptyUploadGrant,
+    #[error("scheduled run result must carry a bounded verdict detail")]
+    InvalidScheduledResult,
+    #[error("scheduled artifact manifest violates the frozen count, size, path or digest rules")]
+    InvalidScheduledArtifactManifest,
 }
 
 /// Centralizes wire invariants used identically for outbound and decoded messages.

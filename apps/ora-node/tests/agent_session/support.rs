@@ -499,6 +499,7 @@ impl Fixture {
                 initial_turn: turn("turn-1", initial),
                 prior_revision: prior,
                 workspace_directory: vec![],
+                trigger: None,
             },
         );
     }
@@ -536,6 +537,7 @@ impl Fixture {
                 initial_turn: turn("turn-1", initial),
                 prior_revision: None,
                 workspace_directory: vec![],
+                trigger: None,
             },
         );
     }

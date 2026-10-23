@@ -94,6 +94,8 @@ pub(super) async fn reconcile(
                 node: node.identity().clone(),
                 reason: AgentSessionEndReason::Interrupted,
                 detail: None,
+                scheduled_result: None,
+                artifact_manifest: None,
             });
         // A failed ledger read defers this record only; the next pass retries it.
         if let Err(error) = journal.defer_restore_end(execution, &ended) {

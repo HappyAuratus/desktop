@@ -10,6 +10,7 @@ use super::ports::{
 };
 use super::queue::{Plan, plan};
 use super::resume;
+use super::scheduled;
 use super::workload::SessionPlacement;
 use super::{SessionConfig, Shared};
 use crate::model_proxy::{ModelAccess, ModelAccessStatus, ModelRoute};
@@ -55,10 +56,20 @@ where
     R: PriorRevisionRestore,
 {
     let end = prepare_and_converse(&shared, &operation, &execution, spec, &wake).await;
+    let SessionEnd {
+        reason,
+        detail,
+        scheduled,
+    } = end;
+    let (scheduled_result, artifact_manifest) = scheduled.map_or((None, None), |declaration| {
+        (declaration.result, declaration.manifest)
+    });
     let ended = AgentSessionEnded {
         node: shared.node.clone(),
-        reason: end.reason,
-        detail: end.detail.map(str::to_string),
+        reason,
+        detail: detail.map(str::to_string),
+        scheduled_result,
+        artifact_manifest,
     };
     if super::model::seal_unstarted_history(&shared.sessions_root(), &execution).is_err() {
         return false;
@@ -114,6 +125,9 @@ where
     P: PluginCatalog,
     R: PriorRevisionRestore,
 {
+    // Read before the spec is handed to the conversation: what a scheduled run may declare depends
+    // on how Cloud admitted it, and the conversation consumes the spec by value.
+    let trigger = spec.trigger;
     let Some(cloned) = shared.checkouts.checkout(&spec.checkout_execution_id) else {
         return SessionEnd::agent_failed("checkout_unavailable");
     };
@@ -384,6 +398,15 @@ where
     }
     // The plugin is gone, so nothing reads the package view or writes the session home anymore.
     drop(placement);
+    // The checkout still holds the Workspace, so a scheduled run declares its business result here,
+    // while Cloud still owns an environment the artifacts can be read from. Neither step writes to
+    // it; a failure to declare never changes why the session ended.
+    let mut end = end;
+    if let Some(declaration) =
+        scheduled::declare(&end, trigger, &shared.sessions_root(), execution, &checkout)
+    {
+        end.scheduled = Some(declaration);
+    }
     end
 }
 

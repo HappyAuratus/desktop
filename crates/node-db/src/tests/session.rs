@@ -31,6 +31,7 @@ pub(super) fn command() -> StartAgentSessionMessage {
                 },
                 prior_revision: None,
                 workspace_directory: Vec::new(),
+                trigger: None,
             },
         },
     }
@@ -72,6 +73,8 @@ pub(super) fn ended() -> AgentSessionEnded {
         },
         reason: AgentSessionEndReason::Interrupted,
         detail: None,
+        scheduled_result: None,
+        artifact_manifest: None,
     }
 }
 
@@ -170,6 +173,66 @@ fn exact_ack_and_sequence_survive_reopen() {
     );
     assert!(db.recoverable_sessions().unwrap().is_empty());
     assert!(db.unfinished_runtime_executions().unwrap().is_empty());
+}
+
+/// A scheduled declaration survives the real terminal transaction unchanged, so what Cloud later
+/// reads back is exactly what the executor derived before the Workspace was released.
+#[test]
+fn a_scheduled_declaration_is_persisted_with_the_terminal_result() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("db");
+    let mut db = NodeDatabase::open(&path, NodeIdentity::Require(NodeId::new("node"))).unwrap();
+    let input = command();
+    db.accept_session(&input).unwrap();
+    db.start_session(&input, &NodeIncarnationId::new("incarnation"))
+        .unwrap();
+    let journal = db.session_journal().unwrap();
+    let ended = AgentSessionEnded {
+        node: NodeRuntimeIdentity {
+            node_id: NodeId::new("node"),
+            incarnation_id: NodeIncarnationId::new("incarnation"),
+        },
+        reason: AgentSessionEndReason::IdleTimeout,
+        detail: None,
+        scheduled_result: Some(ScheduledRunResult {
+            verdict: ScheduledVerdict::Warn,
+            verdict_detail: Some("one flaky check".to_owned()),
+        }),
+        artifact_manifest: Some(ScheduledArtifactManifest {
+            items: vec![ScheduledArtifactItem {
+                index: 0,
+                display_name: "reports/review.md".to_owned(),
+                kind: ScheduledArtifactKind::Markdown,
+                size_bytes: 5,
+                sha256: "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824"
+                    .to_owned(),
+            }],
+            rejections: vec![ScheduledArtifactRejection {
+                display_name: "notes.pdf".to_owned(),
+                reason: ScheduledArtifactRejectionReason::UnsupportedType,
+            }],
+            omitted_rejections: 2,
+            walk_truncated: true,
+        }),
+    };
+
+    assert_eq!(
+        journal
+            .end_session(&input.execution_id, ended.clone())
+            .unwrap(),
+        Sequence::new(/*value*/ 1)
+    );
+    assert_eq!(
+        db.find_session(&input.operation_id, &input.execution_id)
+            .unwrap(),
+        Some(SessionExecution {
+            command: input.clone(),
+            state: ExecutionState::Completed(ExecutionResult::AgentSession(
+                AgentSessionResult::AgentSessionEnded(ended)
+            )),
+            last_sequence: 1,
+        })
+    );
 }
 
 /// Full admission order survives deduplication, restart and mutually exclusive settlement.

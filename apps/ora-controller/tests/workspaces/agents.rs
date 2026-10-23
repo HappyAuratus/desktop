@@ -119,6 +119,8 @@ impl AgentNode {
             },
             reason: AgentSessionEndReason::UserEnded,
             detail: None,
+            scheduled_result: None,
+            artifact_manifest: None,
         });
         data.terminal.insert(execution.clone(), result.clone());
         let sequence = data.counts.entry(execution.clone()).or_default();

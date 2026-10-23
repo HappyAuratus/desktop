@@ -99,6 +99,40 @@ Only a successful ACP completion admits another turn. A prompt error or unexpect
 the session as `agent_failed` with `agent_turn_failed` or `agent_stream_closed`; no raw provider
 diagnostic enters history or logs, and an `EndSession` already queued keeps its explicit reason.
 
+## Scheduled run business facts
+
+Cloud can admit a session spec as a scheduled occurrence (`spec.trigger = scheduled`) instead of a
+manual Issue run, where the field is absent. Only such a session, and only one Cloud ended as asked
+(`user_ended` or `idle_timeout`) after the agent finished a turn, reports business facts in its
+terminal result; a cancelled, failed or interrupted session, every manual run, and a run whose final
+turn was cancelled or never ended all report neither fact. The end reason alone is not proof that a
+turn completed: an end command cancels the turn that is still running. A completed turn that only
+used tools states no verdict, and its artifacts are still declared.
+
+- The verdict is parsed from the final Assistant turn of the sealed history, and only when
+  `TurnEnded` closed that turn with `end_turn`:
+  `QA_VERDICT: <pass|warn|fail|blocked|idle|range_unresolved>`, optionally followed on the next line
+  by `QA_DETAIL: ...`. The first marker wins, matching is case-insensitive, and an illegal value, a
+  detail over 2000 characters or no marker at all simply reports no verdict. A detail the wire
+  refuses — one containing a NUL, for instance — is treated the same way, so a malformed annotation
+  never fails the transaction that settles the run. An earlier turn is never used instead of the
+  final one. Node never parses a Thread on Cloud's behalf; it reports the typed value
+  (`scheduled_result`) and Cloud verifies it.
+- Artifacts are read from the fixed `.ora-scheduled-artifacts/` directory of the checkout before the
+  Workspace can be released. Collection is read-only and applies the closed type whitelist
+  (markdown, json, txt, log, xml, html), the same path, symbolic-link and hard-link refusals as local
+  scheduled runs, and the per-file 10 MiB, per-run 64-artifact and 64 MiB total bounds. A name is
+  identified after NFC normalization and Unicode case folding, so two spellings one case-insensitive
+  filesystem treats as one path are declared once and the second is refused. Accepted files become
+  the declared `artifact_manifest` with their size and SHA-256, which Cloud verifies against the
+  upload; refused candidates stay in the manifest with their reason instead of disappearing. The
+  walk spends a 512-entry budget while it reads each directory, so a flooded directory is never
+  enumerated, kept or sorted in full. It lists at most 64 refusals and counts further ones in
+  `omitted_rejections`; when it stops before reading every entry it sets `walk_truncated`, so
+  candidates nobody examined are never mistaken for a complete list of refusals. A missing directory
+  declares nothing, and Cloud chooses every object key later; Node never writes to the Workspace and
+  never holds an object-store credential.
+
 ## Live previews
 
 Live previews require both peers to opt into the optional Hello/HelloAccepted `thread_previews`

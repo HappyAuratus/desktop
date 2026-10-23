@@ -137,6 +137,8 @@ fn restore_cleanup_requires_original_terminal_stop_evidence()
             node: node.identity().clone(),
             reason: AgentSessionEndReason::Interrupted,
             detail: None,
+            scheduled_result: None,
+            artifact_manifest: None,
         };
         assert!(
             journal
@@ -657,6 +659,8 @@ fn unconfirmed_node_identity_restore_run_reaches_no_terminal_state()
         node: node.identity().clone(),
         reason: AgentSessionEndReason::AgentFailed,
         detail: Some("prior_revision_unavailable".into()),
+        scheduled_result: None,
+        artifact_manifest: None,
     };
     journal.defer_restore_end(&input.execution_id, &ended)?;
     assert!(!runtime.block_on(restorer.confirm_stop(&input.execution_id)));
@@ -740,6 +744,8 @@ fn startup_cleanup_keeps_restore_inputs_until_original_stop_is_confirmed()
             node: node.identity().clone(),
             reason: AgentSessionEndReason::Interrupted,
             detail: None,
+            scheduled_result: None,
+            artifact_manifest: None,
         },
     )?;
     node.configure_clone(clone)?;

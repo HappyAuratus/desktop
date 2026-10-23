@@ -502,3 +502,53 @@ fn preparing_again_discards_an_abandoned_attempt() {
     assert!(matches!(plan.outcome, FrozenOutcome::Unchanged(_)));
     assert!(!leftover.join("partial").exists());
 }
+
+/// The reserved artifact directory never enters a snapshot's tree, so an artifact can never be
+/// published in a delivery ref: those files are registered as objects with their own visibility,
+/// retention and signed downloads. The exclusion applies to every run and leaves the worktree and
+/// the user's index exactly as the Agent left them; a copy the Agent already committed stays in
+/// history but stops being updated by later snapshots.
+#[test]
+fn the_reserved_artifact_directory_never_enters_the_snapshot() {
+    let fixture = Fixture::new();
+    let checkout = fixture.checkout();
+    let artifacts = checkout.join(SCHEDULED_ARTIFACT_DIRECTORY);
+    fs::create_dir_all(artifacts.join("nested")).unwrap();
+    fs::write(artifacts.join("kept.md"), "committed earlier\n").unwrap();
+    git(&checkout, &["add", ".ora-scheduled-artifacts/kept.md"]);
+    git(&checkout, &["commit", "-m", "agent commits an artifact"]);
+    fs::write(artifacts.join("kept.md"), "rewritten after the commit\n").unwrap();
+    fs::write(artifacts.join("report.md"), "private report\n").unwrap();
+    fs::write(artifacts.join("nested/coverage.xml"), "<coverage/>\n").unwrap();
+    fs::write(checkout.join("edited.txt"), "delivered content\n").unwrap();
+    let before = fixture.untouched_state();
+    let plan = fixture.prepare(&fixture.job()).unwrap();
+    assert_eq!(fixture.untouched_state(), before);
+
+    let FrozenOutcome::Delivered(delivered) = &plan.outcome else {
+        panic!("expected a delivered plan, got {plan:?}");
+    };
+    let final_commit = delivered.final_commit.as_str();
+    assert_eq!(
+        git(&checkout, &["ls-tree", "-r", "--name-only", final_commit])
+            .lines()
+            .collect::<Vec<_>>(),
+        vec![
+            ".gitignore",
+            ".ora-scheduled-artifacts/kept.md",
+            "deleted.txt",
+            "edited.txt",
+            "kept.txt",
+        ]
+    );
+    assert_eq!(
+        git(
+            &checkout,
+            &[
+                "show",
+                &format!("{final_commit}:.ora-scheduled-artifacts/kept.md")
+            ]
+        ),
+        "committed earlier"
+    );
+}

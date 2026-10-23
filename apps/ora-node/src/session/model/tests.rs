@@ -280,6 +280,7 @@ async fn production_driver_reconciles_early_user_end_without_launching_a_plugin(
                     text: "Must not be sent".into(),
                 }],
             },
+            trigger: None,
         },
     );
     ledger.read.notified().await;
@@ -295,7 +296,9 @@ async fn production_driver_reconciles_early_user_end_without_launching_a_plugin(
         Some(AgentSessionEnded {
             node,
             reason: AgentSessionEndReason::UserEnded,
-            detail: None
+            detail: None,
+            scheduled_result: None,
+            artifact_manifest: None,
         })
     );
     assert_eq!(
@@ -466,6 +469,7 @@ fn production_driver_defers_unknown_restore_without_releasing_terminal_history()
                                 .expect("valid delivery ref"),
                             base_commit: CommitId::new("0".repeat(40)),
                         }),
+                        trigger: None,
                     },
                 );
                 tokio::time::timeout(Duration::from_secs(/*secs*/ 2), ledger.deferred.notified())
@@ -479,7 +483,9 @@ fn production_driver_defers_unknown_restore_without_releasing_terminal_history()
                     Some(AgentSessionEnded {
                         node,
                         reason: AgentSessionEndReason::AgentFailed,
-                        detail: Some("prior_revision_unavailable".into())
+                        detail: Some("prior_revision_unavailable".into()),
+                        scheduled_result: None,
+                        artifact_manifest: None,
                     })
                 );
                 assert!(state.settled.is_empty());

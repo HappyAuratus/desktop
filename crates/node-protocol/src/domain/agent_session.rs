@@ -3,7 +3,8 @@
 
 use crate::{
     ExecutionId, FrozenAgentConfiguration, MessageValidationError, ModelBindingId, NodeId,
-    NodeRuntimeIdentity, PluginId, PluginVersion, PriorRevision, TurnId, is_canonical_uuid,
+    NodeRuntimeIdentity, PluginId, PluginVersion, PriorRevision, ScheduledArtifactManifest,
+    ScheduledRunResult, SessionTrigger, TurnId, is_canonical_uuid,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
@@ -134,6 +135,11 @@ pub struct AgentSessionSpec {
     /// The Project's Workspaces, newest first, fixed when the session was released.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub workspace_directory: Vec<WorkspaceListing>,
+    /// What admitted this execution. A manual IssueRun leaves it absent, and so does every session
+    /// released before Cloud admitted scheduled occurrences; being optional is the compatibility
+    /// boundary rather than a default this Node invents.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub trigger: Option<SessionTrigger>,
 }
 
 impl AgentSessionSpec {
@@ -211,6 +217,15 @@ pub struct AgentSessionEnded {
     /// Bounded snake_case code such as `agent_plugin_unavailable`; never raw Agent output.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub detail: Option<String>,
+    /// The business result the executor parsed out of the final Assistant turn. Set only for a
+    /// scheduled session that ended normally: Cloud admits verification of the values but never
+    /// parses the Thread itself.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub scheduled_result: Option<ScheduledRunResult>,
+    /// What the scheduled run declared under the reserved artifact directory, before the Workspace
+    /// is released. Empty and rejected candidates are both visible, so a refusal is never silent.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub artifact_manifest: Option<ScheduledArtifactManifest>,
 }
 
 /// Session execution's disjoint wire tag cannot be decoded as another business's result.
@@ -232,6 +247,12 @@ impl AgentSessionResult {
             && !is_bounded_code(detail)
         {
             return Err(MessageValidationError::InvalidDetailCode);
+        }
+        if let Some(result) = &ended.scheduled_result {
+            result.validate()?;
+        }
+        if let Some(manifest) = &ended.artifact_manifest {
+            manifest.validate()?;
         }
         Ok(())
     }

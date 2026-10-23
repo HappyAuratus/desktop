@@ -46,7 +46,10 @@ Preparation happens once:
    otherwise `commit-tree` adds one commit authored by the session's Git identity and committed by
    `Ora <revision@ora.invalid>`. Hooks, fsmonitor and signing are disabled, and the real index,
    worktree files and branches are not touched. `update-ref` points the local Revision ref at the final
-   commit.
+   commit. `.ora-scheduled-artifacts/` is excluded from the staging for every run, manual or scheduled:
+   those files are registered as objects with their own visibility and retention, so a snapshot must
+   never publish them in a delivery ref. A copy the repository already tracks therefore stops moving
+   with later snapshots, while what history already holds is kept as it is.
 4. A final commit equal to the base, or for a resumed session to the prior Revision's final commit, is
    declared `unchanged`; any other is `delivered`. Either way the delivery pushes its own delivery ref.
 5. The final commit, the history's size and SHA-256 and the declaration are written to the ledger as the

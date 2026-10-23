@@ -48,6 +48,7 @@ pub(in crate::cloud) fn start(
                 initial_turn: turn(spec.initial_turn.as_ref().ok_or(Error::Conflict)?)?,
                 prior_revision: spec.prior_revision.as_ref().map(prior).transpose()?,
                 workspace_directory: spec.workspace_directory.iter().map(listing).collect(),
+                trigger: None,
             },
         },
     };
@@ -352,6 +353,7 @@ mod tests {
                                 run_status: None,
                             },
                         ],
+                        trigger: None,
                     },
                 },
             }
