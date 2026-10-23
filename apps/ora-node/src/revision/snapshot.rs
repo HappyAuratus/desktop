@@ -5,7 +5,7 @@
 //! live inside the checkout's own Git directory: under a separate workload identity the Node home
 //! is not writable by Git, while the Git directory always is.
 use gitlancer::{GitCommand, GitEnv, GitExecError, GitIntent, GitRunner};
-use ora_node_protocol::{CommitId, GitIdentity, RevisionRef};
+use ora_node_protocol::{CommitId, GitIdentity, RevisionRef, SCHEDULED_ARTIFACT_DIRECTORY};
 use std::path::{Path, PathBuf};
 
 /// Committer of every internal snapshot, distinct from the user it is authored for.
@@ -169,6 +169,12 @@ impl<R: GitRunner> DeliveryGit<R> {
     }
 
     /// Stages HEAD plus the worktree into the scratch index and writes its tree.
+    ///
+    /// `.ora-scheduled-artifacts/` is excluded for every run, scheduled or manual: it is Ora's
+    /// reserved artifact directory, and those files are registered as objects with their own
+    /// visibility and retention. Letting a snapshot stage them would publish them in a delivery ref
+    /// instead. A directory already tracked in the repository therefore stops moving with the
+    /// snapshot; commits that already hold a copy stay as they are.
     fn scratch_tree(&self, checkout: &Path, index: &Path) -> Result<String, GitExecError> {
         let index = index
             .to_str()
@@ -177,8 +183,13 @@ impl<R: GitRunner> DeliveryGit<R> {
                 source: std::io::Error::other("non-UTF-8 Git directory"),
             })?;
         let scratch = [("GIT_INDEX_FILE", index)];
+        let excluded = format!(":(exclude){}", SCHEDULED_ARTIFACT_DIRECTORY);
         self.output(checkout, &["read-tree", "HEAD"], &scratch)?;
-        self.output(checkout, &["add", "-A"], &scratch)?;
+        self.output(
+            checkout,
+            &["add", "-A", "--", ".", excluded.as_str()],
+            &scratch,
+        )?;
         self.output(checkout, &["write-tree"], &scratch)
     }
 
