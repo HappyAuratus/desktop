@@ -38,7 +38,9 @@ Git 环境运行 Git，并以 git-access 身份推送；当且仅当它同时声
 3. 以工作负载用户身份，在 checkout 的 Git 目录中用临时 index 给工作区做快照（`read-tree HEAD`、`add -A`、`write-tree`）。
    如果树等于 `HEAD^{tree}`，最终提交就是 `HEAD`；否则 `commit-tree` 追加一个提交，作者是会话的 Git 身份，提交者是
    `Ora <revision@ora.invalid>`。hook、fsmonitor 和签名都被禁用，真正的 index、工作区文件和分支都不受影响。
-   `update-ref` 让本地 Revision ref 指向最终提交。
+   `update-ref` 让本地 Revision ref 指向最终提交。所有运行（手工或定时）在暂存时都排除 `.ora-scheduled-artifacts/`：
+   这些文件按对象登记、有自己的可见性与保留策略，快照绝不能把它们发布进交付 ref。因此仓库已经跟踪的同名副本不再随之后的快照
+   更新，而历史中已有的副本保持原样。
 4. 最终提交等于基础提交，或者（续接的会话）等于上一个 Revision 的最终提交时，声明为 `unchanged`；否则为 `delivered`。
    两种情况都会推送自己的交付 ref。
 5. 在第一次网络写入之前，最终提交、会话历史的大小和 SHA-256 以及声明作为冻结计划写入账本。在此之前重启会重新准备；

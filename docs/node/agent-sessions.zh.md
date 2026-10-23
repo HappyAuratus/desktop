@@ -76,6 +76,21 @@ Deno 路径必须是绝对路径，超时必须为正数。有这个配置段时
 只有 ACP 成功完成才允许下一个轮次。prompt 出错或流意外关闭时，会话以 `agent_failed` 结束，带 `agent_turn_failed` 或
 `agent_stream_closed`；原始的服务商诊断信息从不进入历史或日志，已经排队的 `EndSession` 保留它显式的原因。
 
+## 定时运行的业务事实
+
+Cloud 可以把会话输入作为定时 occurrence 受理（`spec.trigger = scheduled`），手工 Issue 运行则不设置该字段。只有这类会话、
+且只有 Cloud 按请求结束它时（`user_ended` 或 `idle_timeout`）才在终止结果里上报业务事实；取消、失败或中断的会话，以及所有
+手工运行，都不上报。
+
+- verdict 从定稿历史的最后一个 Assistant 轮解析：`QA_VERDICT: <pass|warn|fail|blocked|idle|range_unresolved>`，
+  可紧随一行 `QA_DETAIL: ...`。取第一个标记，大小写不敏感；非法值、超过 2000 字符的 detail 或没有标记都只表示「未报告」。
+  Node 不替 Cloud 解析 Thread，只上报类型化的值（`scheduled_result`），由 Cloud 校验。
+- 产物在 Workspace 可能被释放之前，从 checkout 固定的 `.ora-scheduled-artifacts/` 目录只读采集。采集沿用与本地定时运行
+  一致的类型白名单（markdown、json、txt、log、xml、html）、路径与符号链接／硬链接拒绝规则，以及单文件 10 MiB、单运行
+  64 个、总计 64 MiB 的上限。被接受的候选连同大小和 SHA-256 组成上报的 `artifact_manifest`，由 Cloud 在接收上传时核对；
+  被拒绝的候选连同原因保留在清单里，不会消失。目录不存在就不上报任何产物，对象键最终由 Cloud 决定；Node 不写 Workspace，
+  也不持有对象存储凭据。
+
 ## 实时预览
 
 实时预览通过 Hello／HelloAccepted 的可选 `thread_previews` 双方协商。运行时最多每 100 ms 通知一次尚未定型的正文、
